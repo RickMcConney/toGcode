@@ -454,15 +454,13 @@ function addSidebar() {
 
 function addSidebarOperations() {
   
-   // w2ui.sidebar.insert("Operation", null, { id:'separator',text:'',type:'separator' });
     w2ui.sidebar.insert("Operation", null, { id: 'Inside', text: 'Inside', icon: 'fa fa-stop-circle' });
     w2ui.sidebar.insert("Operation", null, { id: 'Center', text: 'Center', icon: 'fa fa-circle-thin' });
     w2ui.sidebar.insert("Operation", null, { id: 'Outside', text: 'Outside', icon: 'fa fa-circle-o' });
     w2ui.sidebar.insert("Operation", null, { id: 'Pocket', text: 'Pocket', icon: 'fa fa-bullseye' });
     w2ui.sidebar.insert("Operation", null, { id: 'Vcarve In', text: 'VCarve In', icon: 'fa fa-star' });
-    w2ui.sidebar.insert("Operation", null, { id: 'Vcarve Out', text: 'VCarve Out', icon: 'fa fa-star-o' });
-    //w2ui.sidebar.insert("Operation", null, { id: 'Drill', text: 'Drill', icon: 'fa fa-dot-circle-o' });
-}
+    //w2ui.sidebar.insert("Operation", null, { id: 'Vcarve Out', text: 'VCarve Out', icon: 'fa fa-star-o' });
+    }
 
 var bits = [{
     id: 1,
