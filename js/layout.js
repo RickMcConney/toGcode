@@ -11,12 +11,12 @@ if (optionData)
     options = JSON.parse(optionData);
 else {
     options = [
-        { recid: 1, option: 'Grid', value: true, desc: 'Show Grid', check: true },
-        { recid: 2, option: 'Origin', value: true, desc: 'Show Origin', check: true },
-        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches', check: false },
-        { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm',check: 'hide' },
-        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' ,check: 'hide'},
-        { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm',check: 'hide' }
+        { recid: 1, option: 'Grid', value: true, desc: 'Show Grid' },
+        { recid: 2, option: 'Origin', value: true, desc: 'Show Origin'},
+        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches'},
+        { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
+        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
+        { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm' }
     ]
 }
 
@@ -44,15 +44,11 @@ var config = {
     optiongrid: {
         name: 'optionGrid',
         columns: [
+            { field: 'id', text: 'Id', hidden:true },
             { field: 'option', text: 'Option', size: '33%', sortable: true, searchable: true },
             { field: 'desc', text: 'Description', size: '33%' },
-            /*
             {
-                field: 'check', text: 'check', size: '60px', sortable: true, resizable: true, style: 'text-align: center',
-                editable: { type: 'checkbox', style: 'text-align: center' },
-            }*/,
-            {
-                field: 'value', text: 'Value', size: '60px', sortable: true, resizable: true, style: 'text-align: center',
+                field: 'value', text: 'Value', size: '33%', sortable: true, resizable: true, style: 'text-align: center',
                 editable: { type: 'float', autoFormat: false, style: 'text-align: center' },
                 render: function (record, index, col_index) {
                     // Example condition: Hide checkbox if 'name' is 'John Doe'
