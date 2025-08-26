@@ -1460,6 +1460,7 @@ function doUndo() {
 		toolpathId = 1;
 		for (var i in toolpaths) {
 			addToolPath('' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+			toolpathId++;
 		}
 	}
 	if (project.svgpaths) {
@@ -1850,6 +1851,11 @@ function doMove() {
 
 function doPen() {
 	cncController.setMode("Pen");
+	unselectAll();
+}
+
+function doPolygon() {
+	cncController.setMode("Polygon");
 	unselectAll();
 }
 

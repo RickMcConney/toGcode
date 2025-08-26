@@ -424,6 +424,8 @@ function addSidebar() {
 
         else if (target == 'Pen')
             doPen();
+        else if (target == 'Polygon')
+            doPolygon();
         else if (target == 'Text')
             doText();
 
