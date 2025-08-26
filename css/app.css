@@ -1,0 +1,73 @@
+@CHARSET "US-ASCII";
+
+nosvg { 
+	position:fixed; 
+	top:0; 
+	left:0; 
+	height:100%; 
+	width:100%;
+}
+.selectedPath {
+    stroke:#0080ff !important;
+    fill:none !important;
+}
+
+.toolPath {
+	fill:none !important;
+    stroke:#ff80ff !important;
+}
+
+.w2ui-panel-content{
+	padding: 0px !important;
+}
+
+.myrect{
+	background-image: url("../icons/rect.png");
+	height:16px !important;;
+	width:16px !important;;
+}
+
+
+
+.w2ui-head, .w2ui-col-header{
+  background: #8dd3fa !important;
+  text-align: center;
+  font-weight:bold;
+}
+#status{
+	padding: 10px;
+    font-size: 20px;
+    color: grey;
+}
+.w2ui-sidebar .w2ui-sidebar-body .w2ui-node-data .w2ui-node-image > span {
+    font-size: 18px;
+}
+
+.fa {
+    font-size: 16px;
+    padding-right: 5px;
+}
+
+#textDialog input,
+#textDialog select,
+#textDialog button {
+    font-family: Arial, sans-serif;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+#textDialog button {
+    background: #f0f0f0;
+    cursor: pointer;
+    padding: 5px 15px;
+}
+
+#textDialog button:hover {
+    background: #e0e0e0;
+}
+
+#textDialog label {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
