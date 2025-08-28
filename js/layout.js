@@ -864,9 +864,12 @@ function addOperation(name, icon) {
     w2ui.sidebar.insert(parent, null, node);
 }
 
-function setIcon(id, icon) {
+function setHidden(id, hidden ) {
     var node = w2ui.sidebar.get(id);
-    node.icon = icon;
+    if(hidden)
+        node.icon = 'fa fa-eye-slash';
+    else
+        node.icon = node.originalIcon   ;
     w2ui.sidebar.refresh();
 }
 
@@ -912,9 +915,8 @@ function addToolPath(id, name, operation, toolName) {
     var node = {
         id: id,
         text: name,
-        icon: icon
-
-
+        icon: icon,
+        originalIcon :icon
     };
     var parent = w2ui.sidebar.get(toolName);
     if (parent)
@@ -960,7 +962,8 @@ function addSvgPath(id, name) {
     var node = {
         id: id,
         text: name,
-        icon: icon
+        icon: icon,
+        originalIcon :icon
 
     };
     var parent = w2ui.sidebar.get('paths');

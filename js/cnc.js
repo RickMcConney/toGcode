@@ -1361,18 +1361,18 @@ function setVisibility(id, visible) {
 		if (svgpaths[i].id == id) {
 			svgpaths[i].visible = visible;
 			if (visible)
-				setIcon(id, 'fa fa-circle-o');
+				setHidden(id, false);
 			else
-				setIcon(id, 'fa fa-eye-slash');
+				setHidden(id, true);
 		}
 	}
 	for (var i = 0; i < toolpaths.length; i++) {
 		if (toolpaths[i].id == id) {
 			toolpaths[i].visible = visible;
 			if (visible)
-				setIcon(id, 'fa fa-circle-o');
+				setHidden(id, false);
 			else
-				setIcon(id, 'fa fa-eye-slash');
+				setHidden(id, true);
 		}
 	}
 	redraw();
@@ -1459,7 +1459,8 @@ function doUndo() {
 		toolpaths = project.toolpaths;
 		toolpathId = 1;
 		for (var i in toolpaths) {
-			addToolPath('' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+			toolpaths[i].id = 'T'+toolpathId;
+			addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
 			toolpathId++;
 		}
 	}
@@ -1519,7 +1520,9 @@ function loadProject(json) {
 	}
 	toolpathId = 1;
 	for (var i in toolpaths) {
-		addToolPath('' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+		toolpaths[i].id = 'T'+toolpathId;
+		addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+		toolpathId++;
 	}
 
 	cncController.setMode("Select");
@@ -1692,8 +1695,8 @@ function addCircles(path, r) {
 
 function pushToolPath(paths, name) {
 	addUndo(true, false, false);
-	toolpaths.push({ id: toolpathId, paths: paths, visible: true, operation: name, tool: { ...currentTool } });
-	addToolPath('' + toolpathId, name + ' ' + toolpathId, name, currentTool.name);
+	toolpaths.push({ id: "T"+toolpathId, paths: paths, visible: true, operation: name, tool: { ...currentTool } });
+	addToolPath('T' + toolpathId, name + ' ' + toolpathId, name, currentTool.name);
 	toolpathId++;
 
 	redraw();
@@ -2014,9 +2017,9 @@ function medialAxis(name, path, holes) {
 		//if (pointInPolygon(p1, path))
 		circles.push(p1);
 	}
+	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
 
-
-	var tpath = [];
+	var tpath = findOptimalMedialAxisPath(circles)
 	/*	
 		for(var i in path)
 		{
@@ -2036,9 +2039,9 @@ function medialAxis(name, path, holes) {
 		}
 		*/
 	//tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
-	tpath = circles;
+	
 	var paths = [];
-	paths.push({ path: tpath, tpath: circles });
+	paths.push({ path: circles, tpath: tpath });
 
 	pushToolPath(paths, name);
 
