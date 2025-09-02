@@ -26,7 +26,7 @@ This project is actively under development. Features and interfaces may change a
 - **Pocketing**: Remove material from enclosed areas with adaptive clearing
 - **Drilling**: Create drilling operations for holes
 - **V-Carving**: Generate V-bit toolpaths for engraving and decorative cuts
-- **Center Operation**: Find and mark center points of objects
+- **Center Operation**: Follow a path with no offset for engraving and decorative cuts
 
 ### Tool Management
 - **Tool Library**: Manage cutting tools with parameters:
@@ -75,8 +75,7 @@ This project is actively under development. Features and interfaces may change a
 
 ### Running the Application
 1. Clone or download the repository
-2. Open `index.html` in a web browser, or
-3. Serve the directory with a local HTTP server:
+2. Serve the directory with a local HTTP server:
    ```bash
    # Python 3
    python -m http.server 8000
@@ -84,19 +83,14 @@ This project is actively under development. Features and interfaces may change a
    # Node.js (with http-server)
    npx http-server
    ```
-4. Navigate to the served URL in your browser
+3. Navigate to the served URL in your browser
 
-### Development Testing
-- Use `test-bootstrap.html` to preview the new Bootstrap 5 interface
-- Test SVG files are available in the `svg/` directory
-- Icons and assets located in `icons/` directory
 
 ## Project Structure
 
 ```
 toGcode/
 ├── index.html              # Main application entry point
-├── test-bootstrap.html     # Bootstrap 5 UI testing
 ├── css/
 │   ├── app.css            # Application styles
 │   └── w2ui-2.0.css       # Legacy UI framework styles
@@ -106,7 +100,6 @@ toGcode/
 │   ├── bootstrap-layout.js # New Bootstrap 5 layout
 │   ├── vcarve.js          # V-carve algorithms
 │   └── operations/        # Individual CNC operation implementations
-├── icons/                 # UI icons and visual assets
 └── svg/                   # Sample SVG files for testing
 ```
 
@@ -127,18 +120,14 @@ toGcode/
 
 ### Planned Features
 - 📋 Tab/bridge generation for part hold-down
-- 📋 3D toolpath visualization
 - 📋 Material database expansion
 - 📋 Advanced roughing strategies
-- 📋 DXF file support
-- 📋 Multi-tool operation sequencing
 
 ## Contributing
 
 This project welcomes contributions! Areas where help is especially needed:
 - UI/UX improvements
 - Testing with various SVG files and CNC machines
-- Documentation and tutorials
 - Bug reports and feature requests
 
 ## License
