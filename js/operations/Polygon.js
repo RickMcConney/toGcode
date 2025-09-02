@@ -10,45 +10,82 @@ class Polygon extends Operation {
         this.defaultSize = 10; // 10mm default size
     }
 
+   createPolyDialog(mouse) {
+        // Remove any existing dialog
+        let existingDialog = document.getElementById('polyDialog');
+        if (existingDialog) {
+            document.body.removeChild(existingDialog);
+        }
 
+        // Create dialog container
+        const dialog = document.createElement('div');
+        dialog.id = 'polyDialog';
+        dialog.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        z-index: 1000;
+    `;
+
+        // Create dialog content
+        dialog.innerHTML = `
+
+        <div style="margin-bottom: 15px;">
+            <label for="fontSize">Number of sides:</label><br>
+            <input type="number" id="sides" value="6" min="1" max="500" style="width: 200px; margin-top: 5px;">
+        </div>
+        <div style="text-align: right;">
+            <button id="cancelPolyBtn" style="margin-right: 10px;">Cancel</button>
+            <button id="okPolyBtn">OK</button>
+        </div>
+    `;
+
+        document.body.appendChild(dialog);
+        document.getElementById('cancelPolyBtn').addEventListener('click', () => this.closePolyDialog(false, mouse));
+        document.getElementById('okPolyBtn').addEventListener('click', () => this.closePolyDialog(true, mouse));
+        document.addEventListener('keydown', function (evt, mouse) {
+            const dialog = document.getElementById('polyDialog');
+            if (!dialog) return;
+
+            if (evt.key === 'Enter') {
+                this.closePolyDialog(true, mouse);
+            } else if (evt.key === 'Escape') {
+                this.closePolyDialog(false, mouse);
+            }
+        });
+
+
+        // Focus the text input
+        document.getElementById('sides').focus();
+    }
+
+    // Add function to handle dialog close
+    closePolyDialog(accepted, mouse) {
+        const dialog = document.getElementById('polyDialog');
+        if (!dialog) return;
+
+        if (accepted) {
+            const sides = parseInt(document.getElementById('sides').value);
+            if (sides >= 3) {
+                    this.createPolygon(mouse, sides, this.defaultSize*viewScale);
+            }
+            else {
+                alert('Please enter at least 3 sides');
+            }
+
+        }
+
+        document.body.removeChild(dialog);
+    }
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
         var self = this;
-
-        w2prompt({
-            title: w2utils.lang('Number of Sides'),
-            width: 400,
-            height: 200,
-            label: 'Enter',
-            value: '6',
-            attrs: 'style="width: 200px" placeholder="Type here..."',
-            btn_ok: {
-                text: 'Ok',
-                class: 'ok-class',
-                style: 'color: green'
-            },
-            btn_cancel: {
-                text: 'Cancel',
-                class: 'ok-class'
-            },
-        })
-            .change((event) => {
-                console.log('change', event.detail.originalEvent.target.value)
-            })
-            .ok((event) => {
-
-                var sides = parseInt(event.detail.value);
-                if (sides >= 3) {
-                    self.createPolygon(mouse, sides, self.defaultSize*viewScale);
-                } else {
-                    w2alert('Please enter at least 3 sides');
-                }
-            })
-            .cancel((event) => {
-                console.log('cancel')
-            })
-
-
+        this.createPolyDialog(mouse);
     }
 
 

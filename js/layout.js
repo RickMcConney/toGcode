@@ -12,8 +12,8 @@ if (optionData)
 else {
     options = [
         { recid: 1, option: 'Grid', value: true, desc: 'Show Grid' },
-        { recid: 2, option: 'Origin', value: true, desc: 'Show Origin'},
-        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches'},
+        { recid: 2, option: 'Origin', value: true, desc: 'Show Origin' },
+        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches' },
         { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
         { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
         { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm' }
@@ -44,7 +44,7 @@ var config = {
     optiongrid: {
         name: 'optionGrid',
         columns: [
-            { field: 'id', text: 'Id', hidden:true },
+            { field: 'id', text: 'Id', hidden: true },
             { field: 'option', text: 'Option', size: '33%', sortable: true, searchable: true },
             { field: 'desc', text: 'Description', size: '33%' },
             {
@@ -66,7 +66,7 @@ var config = {
         ],
         records: options || [], // Added fallback for undefined options
         onClick: function (event) {
-       
+
             var records = w2ui.optionGrid.records;
             for (var i in records) {
                 if (records[i].recid == event.detail.recid && typeof records[i].value === 'boolean') {
@@ -77,7 +77,7 @@ var config = {
             //var form = w2ui.form;
             //form.refresh();
             w2ui.optionGrid.save();
-            redraw(); 
+            redraw();
         },
         onChange: function (event) {
 
@@ -87,7 +87,7 @@ var config = {
                     records[i].value = event.detail.value.new;
                     break;
                 }
-            }              
+            }
             //var form = w2ui.form;
             //form.refresh();
             w2ui.optionGrid.save();
@@ -214,7 +214,7 @@ function addLayout() {
                 panels: [
                     {
                         type: 'top',
-                        size: 50,
+                        size: 100,
                         resizable: false,
                         style: pstyle,
                         html: '<div id="w2toolbar" style="padding: 4px; border: 1px solid #dfdfdf; border-radius: 3px"></div>'
@@ -252,54 +252,52 @@ function addLayout() {
 function addToolbar() {
     $('#w2toolbar').w2toolbar({
         name: 'toolbar',
-        tooltip:'bottom',
+        tooltip: 'bottom',
+        size: 100,
         items: [
             {
                 type: 'button',
                 id: 'New',
-                //text : 'New',
-                text: 'New',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="file-plus"></i>New</div>',
                 tooltip: 'Clear and start a new project',
-                icon: 'w2ui-icon-plus'
             },
             {
                 type: 'button',
                 id: 'Open',
-                text: 'Open',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="folder-open"></i>Open</div>',
                 tooltip: 'Open a project file',
-                icon: 'fa fa-file-open-o'
-            },
+                //icon: 'fa fa-file-open-o',
+                            },
             {
                 type: 'button',
                 id: 'Save',
-                text: 'Save',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="save"></i>Save</div>',
                 tooltip: 'Save the current project',
-                icon: 'fa fa-save'
+                //icon: 'fa fa-save',
             },
             {
                 type: 'button',
                 id: 'Import',
-                text: 'Import',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="import"></i>Import</div>',
                 tooltip: 'Import an SVG file',
-                icon: 'fa fa-file-text-o'
+                //icon: 'fa fa-file-text-o',
             },
             {
                 type: 'button',
                 id: 'Gcode',
-                text: 'Gcode',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="file-cog"></i>Gcode</div>',
                 tooltip: 'Generate Gcode file',
-                icon: 'fa fa-gear'
+                //icon: 'fa fa-gear',
             },
-
             {
                 type: 'break',
                 id: 'break0'
             }, {
                 type: 'button',
                 id: 'Undo',
-                text: 'Undo',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="undo-2"></i>Undo</div>',
                 tooltip: 'Undo last operation',
-                icon: 'fa fa-undo'
+                //icon: 'fa fa-undo',
             },
 
             {
@@ -308,20 +306,19 @@ function addToolbar() {
             {
                 type: 'button',
                 id: 'Options',
-                text: 'Options',
-                icon: 'fa fa-gear',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="settings"></i>Options</div>',
                 tooltip: 'Options',
+                
             },
             {
                 type: 'button',
                 id: 'Help',
-                text: 'Help',
-                icon: 'fa fa-question-circle',
+                text: '<div class="lucid-div"><i class="lucide-icon" data-lucide="message-circle-question-mark"></i>Help</div>',
                 tooltip: 'Help',
-
-            }
+            },
 
         ],
+
 
         onClick: function (event) {
 
@@ -345,11 +342,12 @@ function addToolbar() {
                 showHelp();
         }
     });
+
+
 };
 
-function showHelp()
-{
-    w2alert( 'Import an SVG file<br>Select a tool<br>Select a Path<br>Perform an Operation<br>Save the gcode<br>&copy; 2025 Rick McConney','Help');
+function showHelp() {
+    w2alert('Import an SVG file<br>Select a tool<br>Select a Path<br>Perform an Operation<br>Save the gcode<br>&copy; 2025 Rick McConney', 'Help');
 }
 
 function addSidebar() {
@@ -371,7 +369,7 @@ function addSidebar() {
             expanded: true,
             group: true,
             nodes: []
-            
+
         },
         {
             id: 'paths',
@@ -393,15 +391,15 @@ function addSidebar() {
 
     w2ui.sidebar.on('menuClick', function (event) {
 
-        if (event.detail && event.detail.menuItem && event.detail.menuItem.id == 'delete'){
+        if (event.detail && event.detail.menuItem && event.detail.menuItem.id == 'delete') {
             console.log(event);
             var child = w2ui.sidebar.get(event.target);
             var parent = child.parent;
             doRemoveToolPath(event.target);
-            if(parent && parent.nodes.length == 0 && parent.group == false)
+            if (parent && parent.nodes.length == 0 && parent.group == false)
                 w2ui.sidebar.remove(parent.id);
 
-    }
+        }
         else if (event.detail && event.detail.menuItem && event.detail.menuItem.id == 'show')
             setVisibility(event.target, true);
         else if (event.detail && event.detail.menuItem && event.detail.menuItem.id == 'hide')
@@ -409,9 +407,9 @@ function addSidebar() {
     });
     w2ui.sidebar.on('click', function (event) {
 
-        
+
         addUndo(target);
-        
+
         var target = event.target;
         if (target == 'Select')
             doSelect(target);
@@ -444,8 +442,7 @@ function addSidebar() {
             doVcarveOut();
         else if (target == 'Drill')
             doDrill();
-        else
-        {
+        else {
             doSelect(target);
             w2ui.sidebar.toggle(event.target);
         }
@@ -455,14 +452,14 @@ function addSidebar() {
 };
 
 function addSidebarOperations() {
-  
+
     w2ui.sidebar.insert("Operation", null, { id: 'Inside', text: 'Inside', icon: 'fa fa-stop-circle' });
     w2ui.sidebar.insert("Operation", null, { id: 'Center', text: 'Center', icon: 'fa fa-circle-thin' });
     w2ui.sidebar.insert("Operation", null, { id: 'Outside', text: 'Outside', icon: 'fa fa-circle-o' });
     w2ui.sidebar.insert("Operation", null, { id: 'Pocket', text: 'Pocket', icon: 'fa fa-bullseye' });
     w2ui.sidebar.insert("Operation", null, { id: 'Vcarve In', text: 'VCarve In', icon: 'fa fa-star' });
     //w2ui.sidebar.insert("Operation", null, { id: 'Vcarve Out', text: 'VCarve Out', icon: 'fa fa-star-o' });
-    }
+}
 
 var bits = [{
     id: 1,
@@ -855,21 +852,27 @@ function addGrid() {
 };
 
 function addOperation(name, icon) {
+    //const iconEl = lucide.createElement(icon);
     var node = {
         id: name,
         text: name,
         icon: icon
+        //html: '<div style="display: flex; align-items: center; justify-content: center;"><i data-lucide="'+icon+'" color="blue"  style="margin-right: 5px;"></i>'+name+'</div>',
+        
+
     };
     var parent = w2ui.sidebar.get('Operation');
     w2ui.sidebar.insert(parent, null, node);
+    lucide.createIcons();
 }
 
-function setHidden(id, hidden ) {
+function setHidden(id, hidden) {
+  
     var node = w2ui.sidebar.get(id);
-    if(hidden)
+    if (hidden)
         node.icon = 'fa fa-eye-slash';
     else
-        node.icon = node.originalIcon   ;
+        node.icon = node.originalIcon;
     w2ui.sidebar.refresh();
 }
 
@@ -881,7 +884,7 @@ function clearToolPaths() {
     var paths = w2ui.sidebar.get("toolpaths")
     while (paths.nodes.length > 0) {
         w2ui.sidebar.remove(paths.nodes[0].id); // Remove the first child
-      }
+    }
     w2ui.sidebar.refresh()
 }
 
@@ -916,7 +919,7 @@ function addToolPath(id, name, operation, toolName) {
         id: id,
         text: name,
         icon: icon,
-        originalIcon :icon
+        originalIcon: icon
     };
     var parent = w2ui.sidebar.get(toolName);
     if (parent)
@@ -928,12 +931,12 @@ function addToolPath(id, name, operation, toolName) {
             text: toolName,
             icon: 'fa fa-folder-o',
             //group: true,
-            nodes:[]
+            nodes: []
         };
         w2ui.sidebar.insert(tparent, null, pnode);
         parent = w2ui.sidebar.get(toolName);
         w2ui.sidebar.insert(parent, null, node);
-        
+
     }
     w2ui.sidebar.refresh();
 
@@ -949,21 +952,21 @@ function clearSvgPaths() {
     var paths = w2ui.sidebar.get("paths")
     while (paths.nodes.length > 0) {
         w2ui.sidebar.remove(paths.nodes[0].id); // Remove the first child
-      }
+    }
     w2ui.sidebar.refresh();
 }
 
 function addSvgPath(id, name) {
     var icon = 'fa fa-shekel';
-    if(name.indexOf("Circle") >=0)
+    if (name.indexOf("Circle") >= 0)
         icon = 'fa fa-circle-thin';
-    else if (name.indexOf("Rect") >=0)
+    else if (name.indexOf("Rect") >= 0)
         icon = 'fa fa-object-ungroup';
     var node = {
         id: id,
         text: name,
         icon: icon,
-        originalIcon :icon
+        originalIcon: icon
 
     };
     var parent = w2ui.sidebar.get('paths');
@@ -973,7 +976,7 @@ function addSvgPath(id, name) {
 }
 
 function notify(msg) {
-	w2utils.notify(msg, { timeout: 2000, error: true, where: query('#layout_mylayout_panel_main') });
+    w2utils.notify(msg, { timeout: 2000, error: true, where: query('#layout_mylayout_panel_main') });
 }
 
 var data = localStorage.getItem('tools');
@@ -991,9 +994,9 @@ addLayout();
 addToolbar();
 addSidebar();
 addGrid();
-var mode = "Select"; 
-function setMode(m)
-{
-    if(m != null) mode = m;
+var mode = "Select";
+function setMode(m) {
+    if (m != null) mode = m;
     $("#status").html("Tool: " + currentTool.name + " [" + mode + "]");
 }
+lucide.createIcons();

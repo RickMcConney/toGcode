@@ -12,15 +12,17 @@
 // close pen path if last point near first and smooth
 // add poly tool
 // allow edit pen path
-// allow save & load of project
 // revamp undo/redo system can't undo move or delete
+// first travel move missing
 
 var viewScale = 10;
 var pixelsPerInch = 72; // 72 for illustrator 96 for inkscape
 var svgscale = viewScale * 25.4 / pixelsPerInch;
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
-var origin = { x: 800, y: 300 };
+const Xcenter = 800;
+const Ycenter = 300;
+var origin = { x: Xcenter, y: Ycenter };
 
 var toolpathId = 1;
 var svgpathId = 1;
@@ -41,7 +43,7 @@ var toolColor = '#0000ff';
 var circleColor = '#0000ff';
 
 var clipper = ClipperLib;
-var scaleFactor = 1;
+var scaleFactor = 4;
 var offsetX = 0;
 var offsetY = 0;
 var selectBox = null;
@@ -52,7 +54,12 @@ cncController.setupEventListeners();
 
 canvas.addEventListener('mousewheel', handleScroll, false);
 
-newProject();
+function newnormalizeEventCoords(target, e){
+	const rect = canvas.getBoundingClientRect();
+    const x = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
+    const y = Math.round((e.clientY - rect.top) * (canvas.height / rect.height));
+	return { x, y };
+}
 
 function normalizeEventCoords(target, e) {
 
@@ -622,7 +629,7 @@ function newTransformFromPaperPath(paperPath, name) {
 }
 
 function boundingBoxPaths(paths) {
-	var outterbbox = { minx: 2000, miny: 2000, maxx: 0, maxy: 0 }
+	var outterbbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity }
 	for (var i = 0; i < paths.length; i++) {
 
 		var bbox = paths[i].bbox;
@@ -775,12 +782,17 @@ function drawDebug() {
 
 function drawGrid() {
 	ctx.beginPath();
-	for (var y = -2000; y <= 2000; y += 10 * viewScale) {
-		ctx.moveTo(-2000 + origin.x, y + origin.y);
-		ctx.lineTo(2000 + origin.x, y + origin.y);
+	const maxX = getOption("tableLength") / 2;
+	const maxY = getOption("tableWidth") / 2;
+	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
+		ctx.moveTo(-maxX + origin.x, y + origin.y);
+		ctx.lineTo(maxX + origin.x, y + origin.y);
 
-		ctx.moveTo(y + origin.x, -2000 + origin.y);
-		ctx.lineTo(y + origin.x, 2000 + origin.y);
+
+	}
+	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
+		ctx.moveTo(x + origin.x, -maxY + origin.y);
+		ctx.lineTo(x + origin.x, maxY + origin.y);
 	}
 
 	ctx.lineWidth = 0.5;
@@ -788,22 +800,26 @@ function drawGrid() {
 	ctx.stroke();
 
 	ctx.fillStyle = "blue";
-	for (var y = -2000; y <= 2000; y += 10 * viewScale) {
+	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
 
-		ctx.fillText((y / viewScale), y + origin.x + 2, origin.y - 2);
-		ctx.fillText((-y / viewScale), origin.x + 2, y + origin.y - 2);
+		ctx.fillText((y / viewScale), origin.x + 2, y + origin.y - 2);
+	}
+	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
+
+		ctx.fillText((x / viewScale), x + origin.x + 2, origin.y - 2);
 	}
 
 }
 
 function drawOrigin() {
 	ctx.beginPath();
+	const maxX = getOption("tableLength") / 2;
+	const maxY = getOption("tableWidth") / 2;
+	ctx.moveTo(-maxX + origin.x, origin.y);
+	ctx.lineTo(maxX + origin.x, origin.y);
 
-	ctx.moveTo(-2000 + origin.x, origin.y);
-	ctx.lineTo(2000 + origin.x, origin.y);
-
-	ctx.moveTo(origin.x, -2000 + origin.y);
-	ctx.lineTo(origin.x, 2000 + origin.y);
+	ctx.moveTo(origin.x, -maxY + origin.y);
+	ctx.lineTo(origin.x, maxY + origin.y);
 
 
 	ctx.lineWidth = 1;
@@ -815,15 +831,115 @@ function redraw() {
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
 	clear();
 	ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
-	if (getOption("Grid"))
+	if (getOption("showWorkpiece"))
+		drawWorkpiece();
+	// Hide grid during simulation for clearer visualization
+	if (getOption("Grid") && !simulationState.isRunning)
 		drawGrid();
 	if (getOption("Origin"))
 		drawOrigin();
 	drawSvgPaths();
 	drawToolPaths();
+	
+	// Draw material removal and travel moves during simulation
+	if (simulationState.isRunning) {
+		if (materialRemovalPoints.length > 0) {
+			drawMaterialRemoval();
+		}
+		drawTravelMoves();
+	}
 
 	cncController.draw();
 
+}
+
+function drawWorkpiece() {
+	var width = getOption("workpieceWidth") * viewScale;
+	var length = getOption("workpieceLength") * viewScale;
+	var woodSpecies = getOption("woodSpecies");
+	
+	// Get the wood color from the species database
+	var woodColor = '#F5DEB3'; // Default to wheat color
+	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
+		woodColor = woodSpeciesDatabase[woodSpecies].color;
+	}
+	
+	// Draw the workpiece rectangle centered on origin
+	var startX = Xcenter - width / 2;
+	var startY = Ycenter - length / 2;
+
+	ctx.beginPath();
+	ctx.rect(startX, startY, width, length);
+	ctx.fillStyle = woodColor;
+	ctx.fill();
+	
+	// Add a subtle border
+	ctx.strokeStyle = "#888888";
+	ctx.lineWidth = 0.5;
+	ctx.stroke();
+}
+
+// Calculate feed rate based on tool and wood species
+function calculateFeedRate(tool, woodSpecies) {
+	if (!getOption("autoFeedRate") || !tool) {
+		return tool ? tool.feed : 600; // Return original feed rate if auto calculation is disabled
+	}
+	
+	// Get wood species data - check if database exists
+	if (typeof woodSpeciesDatabase === 'undefined') {
+		return tool.feed; // Fallback if database not available
+	}
+	
+	var speciesData = woodSpeciesDatabase[woodSpecies];
+	if (!speciesData) {
+		return tool.feed; // Return original feed rate if species not found
+	}
+	
+	// Base calculation factors
+	var baseFeed = tool.feed;
+	var toolDiameter = tool.diameter;
+	var feedMultiplier = speciesData.feedMultiplier;
+	
+	// Adjust feed rate based on tool diameter (smaller tools need slower feeds)
+	var diameterFactor = Math.max(0.5, Math.min(2.0, toolDiameter / 6.0)); // 6mm reference diameter
+	
+	// Adjust based on tool type
+	var toolTypeFactor = 1.0;
+	if (tool.bit === 'VBit') {
+		toolTypeFactor = 0.7; // V-bits need slower feeds
+	} else if (tool.bit === 'Drill') {
+		toolTypeFactor = 0.6; // Drills need slower feeds for plunge
+	}
+	
+	// Calculate final feed rate
+	var calculatedFeed = baseFeed * feedMultiplier * diameterFactor * toolTypeFactor;
+	
+	// Ensure reasonable bounds (100-2000 mm/min)
+	return Math.max(100, Math.min(2000, Math.round(calculatedFeed)));
+}
+
+// Calculate Z feed rate (plunge rate)
+function calculateZFeedRate(tool, woodSpecies) {
+	if (!getOption("autoFeedRate") || !tool) {
+		return tool ? tool.zfeed : 200;
+	}
+	
+	// Check if database exists
+	if (typeof woodSpeciesDatabase === 'undefined') {
+		return tool.zfeed; // Fallback if database not available
+	}
+	
+	var speciesData = woodSpeciesDatabase[woodSpecies];
+	if (!speciesData) {
+		return tool.zfeed;
+	}
+	
+	// Z feed is typically 20-40% of XY feed for wood
+	var calculatedXYFeed = calculateFeedRate(tool, woodSpecies);
+	var zFeedRate = calculatedXYFeed * 0.3;
+	
+	// Ensure reasonable bounds (50-500 mm/min)
+	return Math.max(50, Math.min(500, Math.round(zFeedRate)));
 }
 
 function canvasDrawArrow(context, fromx, fromy, tox, toy) {
@@ -1420,14 +1536,18 @@ function center() {
 		console.log("width " + boxWidth + " height " + boxHeight);
 
 	}
+	const maxX = getOption("tableLength");
+	const maxY = getOption("tableWidth");
+	offsetX = (maxX - w) / 2;
+	offsetY = (maxY - h) / 2;
+	offsetX = 0;
+	offsetY = 0;
 
-	offsetX = (2000 - w) / 2;
-	offsetY = (2000 - h) / 2;
 
 	$('#canvas').parent()[0].scrollTop = offsetY;
 	$('#canvas').parent()[0].scrollLeft = offsetX;
-	origin.x = 800;
-	origin.y = 300;
+	origin.x = Xcenter;
+	origin.y = Ycenter;
 }
 
 function addUndo(toolPathschanged=false, svgPathsChanged=false, originChanged=false) {
@@ -1477,31 +1597,64 @@ function doUndo() {
 }
 
 
-function saveProject() {
+async function saveProject() {
 	var project = {
 		toolpaths: toolpaths,
 		svgpaths: svgpaths,
-		origin: origin
+		origin: origin,
+		tools: tools,
+		options: options
 	};
-
-}
-
-function saveProject() {
-	var project = {
-		toolpaths: toolpaths,
-		svgpaths: svgpaths,
-		origin: origin
-	};
+	
 	var json = JSON.stringify(project);
+	
+	// Use the File System Access API if available (modern browsers)
+	if ('showSaveFilePicker' in window) {
+		try {
+			const fileHandle = await window.showSaveFilePicker({
+				suggestedName: currentFileName + ".json",
+				types: [{
+					description: 'JSON files',
+					accept: { 'application/json': ['.json'] }
+				}]
+			});
+			const writable = await fileHandle.createWritable();
+			await writable.write(json);
+			await writable.close();
+			notify('Project saved successfully');
+			return;
+		} catch (err) {
+			if (err.name !== 'AbortError') {
+				console.error('Error saving file:', err);
+				// Continue to fallback method on error
+			} else {
+				// User cancelled the dialog
+				return;
+			}
+		}
+	}
+	
+	// Fallback: prompt for filename and use download method
+	var filename = prompt("Enter filename for project save:", currentFileName + ".json");
+	if (!filename) {
+		return; // User cancelled
+	}
+	
+	// Ensure .json extension
+	if (!filename.endsWith('.json')) {
+		filename += '.json';
+	}
+	
 	var blob = new Blob([json], { type: "application/json" });
 	var url = URL.createObjectURL(blob);
 	var a = document.createElement("a");
 	a.href = url;
-	a.download = "project.json";
+	a.download = filename;
 	document.body.appendChild(a);
 	a.click();
 	document.body.removeChild(a);
 	URL.revokeObjectURL(url);
+	notify('Project download started');
 }
 
 function loadProject(json) {
@@ -1512,6 +1665,25 @@ function loadProject(json) {
 	origin = project.origin;
 	toolpaths = project.toolpaths;
 	svgpaths = project.svgpaths;
+
+	// Restore tools and options if they exist in the project file
+	if (project.tools) {
+		tools = project.tools;
+		// Update tools display if using Bootstrap layout
+		if (typeof refreshToolsGrid === 'function') {
+			refreshToolsGrid();
+		}
+
+	}
+	
+	if (project.options) {
+		options = project.options;
+		// Update options display if using Bootstrap layout
+		if (typeof refreshOptionsDisplay === 'function') {
+			refreshOptionsDisplay();
+		}
+
+	}
 
 	svgpathId = 1;
 	for (var i in svgpaths) {
@@ -1544,6 +1716,8 @@ function newProject() {
 	clearSvgPaths();
 	center();
 	cncController.setMode("Select");
+	loadOptions();
+	loadTools();
 
 	redraw();
 }
@@ -2161,13 +2335,53 @@ function saveString(text, filename) {
 
 }
 
-function doGcode() {
+async function doGcode() {
 	if (toolpaths.length == 0) {
 		notify('No toolpaths to export');
 		return;
 	}
+	
 	var text = toGcode();
-	saveString(text, currentFileName + '.gcode')
+	
+	// Use the File System Access API if available (modern browsers)
+	if ('showSaveFilePicker' in window) {
+		try {
+			const fileHandle = await window.showSaveFilePicker({
+				suggestedName: currentFileName + ".gcode",
+				types: [{
+					description: 'G-code files',
+					accept: { 'text/plain': ['.gcode', '.nc', '.tap'] }
+				}]
+			});
+			const writable = await fileHandle.createWritable();
+			await writable.write(text);
+			await writable.close();
+			notify('G-code saved successfully');
+			return;
+		} catch (err) {
+			if (err.name !== 'AbortError') {
+				console.error('Error saving file:', err);
+				// Continue to fallback method on error
+			} else {
+				// User cancelled the dialog
+				return;
+			}
+		}
+	}
+	
+	// Fallback: prompt for filename and use download method
+	var filename = prompt("Enter filename for G-code export:", currentFileName + ".gcode");
+	if (!filename) {
+		return; // User cancelled
+	}
+	
+	// Ensure .gcode extension
+	if (!filename.endsWith('.gcode')) {
+		filename += '.gcode';
+	}
+	
+	saveString(text, filename);
+	notify('G-code download started');
 }
 
 function toolRadius() {
@@ -2194,6 +2408,19 @@ function toMMZ(z) {
 	return Math.round((cz + 0.00001) * 100) / 100;
 }
 
+// Global simulation variables
+var simulationData = null;
+var simulationState = {
+	isRunning: false,
+	isPaused: false,
+	currentStep: 0,
+	animationFrame: null,
+	speed: 1.0,
+	startTime: 0,
+	totalTime: 0
+};
+var materialRemovalPoints = [];
+
 function toGcode() {
 	var output = "G21\n"; // mm
 
@@ -2206,8 +2433,9 @@ function toGcode() {
 			var bit = toolpaths[i].tool.bit;
 			var radius = toolpaths[i].tool.diameter / 2;
 			var depth = toolpaths[i].tool.depth;
-			var feed = toolpaths[i].tool.feed;
-			var zfeed = toolpaths[i].tool.zfeed;
+			var woodSpecies = getOption("woodSpecies");
+			var feed = calculateFeedRate(toolpaths[i].tool, woodSpecies);
+			var zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
 			var angle = toolpaths[i].tool.angle;
 
 			var paths = toolpaths[i].paths;
@@ -2261,10 +2489,10 @@ function toGcode() {
 						if (movingUp) {
 							cz += zbacklash;
 							cz = Math.round((cz + 0.00001) * 100) / 100;
-							zfeed = toolpaths[i].tool.zfeed / 2;
+							zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies) / 2;
 						}
 						else {
-							zfeed = toolpaths[i].tool.zfeed;
+							zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
 						}
 
 
@@ -2311,4 +2539,339 @@ function toGcode() {
 	}
 	output += 'G0 Z' + safeHeight + ' F' + (zfeed / 2) + '\n';
 	return output;
+}
+
+// Parse G-code into simulation moves
+function parseGcodeForSimulation(gcode) {
+	var moves = [];
+	var totalTime = 0;
+	var currentPos = { x: 0, y: 0, z: 5 }; // Start at safe height
+	var currentFeed = 600;
+	var currentTool = null;
+	var lines = gcode.split('\n');
+	const zbacklash = getOption("zbacklash");
+	
+	// Find current tool info from comments
+	var currentOperation = '';
+	var currentToolDiameter = 6; // Default
+	
+	for (var i = 0; i < lines.length; i++) {
+		var line = lines[i].trim();
+		if (line === '' || line.startsWith(';')) continue;
+		
+		// Parse operation comments
+		if (line.startsWith('(') && line.endsWith(')')) {
+			var comment = line.substring(1, line.length - 1);
+			currentOperation = comment;
+			
+			// Try to extract tool info from operation
+			for (var j = 0; j < toolpaths.length; j++) {
+				if (toolpaths[j].visible && comment.includes(toolpaths[j].id)) {
+					currentTool = toolpaths[j].tool;
+					currentToolDiameter = currentTool.diameter;
+					break;
+				}
+			}
+			continue;
+		}
+		
+		var newPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
+		var newFeed = currentFeed;
+		var moveType = 'rapid'; // G0
+		
+		// Parse G-code commands
+		var parts = line.split(' ');
+		for (var j = 0; j < parts.length; j++) {
+			var part = parts[j];
+			if (part.startsWith('G')) {
+				var gcode = parseInt(part.substring(1));
+				if (gcode === 0) moveType = 'rapid';
+				else if (gcode === 1) moveType = 'feed';
+			} else if (part.startsWith('X')) {
+				newPos.x = parseFloat(part.substring(1));
+			} else if (part.startsWith('Y')) {
+				newPos.y = parseFloat(part.substring(1));
+			} else if (part.startsWith('Z')) {
+				newPos.z = parseFloat(part.substring(1));
+			} else if (part.startsWith('F')) {
+				newFeed = parseFloat(part.substring(1));
+			}
+		}
+		
+		// Calculate move distance and time
+		var distance = Math.sqrt(
+			Math.pow(newPos.x - currentPos.x, 2) + 
+			Math.pow(newPos.y - currentPos.y, 2) + 
+			Math.pow(newPos.z - currentPos.z, 2)
+		);
+		
+		var moveTime = distance / newFeed * 60; // Convert mm/min to seconds
+		
+		// Create move object
+		if (distance > 0) {
+			var toolRadius = currentToolDiameter / 2;
+			
+			// For V-carve operations, calculate radius based on Z depth
+			if (currentOperation.includes('VCarve') && currentTool && currentTool.angle > 0 ) {
+				if(newPos.z > zbacklash) toolRadius = 0; // Clamp to 0 max
+				else toolRadius = Math.abs(newPos.z) * Math.tan((currentTool.angle * Math.PI / 180) / 2);
+			}
+			
+			moves.push({
+				type: moveType,
+				x: newPos.x,
+				y: newPos.y,
+				z: newPos.z,
+				toolRadius: toolRadius,
+				operation: currentOperation,
+				time: moveTime,
+				isCutting: newPos.z <= zbacklash,
+				tool: currentTool
+			});
+			
+			totalTime += moveTime;
+		}
+		
+		currentPos = newPos;
+		currentFeed = newFeed;
+	}
+	
+	return {
+		moves: moves,
+		totalTime: totalTime
+	};
+}
+
+// Simulation control functions
+function startSimulation() {
+	if (toolpaths.length === 0) {
+		notify('No toolpaths to simulate');
+		return;
+	}
+	
+	// Generate G-code and parse it for simulation
+	var gcode = toGcode();
+	simulationData = parseGcodeForSimulation(gcode);
+	simulationState.isRunning = true;
+	simulationState.isPaused = false;
+	simulationState.currentStep = 0;
+	simulationState.startTime = Date.now();
+	simulationState.totalTime = simulationData.totalTime;
+	materialRemovalPoints = [];
+	simulationState.travelMoves = []; // Track travel moves
+	simulationState.lastPosition = null;
+	
+	// Update UI
+	document.getElementById('start-simulation').disabled = true;
+	document.getElementById('pause-simulation').disabled = false;
+	document.getElementById('stop-simulation').disabled = false;
+	document.getElementById('total-time').textContent = formatTime(simulationData.totalTime);
+	
+	// Start animation
+	runSimulation();
+}
+
+function pauseSimulation() {
+	simulationState.isPaused = !simulationState.isPaused;
+	
+
+	const pauseBtn = document.getElementById('pause-simulation');
+
+	if (simulationState.isPaused) {
+		pauseBtn.innerHTML = '<i data-lucide="play"></i> Resume';
+		cancelAnimationFrame(simulationState.animationFrame);
+	} else {
+		pauseBtn.innerHTML = '<i data-lucide="pause"></i> Pause';
+		runSimulation();
+	}
+	lucide.createIcons();
+}
+
+
+
+function stopSimulation() {
+	simulationState.isRunning = false;
+	simulationState.isPaused = false;
+	simulationState.currentStep = 0;
+	simulationState.lastPosition = null;
+	materialRemovalPoints = [];
+	simulationState.travelMoves = [];
+	
+	if (simulationState.animationFrame) {
+		cancelAnimationFrame(simulationState.animationFrame);
+	}
+	
+	// Update UI
+		if (simulationState.currentStep >= simulationData.moves.length)
+	document.getElementById('start-simulation').innerHTML = '<i data-lucide="Play"></i> Play';
+	document.getElementById('start-simulation').disabled = false;
+	document.getElementById('pause-simulation').disabled = true;
+	document.getElementById('stop-simulation').disabled = true;
+	document.getElementById('pause-simulation').innerHTML = '<i data-lucide="pause"></i> Pause';
+	document.getElementById('simulation-time').textContent = '0:00';
+	lucide.createIcons();
+	
+	// Restore normal status
+	if (typeof setMode === 'function') {
+		setMode(null);
+	}
+	
+	// Redraw without simulation overlay
+	redraw();
+}
+
+function updateSimulationSpeed(speed) {
+	simulationState.speed = speed;
+}
+
+function runSimulation() {
+	if (!simulationState.isRunning || simulationState.isPaused) {
+		return;
+	}
+	
+	if (simulationState.currentStep >= simulationData.moves.length) {
+		pauseSimulation();
+		return;
+	}
+	
+	// Get current move
+	const move = simulationData.moves[simulationState.currentStep];
+	
+	// Convert G-code coordinates to canvas coordinates
+	const canvasX = move.x * viewScale + origin.x;
+	const canvasY = origin.y - move.y * viewScale;
+	const canvasRadius = move.toolRadius * viewScale;
+	const time = move.time;
+
+	// Handle interpolation if we have a previous position
+	if (simulationState.lastPosition && move.isCutting) {
+		// Interpolate between last position and current position
+		const lastCanvasX = simulationState.lastPosition.x * viewScale + origin.x;
+		const lastCanvasY = origin.y - simulationState.lastPosition.y * viewScale;
+		const lastCanvasRadius = simulationState.lastPosition.r * viewScale;
+
+		const dist = Math.sqrt((lastCanvasX-canvasX)*(lastCanvasX-canvasX) + (lastCanvasY-canvasY)*(lastCanvasY-canvasY));
+		const steps = Math.max(1, Math.ceil(dist / 10));
+		for (let i = 1; i <= steps; i++) {
+			const t = i / steps;
+			const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
+			const interpY = lastCanvasY + (canvasY - lastCanvasY) * t;
+			const interpRadius = lastCanvasRadius + (canvasRadius - lastCanvasRadius) * t;
+
+			materialRemovalPoints.push({
+				x: interpX,
+				y: interpY,
+				radius: interpRadius,
+				operation: move.operation
+			});
+		}
+	} else if (move.isCutting) {
+		// Single point cutting (like drilling)
+		materialRemovalPoints.push({
+			x: canvasX,
+			y: canvasY,
+			radius: canvasRadius,
+			operation: move.operation
+		});
+	}
+	
+	// Handle travel moves (Z positive)
+	if (!move.isCutting && simulationState.lastPosition) {
+		const lastCanvasX = simulationState.lastPosition.x * viewScale + origin.x;
+		const lastCanvasY = origin.y - simulationState.lastPosition.y * viewScale;
+		
+		simulationState.travelMoves.push({
+			fromX: lastCanvasX,
+			fromY: lastCanvasY,
+			toX: canvasX,
+			toY: canvasY
+		});
+	}
+	
+	// Update last position
+	simulationState.lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
+	
+	// Calculate elapsed time based on actual move times
+	let elapsedTime = 0;
+	for (let i = 0; i <= simulationState.currentStep; i++) {
+		elapsedTime += simulationData.moves[i].time;
+	}
+	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
+	
+	// Update status bar with simulation info
+	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
+	
+	// Redraw with simulation
+	redraw();
+	
+	// Move to next step
+	simulationState.currentStep++;
+	
+	// Calculate delay based on simulation speed
+	const baseDelay = Math.max(1, move.time * 1000 / simulationState.speed);
+	const delay = Math.min(baseDelay, 500); // Cap at 50ms for responsiveness
+	
+	setTimeout(() => {
+		simulationState.animationFrame = requestAnimationFrame(runSimulation);
+	}, delay);
+}
+
+function formatTime(seconds) {
+	const minutes = Math.floor(seconds / 60);
+	const secs = Math.floor(seconds % 60);
+	return minutes + ':' + (secs < 10 ? '0' : '') + secs;
+}
+
+function updateStatusWithSimulation(currentTime, totalTime) {
+	const statusText = `Simulation: ${formatTime(currentTime)} / ${formatTime(totalTime)} | Tool: ${currentTool ? currentTool.name : 'None'}`;
+	document.getElementById('status').innerHTML = `<span>${statusText}</span>`;
+}
+
+// Draw travel moves (red lines for rapid moves above workpiece)
+function drawTravelMoves() {
+	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
+	
+	ctx.save();
+	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'; // Red for travel moves
+	ctx.lineWidth = 1;
+	ctx.setLineDash([5, 5]); // Dashed line
+	
+	for (let i = 0; i < simulationState.travelMoves.length; i++) {
+		const move = simulationState.travelMoves[i];
+		
+		ctx.beginPath();
+		ctx.moveTo(move.fromX, move.fromY);
+		ctx.lineTo(move.toX, move.toY);
+		ctx.stroke();
+	}
+	
+	ctx.restore();
+}
+
+// Draw material removal during simulation
+function drawMaterialRemoval() {
+	if (materialRemovalPoints.length === 0) return;
+	
+	ctx.save();
+	ctx.globalCompositeOperation = 'multiply';
+	
+	for (let i = 0; i < materialRemovalPoints.length; i++) {
+		const point = materialRemovalPoints[i];
+		
+		ctx.beginPath();
+		ctx.arc(point.x, point.y, point.radius, 0, 2 * Math.PI);
+		
+		// Different colors for different operations
+		if (point.operation && point.operation.includes('Drill')) {
+			ctx.fillStyle = 'rgba(139, 69, 19, 0.2)'; // Brown for drilling
+		} else if (point.operation && point.operation.includes('VCarve')) {
+			ctx.fillStyle = 'rgba(160, 82, 45, 0.2)'; // Saddle brown for v-carving
+		} else {
+			ctx.fillStyle = 'rgba(101, 67, 33, 0.2)'; // Dark brown for cutting
+		}
+		
+		ctx.fill();
+	}
+	
+	ctx.restore();
 }

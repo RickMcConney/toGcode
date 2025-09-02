@@ -7,9 +7,33 @@ function findOptimalMedialAxisPath(points) {
     const graph = result.graph;
     const spatialGroups = result.sites;
 
-    var path = findOptimalPath(graph, spatialGroups);
+    let startNode = findStartNode(graph, spatialGroups);
+
+    var path = findOptimalPath(graph, spatialGroups,startNode);
 
     return path;
+}
+
+function findStartNode(graph, spatialGroups) {
+    // Find the node with the smallest y-coordinate (lowest point)
+    let startNode = null;
+    let minY = Infinity;
+
+    for (const name of graph.keys()) {
+        const node = spatialGroups[name];
+        if (node.count >= 2) { // start at branch node
+            if (node.y < minY) {
+                minY = node.y;
+                startNode = name;
+            }
+        }
+    }
+
+    if (true || !startNode) { //todo not findind correct start nodes
+        // If no start node found, return the first node
+        startNode = graph.keys().next().value;
+    }
+    return startNode;
 }
 
 function findSpatialGroups(points) {
@@ -18,11 +42,11 @@ function findSpatialGroups(points) {
     const graph = new Map();
 
     for (let i = 0; i < points.length; i++) {
-        let name = points[i].x.toFixed(2) + ',' + points[i].y.toFixed(2);
+        let name = points[i].x.toFixed(1) + ',' + points[i].y.toFixed(1);
         var prev = i - 1 < 0 ? points.length - 1 : i - 1;
         var next = i + 1 > points.length - 1 ? 0 : i + 1;
-        var before = points[prev].x.toFixed(2) + ',' + points[prev].y.toFixed(2);
-        var after = points[next].x.toFixed(2) + ',' + points[next].y.toFixed(2);
+        var before = points[prev].x.toFixed(1) + ',' + points[prev].y.toFixed(1);
+        var after = points[next].x.toFixed(1) + ',' + points[next].y.toFixed(1);
 
         if (sites[name]) {
             sites[name].count++;
@@ -53,7 +77,7 @@ function distance(point1, point2) {
     return dx * dx + dy * dy;
 }
 
-function findOptimalPath(graphMap, sites) {
+function findOptimalPath(graphMap, sites, startNode) {
 
 
     // Helper function to find score to closest terminal node
@@ -110,7 +134,7 @@ function findOptimalPath(graphMap, sites) {
     const path = [];
 
     // Start from the first node in the graph
-    let currentNode = graphMap.keys().next().value;
+    let currentNode = startNode;
     path.push(nodeToPoint(currentNode));
     visitedNodes.add(currentNode);
 
