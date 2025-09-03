@@ -75,7 +75,7 @@ This project is actively under development. Features and interfaces may change a
 
 ### Running the Application
 The application can be run from the github link https://rickmcconney.github.io/toGcode/
-or you can clne the project.
+or you can clone the project.
 1. Clone or download the repository
 2. Serve the directory with a local HTTP server:
    ```bash
