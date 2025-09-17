@@ -1,232 +1,377 @@
-function findOptimalMedialAxisPath(points) {
-    if (!points || points.length === 0) return [];
-    if (points.length === 1) return points;
-
-    // First, identify spatial groups (points at same location)
-    const result = findSpatialGroups(points);
-    const graph = result.graph;
-    const spatialGroups = result.sites;
-
-    let startNode = findStartNode(graph, spatialGroups);
-
-    var path = findOptimalPath(graph, spatialGroups,startNode);
-
-    return path;
-}
-
-function findStartNode(graph, spatialGroups) {
-    // Find the node with the smallest y-coordinate (lowest point)
-    let startNode = null;
-    let minY = Infinity;
-
-    for (const name of graph.keys()) {
-        const node = spatialGroups[name];
-        if (node.count >= 2) { // start at branch node
-            if (node.y < minY) {
-                minY = node.y;
-                startNode = name;
-            }
+class PriorityQueue {
+    constructor() {
+        this.values = [];
+    }
+    
+    enqueue(val, priority) {
+        const node = { val, priority };
+        this.values.push(node);
+        this._bubbleUp();
+    }
+    
+    dequeue() {
+        if (!this.values.length) return null;
+        const min = this.values[0];
+        const end = this.values.pop();
+        if (this.values.length) {
+            this.values[0] = end;
+            this._sinkDown();
+        }
+        return min;
+    }
+    
+    _bubbleUp() {
+        let idx = this.values.length - 1;
+        const element = this.values[idx];
+        while (idx > 0) {
+            const parentIdx = Math.floor((idx - 1) / 2);
+            const parent = this.values[parentIdx];
+            if (element.priority >= parent.priority) break;
+            this.values[parentIdx] = element;
+            this.values[idx] = parent;
+            idx = parentIdx;
         }
     }
-
-    if (true || !startNode) { //todo not findind correct start nodes
-        // If no start node found, return the first node
-        startNode = graph.keys().next().value;
-    }
-    return startNode;
-}
-
-function findSpatialGroups(points) {
-
-    const sites = {};
-    const graph = new Map();
-
-    for (let i = 0; i < points.length; i++) {
-        let name = points[i].x.toFixed(1) + ',' + points[i].y.toFixed(1);
-        var prev = i - 1 < 0 ? points.length - 1 : i - 1;
-        var next = i + 1 > points.length - 1 ? 0 : i + 1;
-        var before = points[prev].x.toFixed(1) + ',' + points[prev].y.toFixed(1);
-        var after = points[next].x.toFixed(1) + ',' + points[next].y.toFixed(1);
-
-        if (sites[name]) {
-            sites[name].count++;
-            const list = graph.get(name);
-            if (list.indexOf(after) === -1) {
-                graph.get(name).push(after);
-            }
-            if (list.indexOf(before) === -1) {
-                graph.get(name).push(before);
-            }
-        }
-        else {
-            sites[name] = { count: 1, x: points[i].x, y: points[i].y, r: points[i].r };
-            graph.set(name, []);
-            graph.get(name).push(before);
-            graph.get(name).push(after);
-        }
-
-
-    }
-    return { sites, graph };
-}
-
-// Helper function to calculate distance between two points
-function distance(point1, point2) {
-    const dx = point1.x - point2.x;
-    const dy = point1.y - point2.y;
-    return dx * dx + dy * dy;
-}
-
-function findOptimalPath(graphMap, sites, startNode) {
-
-
-    // Helper function to find score to closest terminal node
-    function getScoreToClosestTerminal(startNode, visitedNodes, graphMap, sites) {
-        // If this node is already a terminal, return 0
-        if (sites[startNode].count === 1) {
-            return 0;
-        }
-
-        // BFS to find closest unvisited terminal node
-        const queue = [[startNode, 0]]; // [node, distance]
-        const visited = new Set([startNode]);
-
-        while (queue.length > 0) {
-            const [currentNode, currentDistance] = queue.shift();
-
-            // Check if we found an unvisited terminal node
-            if (sites[currentNode].count === 1 && !visitedNodes.has(currentNode)) {
-                return currentDistance;
-            }
-
-            const connections = graphMap.get(currentNode) || [];
-
-            for (const neighbor of connections) {
-                if (!visited.has(neighbor)) {
-                    visited.add(neighbor);
-                    const neighborPoint = sites[neighbor];
-                    const currentPoint = sites[currentNode];
-                    const edgeDistance = distance(neighborPoint, currentPoint);
-                    queue.push([neighbor, currentDistance + edgeDistance]);
+    
+    _sinkDown() {
+        let idx = 0;
+        const length = this.values.length;
+        const element = this.values[0];
+        while (true) {
+            const leftChildIdx = 2 * idx + 1;
+            const rightChildIdx = 2 * idx + 2;
+            let leftChild, rightChild;
+            let swap = null;
+            
+            if (leftChildIdx < length) {
+                leftChild = this.values[leftChildIdx];
+                if (leftChild.priority < element.priority) {
+                    swap = leftChildIdx;
                 }
             }
+            if (rightChildIdx < length) {
+                rightChild = this.values[rightChildIdx];
+                if ((swap === null && rightChild.priority < element.priority) || 
+                    (swap !== null && rightChild.priority < leftChild.priority)) {
+                    swap = rightChildIdx;
+                }
+            }
+            if (swap === null) break;
+            this.values[idx] = this.values[swap];
+            this.values[swap] = element;
+            idx = swap;
         }
-
-        // If no terminal found, return a large number
-        return Infinity;
     }
+}
 
-    // Helper function to convert node name to point
-    function nodeToPoint(nodeName) {
-        const coords = sites[nodeName];
-        return { x: coords.x, y: coords.y, r: coords.r };
-    }
-
-    // Get all unique nodes
-    const allNodes = new Set();
-    for (const [node, connections] of graphMap) {
-        allNodes.add(node);
-        connections.forEach(conn => allNodes.add(conn));
-    }
-
-    // Track visited nodes
-    const visitedNodes = new Set();
+// Function to reconstruct the path by backtracking from the target
+function reconstructPath(predecessors, startNode, targetNode) {
     const path = [];
-
-    // Start from the first node in the graph
-    let currentNode = startNode;
-    path.push(nodeToPoint(currentNode));
-    visitedNodes.add(currentNode);
-
-    // Continue until all nodes are visited
-    while (visitedNodes.size < allNodes.size) {
-        const connections = graphMap.get(currentNode) || [];
-
-        // Find unvisited neighbors first
-        const unvisitedNeighbors = connections.filter(neighbor => !visitedNodes.has(neighbor));
-
-        let nextNode = null;
-
-        if (unvisitedNeighbors.length > 0) {
-            // Choose neighbor that leads to closest terminal node
-            let bestScore = Infinity;
-
-            for (const neighbor of unvisitedNeighbors) {
-                const score = getScoreToClosestTerminal(neighbor, visitedNodes, graphMap, sites);
-                if (score < bestScore) {
-                    bestScore = score;
-                    nextNode = neighbor;
-                }
-            }
-        } else {
-            // No unvisited neighbors, need to find path to nearest unvisited node
-            const unvisitedNodes = [...allNodes].filter(node => !visitedNodes.has(node));
-
-            if (unvisitedNodes.length > 0) {
-                // Use BFS to find shortest path to any unvisited node
-                const pathToUnvisited = findShortestPathToAnyTarget(currentNode, unvisitedNodes, graphMap, sites);
-
-                if (pathToUnvisited && pathToUnvisited.length > 1) {
-                    // Add intermediate nodes to path (backtracking)
-                    for (let i = 1; i < pathToUnvisited.length; i++) {
-                        path.push(nodeToPoint(pathToUnvisited[i]));
-
-                        currentNode = pathToUnvisited[i];
-                        if (!visitedNodes.has(currentNode)) {
-                            visitedNodes.add(currentNode);
-                        }
-                    }
-                    continue;
-                }
-            }
-        }
-
-        if (nextNode) {
-            currentNode = nextNode;
-            path.push(nodeToPoint(currentNode));
-
-            visitedNodes.add(currentNode);
-        } else {
-            // If we can't find a next node, we're done
-            break;
-        }
+    let current = targetNode;
+    while (current !== null) {
+        path.unshift(current);
+        if (current === startNode) break;
+        current = predecessors[current];
     }
-
     return path;
 }
 
-// BFS helper function to find shortest path to any target node
-function findShortestPathToAnyTarget(start, targets, graphMap, sites) {
-    const queue = [[start]];
-    const visited = new Set([start]);
-    const targetSet = new Set(targets);
+function dijkstraToTarget(graph, startNode, targetNode) {
+    const distances = {};
+    const predecessors = {};
+    const pq = new PriorityQueue();
 
-    while (queue.length > 0) {
-        const path = queue.shift();
-        const currentNode = path[path.length - 1];
+    // Initialize distances and predecessors
+    for (const vertex in graph) {
+        distances[vertex] = Infinity;
+        predecessors[vertex] = null;
+    }
+    distances[startNode] = 0;
+    pq.enqueue(startNode, 0);
 
-        // Check if we reached any target
-        if (targetSet.has(currentNode) && currentNode !== start) {
-            return path;
+    while (pq.values.length) {
+        const { val: currentVertex, priority: currentDistance } = pq.dequeue();
+
+        // Stop the algorithm as soon as the target is reached
+        if (currentVertex === targetNode) {
+            const shortestPath = reconstructPath(predecessors, startNode, targetNode);
+            const totalDistance = distances[targetNode];
+            return { path: shortestPath, distance: totalDistance };
         }
 
-        const connections = graphMap.get(currentNode) || [];
+        if (currentDistance > distances[currentVertex]) continue;
 
-        // Sort connections by distance for greedy selection
-        const currentPoint = sites[currentNode];
-        const sortedConnections = connections.slice().sort((a, b) => {
-            const distA = distance(sites[a], currentPoint);
-            const distB = distance(sites[b], currentPoint);
-            return distA - distB;
+        for (const neighbor of graph[currentVertex]) {
+            const { node, weight } = neighbor;
+            const newDistance = currentDistance + weight;
+            if (newDistance < distances[node]) {
+                distances[node] = newDistance;
+                predecessors[node] = currentVertex;
+                pq.enqueue(node, newDistance);
+            }
+        }
+    }
+
+    // If the loop finishes, the target is unreachable
+    return { path: null, distance: Infinity };
+}
+
+
+function findTopLeftNode(nodeMap) {
+    let min = Infinity;
+    let start = null;
+
+    nodeMap.forEach(p => {
+        if (Math.hypot(p.x, p.y) < min) {
+            min = Math.hypot(p.x, p.y);
+            start = p;
+        }
+    });
+
+    return start;
+}
+
+function findTargetNodes(startKey, nodeMap) {
+    const targetNodes = [];
+    nodeMap.forEach(p => {
+        if (!p.visited && p.connections.size == 1) {
+            targetNodes.push(p);
+        }
+    });
+    if (targetNodes.length == 0) {
+        targetNodes.push(findClosestUnvisitedNode(startKey, nodeMap));
+    }
+    return targetNodes;
+}
+
+function findClosestTarget(startKey, nodeMap, graph) {
+    let min = Infinity;
+    let target = null;
+    let path = null;
+    const targetNodes = findTargetNodes(startKey, nodeMap);
+    for (const p of targetNodes) {
+        if (p) {
+            let result = dijkstraToTarget(graph, startKey, p.id);
+            if (result.distance < min) {
+                min = result.distance;
+                target = p;
+                path = result.path;
+            }
+        }
+    }
+    return { target, path };
+}
+
+function findClosestUnvisitedNode(startKey, nodeMap) {
+    let min = Infinity;
+    let target = null;
+    const startNode = nodeMap.get(startKey);
+
+    nodeMap.forEach(p => {
+        if (!p.visited && p.id !== startKey) {
+            const dist = Math.hypot(p.x - startNode.x, p.y - startNode.y);
+            if (dist < min) {
+                min = dist;
+                target = p;
+            }
+        }
+    });
+
+    return target;
+}
+function parseJSPolySegmentsToGraph(segments) {
+    const nodeMap = new Map(); // Map from "x,y" key to node data
+    const graph = {}; // Adjacency list with weights
+
+    // First pass: Create all unique nodes
+    for (const segment of segments) {
+        const p0Key = `${segment.point0.x.toFixed(1)},${segment.point0.y.toFixed(1)}`;
+        const p1Key = `${segment.point1.x.toFixed(1)},${segment.point1.y.toFixed(1)}`;
+
+        if (!nodeMap.has(p0Key)) {
+            nodeMap.set(p0Key, {
+                id: p0Key,
+                x: segment.point0.x,
+                y: segment.point0.y,
+                r: segment.point0.radius || segment.point0.r || 0,
+                connections: new Set()
+            });
+            graph[p0Key] = [];
+        }
+
+        if (!nodeMap.has(p1Key)) {
+            nodeMap.set(p1Key, {
+                id: p1Key,
+                x: segment.point1.x,
+                y: segment.point1.y,
+                r: segment.point1.radius || segment.point1.r || 0,
+                connections: new Set()
+            });
+            graph[p1Key] = [];
+        }
+
+        // Add bidirectional connections and graph edges (only if different nodes)
+        if (p0Key !== p1Key) {
+            const node0 = nodeMap.get(p0Key);
+            const node1 = nodeMap.get(p1Key);
+
+            node0.connections.add(p1Key);
+            node1.connections.add(p0Key);
+
+            const distance = Math.hypot(node0.x - node1.x, node0.y - node1.y);
+
+            graph[p0Key].push({ node: p1Key, weight: distance });
+            graph[p1Key].push({ node: p0Key, weight: distance });
+        }
+    }
+
+    return { nodeMap, graph };
+}
+
+
+function findStartNodes(nodeMap) {
+    // First collect all potential start nodes as before
+    const startNodes = [];
+    nodeMap.forEach(n => {
+        if (n.connections.size == 1) {
+            startNodes.push(n);
+        }
+    });
+
+    // If no nodes with single connection, use original fallback
+    if (startNodes.length == 0) {
+        startNodes.push(findTopLeftNode(nodeMap));
+        return startNodes;
+    }
+
+    if (startNodes.length > 4) {
+        // Find bounding box of all start nodes
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        startNodes.forEach(node => {
+            minX = Math.min(minX, node.x);
+            minY = Math.min(minY, node.y);
+            maxX = Math.max(maxX, node.x);
+            maxY = Math.max(maxY, node.y);
         });
 
-        for (const neighbor of sortedConnections) {
-            if (!visited.has(neighbor)) {
-                visited.add(neighbor);
-                queue.push([...path, neighbor]);
-            }
+        // Find nodes closest to each corner of bounding box
+        const corners = [
+            { x: minX, y: minY }, // Bottom-left
+            { x: maxX, y: minY }, // Bottom-right
+            { x: minX, y: maxY }, // Top-left
+            { x: maxX, y: maxY }  // Top-right
+        ];
+
+        const cornerNodes = corners.map(corner => {
+            let minDist = Infinity;
+            let closestNode = null;
+
+            startNodes.forEach(node => {
+                const dist = Math.hypot(node.x - corner.x, node.y - corner.y);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestNode = node;
+                }
+            });
+
+            return closestNode;
+        });
+
+        // Filter out duplicates while preserving order
+        return [...new Set(cornerNodes.filter(node => node !== null))];
+    }
+    else
+        return startNodes;
+}
+
+const distanceCache = new Map();
+
+function getCachedDistance(node1, node2) {
+    const key = [node1.id, node2.id].sort().join('→');
+    if (!distanceCache.has(key)) {
+        distanceCache.set(key, Math.hypot(node1.x - node2.x, node1.y - node2.y));
+    }
+    return distanceCache.get(key);
+}
+
+function findBestPath(jspolySegments) {
+    const startTime = performance.now();
+    if (!jspolySegments || jspolySegments.length === 0) {
+        return { toolpath: [], travelDistance: bestCost };
+    }
+
+    distanceCache.clear();
+
+    const { nodeMap, graph } = parseJSPolySegmentsToGraph(jspolySegments);
+
+    let startNodes = findStartNodes(nodeMap);
+    let bestPath = [];
+    let bestCost = Infinity;
+
+    for (const startNode of startNodes) {
+        let result = findPossiblePath(nodeMap, graph, startNode);
+        if (result.travelDistance < bestCost) {
+            bestCost = result.travelDistance;
+            bestPath = result.toolpath;
         }
     }
 
-    return null; // No path found
+    const endTime = performance.now();
+    console.log(`Original path length: ${jspolySegments.length} points`);
+    console.log(`Path finding completed in ${(endTime - startTime).toFixed(2)}ms`);
+    console.log(`Final path length: ${bestPath.length} points`);
+    console.log(`Travel distance: ${bestCost.toFixed(2)}`);
+    return { toolpath: bestPath, travelDistance: bestCost };
+
 }
+
+function findPossiblePath(nodeMap, graph, startNode) {
+    const toolPath = [];
+    let travel = 0;
+    let node = startNode;
+
+    // Reset visited states
+    nodeMap.forEach(n => n.visited = false);
+
+    // Mark start node as visited and add to path
+    node.visited = true;
+    toolPath.push({ x: node.x, y: node.y, r: node.r });
+
+    let result = findClosestTarget(node.id, nodeMap, graph);
+
+    // Main path finding loop
+    while (result.target && result.path?.length > 1) {
+        const target = result.target;
+        const path = result.path;
+
+        // Process all nodes in current path 
+        for (let i = 1; i < path.length; i++) {     
+            const nextNode = nodeMap.get(path[i]);
+            nextNode.visited = true;
+            toolPath.push({ x: nextNode.x, y: nextNode.y, r: nextNode.r });
+            travel += getCachedDistance(node, nextNode);
+            node = nextNode;
+        }
+        result = findClosestTarget(node.id, nodeMap, graph);
+    }
+
+    // Return to start if needed and possible
+    if (startNode.id !== node.id && node.connections.has(startNode.id)) {
+        const dx = startNode.x - node.x;
+        const dy = startNode.y - node.y;
+        travel += Math.hypot(dx, dy);
+        toolPath.push({ x: startNode.x, y: startNode.y, r: startNode.r });
+    }
+
+    return { toolpath: toolPath, travelDistance: travel };
+}
+
+
+
+
+
+
+
+

@@ -95,6 +95,7 @@ function loadOptions() {
             { recid: 13, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
             { recid: 14, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
             { recid: 15, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+
         ];
     }
 }
@@ -405,8 +406,13 @@ function createToolPanel() {
                     </button>
                     <div class="d-flex align-items-center gap-1">
                         <span class="small">Speed:</span>
-                        <input type="range" class="form-range form-range-sm" id="simulation-speed" min="0.1" max="2" step="0.1" value="1" style="width: 60px;">
+                        <input type="range" class="form-range form-range-sm" id="simulation-speed" min="1" max="10" step="0.5" value="1" style="width: 60px;">
                         <span id="speed-display" class="small">1x</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="small">Step:</span>
+                        <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 240px;" disabled>
+                        <span id="step-display" class="small">0/0</span>
                     </div>
                     <div class="small text-muted">
                         <span id="simulation-time">0:00</span>/<span id="total-time">0:00</span>
@@ -453,6 +459,14 @@ function createToolPanel() {
         document.getElementById('speed-display').textContent = speed + 'x';
         if (typeof updateSimulationSpeed === 'function') {
             updateSimulationSpeed(speed);
+        }
+    });
+
+    // Simulation step control
+    document.getElementById('simulation-step').addEventListener('input', function(e) {
+        const step = parseInt(e.target.value);
+        if (typeof setSimulationStep === 'function') {
+            setSimulationStep(step);
         }
     });
 

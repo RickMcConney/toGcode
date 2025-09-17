@@ -15,6 +15,8 @@
 // revamp undo/redo system can't undo move or delete
 // first travel move missing
 
+
+
 var viewScale = 10;
 var pixelsPerInch = 72; // 72 for illustrator 96 for inkscape
 var svgscale = viewScale * 25.4 / pixelsPerInch;
@@ -34,6 +36,7 @@ var debug = [];
 var vlocal = [];
 var currentNorm = null;
 var undoList = [];
+var MAX_UNDO = 50;
 
 
 var lineColor = '#000000';
@@ -1558,7 +1561,7 @@ function addUndo(toolPathschanged=false, svgPathsChanged=false, originChanged=fa
 			svgpaths: svgPathsChanged ? svgpaths : null,
 			origin: originChanged ? origin : null
 		};
-		if (undoList.length < 20) {
+		if (undoList.length < MAX_UNDO) {
 			undoList.push(JSON.stringify(project));
 		}
 		else{
@@ -2193,33 +2196,9 @@ function medialAxis(name, path, holes) {
 	}
 	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
 
-	var tpath = findOptimalMedialAxisPath(circles)
-	/*	
-		for(var i in path)
-		{
-		   var p = path[i];		
-		   min = Number.MAX_VALUE;
-		   for(var j in circles)
-		   {
-			   var c = circles[j];
-			   var dist = (p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y);
-			   if(dist < min) {
-				   min = dist;
-				   index = j;
-			   }
-		   }
-		   tpath.push(circles[index]);
-	
-		}
-		*/
-	//tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
-	
-	var paths = [];
-	paths.push({ path: circles, tpath: tpath });
-
+	var tpath = findBestPath(segments).toolpath;
+	var paths = [{ path: circles, tpath: tpath }];
 	pushToolPath(paths, name);
-
-
 }
 function compute(outside, name) {
 	var selected = [];
@@ -2414,12 +2393,17 @@ var simulationState = {
 	isRunning: false,
 	isPaused: false,
 	currentStep: 0,
+	currentAnimationStep: 0,
 	animationFrame: null,
 	speed: 1.0,
 	startTime: 0,
-	totalTime: 0
+	totalTime: 0,
+	travelMoves: [],
+	lastPosition: null
 };
 var materialRemovalPoints = [];
+var allMaterialPoints = []; // Pre-computed all material removal points
+var allTravelMoves = []; // Pre-computed all travel moves
 
 function toGcode() {
 	var output = "G21\n"; // mm
@@ -2642,6 +2626,101 @@ function parseGcodeForSimulation(gcode) {
 	};
 }
 
+// Pre-compute all material removal points for smooth animation
+function preComputeAllMaterialPoints(simulationData) {
+	allMaterialPoints = [];
+	allTravelMoves = [];
+	let lastPosition = null;
+	
+	for (let i = 0; i < simulationData.moves.length; i++) {
+		const move = simulationData.moves[i];
+		
+		// Convert G-code coordinates to canvas coordinates
+		const canvasX = move.x * viewScale + origin.x;
+		const canvasY = origin.y - move.y * viewScale;
+		const canvasRadius = move.toolRadius * viewScale;
+		
+		// Handle interpolation if we have a previous position and this is a cutting move
+		if (lastPosition && move.isCutting) {
+			const lastCanvasX = lastPosition.x * viewScale + origin.x;
+			const lastCanvasY = origin.y - lastPosition.y * viewScale;
+			const lastCanvasRadius = lastPosition.r * viewScale;
+
+			const dist = Math.sqrt((lastCanvasX-canvasX)*(lastCanvasX-canvasX) + (lastCanvasY-canvasY)*(lastCanvasY-canvasY));
+			
+			// Calculate steps based on feed rate - slower moves get more points (denser/darker)
+			// Base step calculation on distance, but adjust by inverse of time (which reflects feed rate)
+			let baseSteps = Math.ceil(dist / 5); // Base density
+			
+			// Calculate feed rate factor - slower moves (more time) get more density
+			// Normalize against a reference feed rate to get a multiplier
+			const referenceFeedTime = dist / 1000 * 60; // Time for 1000mm/min feed rate
+			const feedRateMultiplier = Math.max(0.2, Math.min(5, move.time / referenceFeedTime)); // Clamp between 0.2x and 5x density
+			
+			const steps = Math.max(1, Math.ceil(baseSteps * feedRateMultiplier));
+			
+			// Calculate time per step for this move
+			const timePerStep = move.time / steps;
+			
+			for (let j = 1; j <= steps; j++) {
+				const t = j / steps;
+				const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
+				const interpY = lastCanvasY + (canvasY - lastCanvasY) * t;
+				const interpRadius = lastCanvasRadius + (canvasRadius - lastCanvasRadius) * t;
+
+				allMaterialPoints.push({
+					x: interpX,
+					y: interpY,
+					radius: interpRadius,
+					operation: move.operation,
+					moveIndex: i,
+					stepIndex: j,
+					totalSteps: steps,
+					timeForThisStep: timePerStep, // Time in seconds for this animation step
+					moveType: move.type,
+					isRapid: move.type === 'rapid',
+					feedRateMultiplier: feedRateMultiplier, // Store for debugging
+					isActualGcodePoint: (j === steps) // Only the last interpolated point is the actual G-code endpoint
+				});
+			}
+		} else if (move.isCutting) {
+			// Single point cutting (like drilling)
+			allMaterialPoints.push({
+				x: canvasX,
+				y: canvasY,
+				radius: canvasRadius,
+				operation: move.operation,
+				moveIndex: i,
+				stepIndex: 1,
+				totalSteps: 1,
+				timeForThisStep: move.time, // Full move time for single point
+				moveType: move.type,
+				isRapid: move.type === 'rapid',
+				isActualGcodePoint: true // Single points are always actual G-code points
+			});
+		}
+		
+		// Handle travel moves (Z positive)
+		if (!move.isCutting && lastPosition) {
+			const lastCanvasX = lastPosition.x * viewScale + origin.x;
+			const lastCanvasY = origin.y - lastPosition.y * viewScale;
+			
+			allTravelMoves.push({
+				fromX: lastCanvasX,
+				fromY: lastCanvasY,
+				toX: canvasX,
+				toY: canvasY,
+				moveIndex: i,
+				timeForThisMove: move.time,
+				moveType: move.type
+			});
+		}
+		
+		// Update last position
+		lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
+	}
+}
+
 // Simulation control functions
 function startSimulation() {
 	if (toolpaths.length === 0) {
@@ -2652,13 +2731,18 @@ function startSimulation() {
 	// Generate G-code and parse it for simulation
 	var gcode = toGcode();
 	simulationData = parseGcodeForSimulation(gcode);
+	
+	// Pre-compute all material removal points for smooth animation
+	preComputeAllMaterialPoints(simulationData);
+	
 	simulationState.isRunning = true;
 	simulationState.isPaused = false;
 	simulationState.currentStep = 0;
+	simulationState.currentAnimationStep = 0;
 	simulationState.startTime = Date.now();
 	simulationState.totalTime = simulationData.totalTime;
 	materialRemovalPoints = [];
-	simulationState.travelMoves = []; // Track travel moves
+	simulationState.travelMoves = [];
 	simulationState.lastPosition = null;
 	
 	// Update UI
@@ -2667,13 +2751,19 @@ function startSimulation() {
 	document.getElementById('stop-simulation').disabled = false;
 	document.getElementById('total-time').textContent = formatTime(simulationData.totalTime);
 	
+	// Setup step slider
+	const stepSlider = document.getElementById('simulation-step');
+	stepSlider.max = allMaterialPoints.length;
+	stepSlider.value = 0;
+	stepSlider.disabled = false;
+	document.getElementById('step-display').textContent = `0/${allMaterialPoints.length}`;
+	
 	// Start animation
-	runSimulation();
+	runSmoothSimulation();
 }
 
 function pauseSimulation() {
 	simulationState.isPaused = !simulationState.isPaused;
-	
 
 	const pauseBtn = document.getElementById('pause-simulation');
 
@@ -2682,7 +2772,7 @@ function pauseSimulation() {
 		cancelAnimationFrame(simulationState.animationFrame);
 	} else {
 		pauseBtn.innerHTML = '<i data-lucide="pause"></i> Pause';
-		runSimulation();
+		runSmoothSimulation();
 	}
 	lucide.createIcons();
 }
@@ -2693,16 +2783,25 @@ function stopSimulation() {
 	simulationState.isRunning = false;
 	simulationState.isPaused = false;
 	simulationState.currentStep = 0;
+	simulationState.currentAnimationStep = 0;
 	simulationState.lastPosition = null;
 	materialRemovalPoints = [];
 	simulationState.travelMoves = [];
+	allMaterialPoints = [];
+	allTravelMoves = [];
 	
 	if (simulationState.animationFrame) {
 		cancelAnimationFrame(simulationState.animationFrame);
 	}
 	
+	// Reset step slider
+	const stepSlider = document.getElementById('simulation-step');
+	stepSlider.max = 100;
+	stepSlider.value = 0;
+	stepSlider.disabled = true;
+	document.getElementById('step-display').textContent = '0/0';
+	
 	// Update UI
-		if (simulationState.currentStep >= simulationData.moves.length)
 	document.getElementById('start-simulation').innerHTML = '<i data-lucide="Play"></i> Play';
 	document.getElementById('start-simulation').disabled = false;
 	document.getElementById('pause-simulation').disabled = true;
@@ -2724,96 +2823,135 @@ function updateSimulationSpeed(speed) {
 	simulationState.speed = speed;
 }
 
-function runSimulation() {
+// Function to set simulation step via slider control
+function setSimulationStep(step) {
+	if (!simulationData || allMaterialPoints.length === 0) {
+		return;
+	}
+	
+	// Clamp step value
+	step = Math.max(0, Math.min(step, allMaterialPoints.length));
+	
+	// Update animation step
+	simulationState.currentAnimationStep = step;
+	
+	// Rebuild materialRemovalPoints up to current step
+	materialRemovalPoints = [];
+	for (let i = 0; i < step; i++) {
+		materialRemovalPoints.push(allMaterialPoints[i]);
+	}
+	
+	// Update travel moves up to current step
+	if (step > 0 && step <= allMaterialPoints.length) {
+		const currentPoint = allMaterialPoints[step - 1];
+		simulationState.travelMoves = allTravelMoves.filter(move => 
+			move.moveIndex <= currentPoint.moveIndex
+		);
+	} else {
+		simulationState.travelMoves = [];
+	}
+	
+	// Calculate elapsed time based on step position
+	let elapsedTime = 0;
+	if (step > 0 && step <= allMaterialPoints.length) {
+		const currentPoint = allMaterialPoints[step - 1];
+		const progress = currentPoint.stepIndex / currentPoint.totalSteps;
+		for (let i = 0; i < currentPoint.moveIndex; i++) {
+			elapsedTime += simulationData.moves[i].time;
+		}
+		// Add partial time for current move
+		if (currentPoint.moveIndex < simulationData.moves.length) {
+			elapsedTime += simulationData.moves[currentPoint.moveIndex].time * progress;
+		}
+	}
+	
+	// Update UI
+	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
+	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
+	document.getElementById('step-display').textContent = `${step}/${allMaterialPoints.length}`;
+	
+	// Redraw with current simulation state
+	redraw();
+}
+
+
+
+// New smooth simulation that draws each pre-computed point with pause
+function runSmoothSimulation() {
 	if (!simulationState.isRunning || simulationState.isPaused) {
 		return;
 	}
 	
-	if (simulationState.currentStep >= simulationData.moves.length) {
-		pauseSimulation();
-		return;
-	}
-	
-	// Get current move
-	const move = simulationData.moves[simulationState.currentStep];
-	
-	// Convert G-code coordinates to canvas coordinates
-	const canvasX = move.x * viewScale + origin.x;
-	const canvasY = origin.y - move.y * viewScale;
-	const canvasRadius = move.toolRadius * viewScale;
-	const time = move.time;
-
-	// Handle interpolation if we have a previous position
-	if (simulationState.lastPosition && move.isCutting) {
-		// Interpolate between last position and current position
-		const lastCanvasX = simulationState.lastPosition.x * viewScale + origin.x;
-		const lastCanvasY = origin.y - simulationState.lastPosition.y * viewScale;
-		const lastCanvasRadius = simulationState.lastPosition.r * viewScale;
-
-		const dist = Math.sqrt((lastCanvasX-canvasX)*(lastCanvasX-canvasX) + (lastCanvasY-canvasY)*(lastCanvasY-canvasY));
-		const steps = Math.max(1, Math.ceil(dist / 10));
-		for (let i = 1; i <= steps; i++) {
-			const t = i / steps;
-			const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
-			const interpY = lastCanvasY + (canvasY - lastCanvasY) * t;
-			const interpRadius = lastCanvasRadius + (canvasRadius - lastCanvasRadius) * t;
-
-			materialRemovalPoints.push({
-				x: interpX,
-				y: interpY,
-				radius: interpRadius,
-				operation: move.operation
-			});
-		}
-	} else if (move.isCutting) {
-		// Single point cutting (like drilling)
-		materialRemovalPoints.push({
-			x: canvasX,
-			y: canvasY,
-			radius: canvasRadius,
-			operation: move.operation
-		});
-	}
-	
-	// Handle travel moves (Z positive)
-	if (!move.isCutting && simulationState.lastPosition) {
-		const lastCanvasX = simulationState.lastPosition.x * viewScale + origin.x;
-		const lastCanvasY = origin.y - simulationState.lastPosition.y * viewScale;
+	// Add the current point to materialRemovalPoints for rendering
+	if (simulationState.currentAnimationStep < allMaterialPoints.length) {
+		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep];
+		materialRemovalPoints.push(currentPoint);
 		
-		simulationState.travelMoves.push({
-			fromX: lastCanvasX,
-			fromY: lastCanvasY,
-			toX: canvasX,
-			toY: canvasY
-		});
+		// Update travel moves up to this point's moveIndex
+		simulationState.travelMoves = allTravelMoves.filter(move => 
+			move.moveIndex <= currentPoint.moveIndex
+		);
 	}
 	
-	// Update last position
-	simulationState.lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
+	// Move to next animation step
+	simulationState.currentAnimationStep++;
 	
-	// Calculate elapsed time based on actual move times
+	// Calculate elapsed time based on animation step progress (after increment)
 	let elapsedTime = 0;
-	for (let i = 0; i <= simulationState.currentStep; i++) {
-		elapsedTime += simulationData.moves[i].time;
+	if (simulationState.currentAnimationStep <= allMaterialPoints.length) {
+		if (simulationState.currentAnimationStep >= allMaterialPoints.length) {
+			// Animation complete - show full total time
+			elapsedTime = simulationState.totalTime;
+		} else {
+			// Calculate time up to current step
+			const currentPoint = allMaterialPoints[simulationState.currentAnimationStep];
+			const progress = currentPoint.stepIndex / currentPoint.totalSteps;
+			for (let i = 0; i < currentPoint.moveIndex; i++) {
+				elapsedTime += simulationData.moves[i].time;
+			}
+			// Add partial time for current move
+			if (currentPoint.moveIndex < simulationData.moves.length) {
+				elapsedTime += simulationData.moves[currentPoint.moveIndex].time * progress;
+			}
+		}
 	}
-	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
 	
-	// Update status bar with simulation info
+	// Update UI
+	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
+	
+	// Update step slider to show current position
+	const stepSlider = document.getElementById('simulation-step');
+	stepSlider.value = simulationState.currentAnimationStep;
+	document.getElementById('step-display').textContent = `${simulationState.currentAnimationStep}/${allMaterialPoints.length}`;
 	
 	// Redraw with simulation
 	redraw();
 	
-	// Move to next step
-	simulationState.currentStep++;
+	// Check if animation is complete after processing and incrementing
+	if (simulationState.currentAnimationStep >= allMaterialPoints.length) {
+		pauseSimulation();
+		return;
+	}
 	
-	// Calculate delay based on simulation speed
-	const baseDelay = Math.max(1, move.time * 1000 / simulationState.speed);
-	const delay = Math.min(baseDelay, 500); // Cap at 50ms for responsiveness
+	// Use fixed timing for all animation steps - the visual feed rate effect comes from point density
+	// At 1x speed, the total animation should take the same time as actual G-code execution
+	let realTimeDelayMs = 0;
+	if (allMaterialPoints.length > 0 && simulationState.totalTime > 0) {
+		// Fixed time per animation step in milliseconds at 1x speed
+		const timePerStep = (simulationState.totalTime * 1000) / allMaterialPoints.length;
+		// Apply speed multiplier (higher speed = shorter delay)
+		realTimeDelayMs = timePerStep / simulationState.speed;
+		// Ensure minimum responsiveness
+		realTimeDelayMs = Math.max(1, realTimeDelayMs);
+	} else {
+		// Fallback to fast animation if no timing data
+		realTimeDelayMs = 10;
+	}
 	
 	setTimeout(() => {
-		simulationState.animationFrame = requestAnimationFrame(runSimulation);
-	}, delay);
+		simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+	}, realTimeDelayMs);
 }
 
 function formatTime(seconds) {
@@ -2861,13 +2999,25 @@ function drawMaterialRemoval() {
 		ctx.beginPath();
 		ctx.arc(point.x, point.y, point.radius, 0, 2 * Math.PI);
 		
-		// Different colors for different operations
-		if (point.operation && point.operation.includes('Drill')) {
-			ctx.fillStyle = 'rgba(139, 69, 19, 0.2)'; // Brown for drilling
-		} else if (point.operation && point.operation.includes('VCarve')) {
-			ctx.fillStyle = 'rgba(160, 82, 45, 0.2)'; // Saddle brown for v-carving
+		// Choose color based on whether it's an actual G-code point or interpolated
+		if (point.isActualGcodePoint) {
+			// Actual G-code points - use brighter/more saturated colors for visibility
+			if (point.operation && point.operation.includes('Drill')) {
+				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)'; // Bright red for actual G-code drilling points
+			} else if (point.operation && point.operation.includes('VCarve')) {
+				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)'; // Bright orange for actual G-code v-carving points  
+			} else {
+				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)'; // Bright pink for actual G-code cutting points
+			}
 		} else {
-			ctx.fillStyle = 'rgba(101, 67, 33, 0.2)'; // Dark brown for cutting
+			// Interpolated points - use darker/muted colors (original colors)
+			if (point.operation && point.operation.includes('Drill')) {
+				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)'; // Brown for drilling
+			} else if (point.operation && point.operation.includes('VCarve')) {
+				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)'; // Saddle brown for v-carving
+			} else {
+				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)'; // Dark brown for cutting
+			}
 		}
 		
 		ctx.fill();
