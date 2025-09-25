@@ -2,13 +2,26 @@ class Operation {
     constructor(name, icon) {
         this.name = name;
         this.icon = icon;
+        this.properties = {};
+        this.currentHelpStep = 0;
+        this.isInPropertiesMode = false;
     }
 
     // Lifecycle methods
-    start() { }
-    stop() { }
+    start() {
+        this.resetHelpSteps();
+        if (window.stepWiseHelp) {
+            window.stepWiseHelp.setActiveOperation(this.name);
+        }
+    }
 
-    // Mouse event handlers  
+    stop() {
+        if (window.stepWiseHelp) {
+            window.stepWiseHelp.clearActiveOperation();
+        }
+    }
+
+    // Mouse event handlers
     onMouseDown(evt) { }
     onMouseMove(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
@@ -24,6 +37,67 @@ class Operation {
     // Optional helper methods
     isActive() {
         return false;
+    }
+
+    // Properties Editor Interface
+    getPropertiesHTML() {
+        return '<p class="text-muted">No properties available for this tool.</p>';
+    }
+
+    updateFromProperties(data) {
+        this.properties = { ...this.properties, ...data };
+        this.onPropertiesChanged(data);
+    }
+
+    onPropertiesChanged(data) {
+        // Override in subclasses to handle property changes
+        redraw(); // Trigger redraw by default
+    }
+
+    // Help System Interface
+    getHelpSteps() {
+        return [`Use the ${this.name} tool by clicking and dragging on the canvas.`];
+    }
+
+    getCurrentHelpStep() {
+        return this.currentHelpStep;
+    }
+
+    setHelpStep(stepIndex) {
+        const steps = this.getHelpSteps();
+        if (stepIndex >= 0 && stepIndex < steps.length) {
+            this.currentHelpStep = stepIndex;
+            this.updateHelpDisplay();
+        }
+    }
+
+    nextHelpStep() {
+        const steps = this.getHelpSteps();
+        if (this.currentHelpStep < steps.length - 1) {
+            this.currentHelpStep++;
+            this.updateHelpDisplay();
+            return true;
+        }
+        return false;
+    }
+
+    resetHelpSteps() {
+        this.currentHelpStep = 0;
+        this.updateHelpDisplay();
+    }
+
+    getHelpText() {
+        const steps = this.getHelpSteps();
+        if (steps.length > 0 && this.currentHelpStep < steps.length) {
+            return steps[this.currentHelpStep];
+        }
+        return `Use the ${this.name} tool by clicking and dragging on the canvas.`;
+    }
+
+    updateHelpDisplay() {
+        if (window.stepWiseHelp && window.stepWiseHelp.activeOperation === this.name) {
+            window.stepWiseHelp.setStep(this.currentHelpStep);
+        }
     }
 
     // Utility methods available to all operations

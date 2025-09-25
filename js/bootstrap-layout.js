@@ -272,82 +272,136 @@ function createToolbar() {
 function createSidebar() {
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
-        <div class="p-3">
-            <div class="sidebar-section">
-                <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tools-section">
-                    <span>Tools</span>
-                    <i data-lucide="chevron-down"></i>
-                </div>
-                <div class="collapse show" id="tools-section">
-                    <div class="sidebar-item" data-operation="Select" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Select paths">
-                        <i data-lucide="mouse-pointer"></i>Select
-                    </div>
-                    <div class="sidebar-item" data-operation="Origin" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Set the origin point">
+        <!-- Tab Navigation -->
+        <nav class="nav nav-tabs border-bottom" id="sidebar-tabs" role="tablist">
+            <button class="nav-link active" id="draw-tools-tab" data-bs-toggle="tab" data-bs-target="#draw-tools" type="button" role="tab">
+                <i data-lucide="pen-tool"></i> Draw Tools
+            </button>
+            <button class="nav-link" id="operations-tab" data-bs-toggle="tab" data-bs-target="#operations" type="button" role="tab">
+                <i data-lucide="settings"></i> Operations
+            </button>
+        </nav>
+
+        <!-- Tab Content -->
+        <div class="tab-content h-100" id="sidebar-content">
+            <!-- Draw Tools Tab -->
+            <div class="tab-pane fade show active h-100" id="draw-tools" role="tabpanel">
+                <div id="draw-tools-list" class="p-3">
+                    <div class="sidebar-item" data-operation="Origin" data-bs-toggle="tooltip" data-bs-placement="right" title="Set the origin point">
                         <i data-lucide="crosshair"></i>Origin
                     </div>
-                    <div class="sidebar-item" data-operation="Pan" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Pan the view">
+                    <div class="sidebar-item" data-operation="Pan" data-bs-toggle="tooltip" data-bs-placement="right" title="Pan the view">
                         <i data-lucide="hand"></i>Pan
                     </div>
-                    <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Move the selected object">
+                    <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="right" title="Move selected objects">
                         <i data-lucide="move"></i>Move
                     </div>
-                    <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Draw freehand lines">
+                    <hr class="my-3">
+                    <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
                         <i data-lucide="pen-tool"></i>Pen
                     </div>
-                    <div class="sidebar-item" data-operation="Polygon" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Draw a polygon">
+                    <div class="sidebar-item" data-operation="Polygon" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw regular polygons">
                         <i data-lucide="pentagon"></i>Polygon
                     </div>
-                    <div class="sidebar-item" data-operation="Text" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Add text">
+                    <div class="sidebar-item" data-operation="Text" data-bs-toggle="tooltip" data-bs-placement="right" title="Add text elements">
                         <i data-lucide="type"></i>Text
                     </div>
 
+                    <!-- SVG Paths Section -->
+                    <div class="sidebar-section mt-4">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section">
+                            <span>SVG Paths</span>
+                            <i data-lucide="chevron-down"></i>
+                        </div>
+                        <div class="collapse show" id="svg-paths-section">
+                            <!-- SVG paths will be added dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tool Properties Editor (hidden by default) -->
+                <div id="tool-properties-editor" class="p-3" style="display: none;">
+                    <div class="mb-3 pb-3 border-bottom">
+                        <h6 class="mb-0" id="tool-properties-title">Tool Properties</h6>
+                    </div>
+
+                    <!-- Properties form will be injected here -->
+                    <div id="tool-properties-form"></div>
+
+                    <!-- Help section -->
+                    <div class="mt-4">
+                        <h6 class="text-muted mb-2">
+                            <i data-lucide="help-circle"></i> How to use
+                        </h6>
+                        <div id="tool-help-content" class="small text-muted mb-3">
+                            Select a tool to see instructions here.
+                        </div>
+                    </div>
+
+                    <!-- Done button after help -->
+                    <button type="button" class="btn btn-secondary w-100" id="done-button">
+                        <i data-lucide="check"></i> Done
+                    </button>
                 </div>
             </div>
-            
-            <div class="sidebar-section">
-                <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#operations-section">
-                    <span>Operations</span>
-                    <i data-lucide="chevron-down"></i>
-                </div>
-                <div class="collapse show" id="operations-section">
-                    <div class="sidebar-item" data-operation="Drill" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Drill a hole">
+
+            <!-- Operations Tab -->
+            <div class="tab-pane fade h-100" id="operations" role="tabpanel">
+                <div id="operations-list" class="p-3">
+                    <div class="sidebar-item" data-operation="Drill" data-bs-toggle="tooltip" data-bs-placement="right" title="Drill holes at selected points">
                         <i data-lucide="circle"></i>Drill
                     </div>
-                    <div class="sidebar-item" data-operation="Inside" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Pocket inside">
+                    <div class="sidebar-item" data-operation="Inside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut inside the selected path">
                         <i data-lucide="circle-dot"></i>Inside
                     </div>
-                    <div class="sidebar-item" data-operation="Center" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Center a shape">
+                    <div class="sidebar-item" data-operation="Center" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut along the center line">
                         <i data-lucide="circle"></i>Center
                     </div>
-                    <div class="sidebar-item" data-operation="Outside" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Pocket outside">
+                    <div class="sidebar-item" data-operation="Outside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut outside the selected path">
                         <i data-lucide="circle"></i>Outside
                     </div>
-                    <div class="sidebar-item" data-operation="Pocket" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Pocket a shape">
+                    <div class="sidebar-item" data-operation="Pocket" data-bs-toggle="tooltip" data-bs-placement="right" title="Remove material inside the path">
                         <i data-lucide="target"></i>Pocket
                     </div>
-                    <div class="sidebar-item" data-operation="Vcarve In" data-bs-toggle="tooltip" data-bs-placement="bottom" title="V-Carve In">
+                    <div class="sidebar-item" data-operation="Vcarve In" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside the path">
                         <i data-lucide="star"></i>V-Carve In
                     </div>
+
+                    <!-- Tool Paths Section -->
+                    <div class="sidebar-section mt-4">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section">
+                            <span>Tool Paths</span>
+                            <i data-lucide="chevron-down"></i>
+                        </div>
+                        <div class="collapse show" id="tool-paths-section">
+                            <!-- Tool paths will be added dynamically -->
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="sidebar-section">
-                <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section">
-                    <span>SVG Paths</span>
-                    <i data-lucide="chevron-down"></i>
-                </div>
-                <div class="collapse" id="svg-paths-section">
-                    <!-- SVG paths will be added dynamically -->
-                </div>
-            </div>
-            
-            <div class="sidebar-section">
-                <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section">
-                    <span>Tool Paths</span>
-                    <i data-lucide="chevron-down"></i>
-                </div>
-                <div class="collapse show" id="tool-paths-section">
-                    <!-- Tool paths will be added dynamically -->
+
+                <!-- Operation Properties Editor (hidden by default) -->
+                <div id="operation-properties-editor" class="p-3" style="display: none;">
+                    <div class="mb-3 pb-3 border-bottom">
+                        <h6 class="mb-0" id="operation-properties-title">Operation Properties</h6>
+                    </div>
+
+                    <!-- Operation properties form will be injected here -->
+                    <div id="operation-properties-form"></div>
+
+                    <!-- Help section -->
+                    <div class="mt-4">
+                        <h6 class="text-muted mb-2">
+                            <i data-lucide="help-circle"></i> How to use
+                        </h6>
+                        <div id="operation-help-content" class="small text-muted mb-3">
+                            Select an operation to see instructions here.
+                        </div>
+                    </div>
+
+                    <!-- Done button after help -->
+                    <button type="button" class="btn btn-secondary w-100" id="operation-done-button">
+                        <i data-lucide="check"></i> Done
+                    </button>
                 </div>
             </div>
         </div>
@@ -356,12 +410,29 @@ function createSidebar() {
     // Add sidebar event handlers
     sidebar.addEventListener('click', function (e) {
         const item = e.target.closest('.sidebar-item');
+        const doneButton = e.target.closest('#done-button, #operation-done-button');
+
+        // Handle Done button clicks
+        if (doneButton) {
+            showToolsList();
+            return;
+        }
+
         if (!item) return;
 
         const operation = item.dataset.operation;
         const pathId = item.dataset.pathId;
 
         if (operation) {
+            // Check if this is a draw tool or operation
+            const isDrawTool = ['Select', 'Origin', 'Pan', 'Move', 'Pen', 'Polygon', 'Text'].includes(operation);
+
+            if (isDrawTool) {
+                showToolPropertiesEditor(operation);
+            } else {
+                showOperationPropertiesEditor(operation);
+            }
+
             handleOperationClick(operation);
         } else if (pathId) {
             handlePathClick(pathId);
@@ -369,7 +440,7 @@ function createSidebar() {
 
         // Update selection
         sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
-        item.classList.add('selected');
+        if (item) item.classList.add('selected');
     });
 
     // Context menu for paths
@@ -379,6 +450,649 @@ function createSidebar() {
 
         e.preventDefault();
         showContextMenu(e, item.dataset.pathId);
+    });
+
+    // Add tab change event listeners to control bottom panel visibility
+    const drawToolsTab = document.getElementById('draw-tools-tab');
+    const operationsTab = document.getElementById('operations-tab');
+
+    drawToolsTab.addEventListener('shown.bs.tab', function () {
+        hideBottomPanel();
+    });
+
+    operationsTab.addEventListener('shown.bs.tab', function () {
+        showBottomPanel();
+    });
+
+    // Initialize panel visibility based on current active tab
+    const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
+    if (activeTab && activeTab.id === 'operations-tab') {
+        showBottomPanel();
+    } else {
+        hideBottomPanel();
+    }
+}
+
+// Properties Editor Control Functions
+function showToolPropertiesEditor(operationName) {
+    const toolsList = document.getElementById('draw-tools-list');
+    const propertiesEditor = document.getElementById('tool-properties-editor');
+    const title = document.getElementById('tool-properties-title');
+    const form = document.getElementById('tool-properties-form');
+    const helpContent = document.getElementById('tool-help-content');
+
+    // Hide tools list and show properties editor
+    toolsList.style.display = 'none';
+    propertiesEditor.style.display = 'block';
+
+    // Update title
+    title.textContent = `${operationName} Tool`;
+
+    // Get the operation instance and populate properties
+    const operation = window.cncController?.operationManager?.getOperation(operationName);
+    if (operation && typeof operation.getPropertiesHTML === 'function') {
+        form.innerHTML = operation.getPropertiesHTML();
+
+        // Add event listeners directly to input elements
+        const inputs = form.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            function handleInputChange() {
+                if (operation && typeof operation.updateFromProperties === 'function') {
+                    // Collect form data manually
+                    const allInputs = form.querySelectorAll('input, select, textarea');
+                    const data = {};
+                    allInputs.forEach(inp => {
+                        if (inp.name) {
+                            if (inp.type === 'checkbox') {
+                                data[inp.name] = inp.checked;
+                            } else {
+                                data[inp.name] = inp.value;
+                            }
+                        }
+                    });
+                    operation.updateFromProperties(data);
+                }
+            }
+
+            // Add both change and input events for real-time updates
+            input.addEventListener('change', handleInputChange);
+            input.addEventListener('input', handleInputChange);
+        });
+    } else {
+        form.innerHTML = '<p class="text-muted">No properties available for this tool.</p>';
+    }
+
+    // Update help content
+    if (operation && typeof operation.getHelpText === 'function') {
+        helpContent.innerHTML = operation.getHelpText();
+    } else {
+        helpContent.innerHTML = `Click and drag to use the ${operationName} tool.`;
+    }
+
+    lucide.createIcons();
+}
+
+function showOperationPropertiesEditor(operationName) {
+    const operationsList = document.getElementById('operations-list');
+    const propertiesEditor = document.getElementById('operation-properties-editor');
+    const title = document.getElementById('operation-properties-title');
+    const form = document.getElementById('operation-properties-form');
+    const helpContent = document.getElementById('operation-help-content');
+
+    // Hide operations list and show properties editor
+    operationsList.style.display = 'none';
+    propertiesEditor.style.display = 'block';
+
+    // Update title
+    title.textContent = `${operationName} Operation`;
+
+    // Get the operation instance and populate properties
+    const operation = window.cncController?.operationManager?.getOperation(operationName);
+    if (operation && typeof operation.getPropertiesHTML === 'function') {
+        form.innerHTML = operation.getPropertiesHTML();
+
+        // Add event listeners directly to input elements
+        const inputs = form.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            function handleInputChange() {
+                if (operation && typeof operation.updateFromProperties === 'function') {
+                    // Collect form data manually
+                    const allInputs = form.querySelectorAll('input, select, textarea');
+                    const data = {};
+                    allInputs.forEach(inp => {
+                        if (inp.name) {
+                            if (inp.type === 'checkbox') {
+                                data[inp.name] = inp.checked;
+                            } else {
+                                data[inp.name] = inp.value;
+                            }
+                        }
+                    });
+                    operation.updateFromProperties(data);
+                }
+            }
+
+            // Add both change and input events for real-time updates
+            input.addEventListener('change', handleInputChange);
+            input.addEventListener('input', handleInputChange);
+        });
+    } else {
+        form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
+    }
+
+    // Update help content
+    if (operation && typeof operation.getHelpText === 'function') {
+        helpContent.innerHTML = operation.getHelpText();
+    } else {
+        helpContent.innerHTML = `Select paths and apply the ${operationName} operation.`;
+    }
+
+    lucide.createIcons();
+}
+
+function showToolsList() {
+    const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
+
+    if (activeTab && activeTab.id === 'draw-tools-tab') {
+        const toolsList = document.getElementById('draw-tools-list');
+        const propertiesEditor = document.getElementById('tool-properties-editor');
+
+        toolsList.style.display = 'block';
+        propertiesEditor.style.display = 'none';
+    } else if (activeTab && activeTab.id === 'operations-tab') {
+        const operationsList = document.getElementById('operations-list');
+        const propertiesEditor = document.getElementById('operation-properties-editor');
+
+        operationsList.style.display = 'block';
+        propertiesEditor.style.display = 'none';
+    }
+
+    // Clear selection
+    document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+
+    // Deselect all paths
+    if (typeof unselectAll === 'function') {
+        unselectAll();
+    } else {
+        // Fallback path deselection
+        if (window.svgpaths) {
+            window.svgpaths.forEach(path => {
+                path.selected = false;
+            });
+        }
+    }
+
+    // Return to Select mode
+    if (window.cncController) {
+        window.cncController.setMode('Select');
+        handleOperationClick('Select');
+    }
+}
+
+// Apply or remove operation to/from a newly selected path when operation is active
+function applyOperationToPath(operationName, path) {
+    // Check if this path already has a toolpath for this operation
+    const hasExistingOperation = checkIfPathHasOperation(path, operationName);
+
+    if (hasExistingOperation) {
+        // Remove the existing operation
+        removeOperationFromPath(path, operationName);
+    } else {
+        // Apply the operation
+        applyNewOperationToPath(operationName, path);
+    }
+
+    // Redraw to show the changes
+    redraw();
+}
+
+// Check if a path already has a specific operation applied
+function checkIfPathHasOperation(path, operationName) {
+    // Check if there's a toolpath with matching svgId and operation
+    return toolpaths.some(toolpath =>
+        toolpath.svgId === path.id &&
+        toolpath.operation &&
+        toolpath.operation.toLowerCase() === operationName.toLowerCase()
+    );
+}
+
+// Remove operation toolpaths for a specific path
+function removeOperationFromPath(path, operationName) {
+    // Find and remove toolpaths that match both the svgId and operation name
+    for (let i = toolpaths.length - 1; i >= 0; i--) {
+        const toolpath = toolpaths[i];
+        if (toolpath.svgId === path.id &&
+            toolpath.operation &&
+            toolpath.operation.toLowerCase() === operationName.toLowerCase()) {
+
+            // Remove from toolpaths array
+            toolpaths.splice(i, 1);
+
+            // Remove from sidebar if it exists
+            if (typeof removeToolPath === 'function') {
+                removeToolPath(toolpath.id);
+            }
+        }
+    }
+}
+
+// Apply a new operation to a path
+function applyNewOperationToPath(operationName, path) {
+    // Map operation names to their corresponding functions
+    const operationMap = {
+        'Drill': () => doDrill(),
+        'Inside': () => doInside(),
+        'Center': () => doCenter(),
+        'Outside': () => doOutside(),
+        'Pocket': () => doPocket(),
+        'Vcarve In': () => doVcarveIn()
+    };
+
+    // Execute the operation if it exists
+    if (operationMap[operationName]) {
+        // Store original selections
+        const originalSelections = svgpaths.map(p => p.selected);
+
+        // Deselect all paths except the current one
+        svgpaths.forEach(p => p.selected = false);
+        path.selected = true;
+
+        // Apply the operation
+        operationMap[operationName]();
+
+        // Restore original selections (keep the path selected)
+        path.selected = true;
+    }
+}
+
+// Path Properties Editor for editing existing paths
+function showPathPropertiesEditor(path) {
+    const toolsList = document.getElementById('draw-tools-list');
+    const propertiesEditor = document.getElementById('tool-properties-editor');
+    const title = document.getElementById('tool-properties-title');
+    const form = document.getElementById('tool-properties-form');
+    const helpContent = document.getElementById('tool-help-content');
+
+    // Hide tools list and show properties editor
+    toolsList.style.display = 'none';
+    propertiesEditor.style.display = 'flex';
+    propertiesEditor.style.flexDirection = 'column';
+
+    // Update title
+    title.textContent = `Edit ${path.creationTool} - ${path.name}`;
+
+    // Create properties form based on the creation tool
+    let propertiesHTML = '';
+    if (path.creationTool === 'Text') {
+        propertiesHTML = `
+            <div class="mb-3">
+                <label for="edit-text-input" class="form-label">Text</label>
+                <textarea class="form-control"
+                         id="edit-text-input"
+                         name="text"
+                         rows="3"
+                         placeholder="Enter your text here...">${path.creationProperties.text}</textarea>
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-font-select" class="form-label">Font</label>
+                <select class="form-select" id="edit-font-select" name="font">
+                    <option value="fonts/ReliefSingleLineCAD-Regular.ttf" ${path.creationProperties.font === 'fonts/ReliefSingleLineCAD-Regular.ttf' ? 'selected' : ''}>Relief Single Line</option>
+                    <option value="fonts/Roboto-Regular.ttf" ${path.creationProperties.font === 'fonts/Roboto-Regular.ttf' ? 'selected' : ''}>Roboto</option>
+                    <option value="fonts/EduNSWACTCursive-VariableFont_wght.ttf" ${path.creationProperties.font === 'fonts/EduNSWACTCursive-VariableFont_wght.ttf' ? 'selected' : ''}>Edu Cursive</option>
+                    <option value="fonts/AVHersheySimplexLight.ttf" ${path.creationProperties.font === 'fonts/AVHersheySimplexLight.ttf' ? 'selected' : ''}>AV Hershey Simplex Light</option>
+                    <option value="fonts/AVHersheyComplexHeavy.ttf" ${path.creationProperties.font === 'fonts/AVHersheyComplexHeavy.ttf' ? 'selected' : ''}>AV Hershey Complex Heavy</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-font-size" class="form-label">Font Size: <span id="edit-font-size-value">${path.creationProperties.fontSize}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="edit-font-size"
+                       name="fontSize"
+                       min="5"
+                       max="100"
+                       step="1"
+                       value="${path.creationProperties.fontSize}"
+                       oninput="document.getElementById('edit-font-size-value').textContent = this.value">
+            </div>
+
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Position: (${toMM(path.creationProperties.position.x, path.creationProperties.position.y).x.toFixed(2)}, ${toMM(path.creationProperties.position.x, path.creationProperties.position.y).y.toFixed(2)}) mm
+            </div>
+        `;
+    } else if (path.creationTool === 'Polygon') {
+        propertiesHTML = `
+            <div class="mb-3">
+                <label for="edit-polygon-sides" class="form-label">Number of Sides</label>
+                <input type="number"
+                       class="form-control"
+                       id="edit-polygon-sides"
+                       name="sides"
+                       min="3"
+                       max="20"
+                       value="${path.creationProperties.sides}">
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-polygon-radius" class="form-label">Radius: <span id="edit-polygon-radius-value">${path.creationProperties.radius.toFixed(1)}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="edit-polygon-radius"
+                       name="radius"
+                       min="1"
+                       max="50"
+                       step="0.1"
+                       value="${path.creationProperties.radius}"
+                       oninput="document.getElementById('edit-polygon-radius-value').textContent = this.value">
+            </div>
+
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Center: (${toMM(path.creationProperties.center.x, path.creationProperties.center.y).x.toFixed(2)}, ${toMM(path.creationProperties.center.x, path.creationProperties.center.y).y.toFixed(2)}) mm
+            </div>
+        `;
+    }
+
+    form.innerHTML = propertiesHTML;
+
+    // Add event listeners directly to input elements for path editing
+    const inputs = form.querySelectorAll('input, select, textarea');
+    inputs.forEach(input => {
+        function handlePathEditChange() {
+            updateExistingPath(path, form);
+        }
+
+        // Add both change and input events for real-time updates
+        input.addEventListener('change', handlePathEditChange);
+        input.addEventListener('input', handlePathEditChange);
+    });
+
+    // Update help content
+    helpContent.innerHTML = `
+        <div class="help-step">
+            <div class="help-text">Editing existing ${path.creationTool.toLowerCase()}. Changes will update the path in real-time.</div>
+        </div>
+    `;
+
+    lucide.createIcons();
+}
+
+// Function to update an existing path with new properties
+function updateExistingPath(path, form) {
+    // Collect form data manually since we're not using a proper form element
+    const inputs = form.querySelectorAll('input, select, textarea');
+    const data = {};
+    inputs.forEach(input => {
+        if (input.name) {
+            if (input.type === 'checkbox') {
+                data[input.name] = input.checked;
+            } else {
+                data[input.name] = input.value;
+            }
+        }
+    });
+
+    if (path.creationTool === 'Polygon') {
+        // For polygons, update the existing path in place without creating new ones
+        updatePolygonInPlace(path, data);
+    } else if (path.creationTool === 'Text') {
+        // For text, we need to recreate all character paths
+        updateTextInPlace(path, data);
+    }
+
+    redraw();
+}
+
+// Update polygon path in place without creating new paths
+function updatePolygonInPlace(path, data) {
+    const newSides = parseInt(data.sides);
+    const newRadius = parseFloat(data.radius);
+
+    // Generate new points for the polygon
+    const center = path.creationProperties.center;
+    const points = [];
+    const angle = 360 / newSides;
+
+    for (let i = 0; i < newSides; i++) {
+        const thisAngle = angle * i * (Math.PI / 180);
+        const x = center.x + (newRadius * viewScale) * Math.cos(thisAngle);
+        const y = center.y + (newRadius * viewScale) * Math.sin(thisAngle);
+        points.push({x: x, y: y});
+    }
+    points.push(points[0]); // Close the polygon
+
+    // Update the existing path object
+    path.path = points;
+    path.bbox = boundingBox(points);
+    path.creationProperties.sides = newSides;
+    path.creationProperties.radius = newRadius;
+
+    // Keep the same name and ID - don't create new paths
+}
+
+// Update text paths in place
+function updateTextInPlace(path, data) {
+    // Find all paths that belong to this text creation
+    const relatedPaths = svgpaths.filter(p =>
+        p.creationTool === 'Text' &&
+        p.creationProperties &&
+        p.creationProperties.position.x === path.creationProperties.position.x &&
+        p.creationProperties.position.y === path.creationProperties.position.y
+    );
+
+    // Check if only font size changed (same text and font) - we can update in place
+    const originalText = path.creationProperties.text;
+    const originalFont = path.creationProperties.font;
+    const sameTextAndFont = (data.text === originalText && data.font === originalFont);
+
+    if (sameTextAndFont && relatedPaths.length > 0) {
+        // Just update font size in place without recreating paths
+        updateTextSizeInPlace(relatedPaths, data);
+        redraw();
+    } else {
+        // Text or font changed, need to recreate paths
+        if (typeof opentype !== 'undefined') {
+            opentype.load(data.font, (err, font) => {
+                if (!err && font) {
+                    updateTextPathsInPlace(relatedPaths, font, data);
+                    redraw();
+                }
+            });
+        }
+    }
+}
+
+// Update text size without recreating paths (faster for size-only changes)
+function updateTextSizeInPlace(textPaths, data) {
+    const newFontSize = parseFloat(data.fontSize);
+    const oldFontSize = textPaths[0].creationProperties.fontSize;
+    const scaleFactor = newFontSize / oldFontSize;
+
+    // Update each path by scaling the points
+    textPaths.forEach(textPath => {
+        const centerX = textPath.creationProperties.position.x;
+        const centerY = textPath.creationProperties.position.y;
+
+        // Scale all points relative to the text origin
+        textPath.path = textPath.path.map(point => ({
+            x: centerX + (point.x - centerX) * scaleFactor,
+            y: centerY + (point.y - centerY) * scaleFactor
+        }));
+
+        // Update bounding box
+        textPath.bbox = boundingBox(textPath.path);
+
+        // Update stored properties
+        textPath.creationProperties.fontSize = newFontSize;
+    });
+}
+
+// Update existing text paths without creating new ones
+function updateTextPathsInPlace(textPaths, font, data) {
+    const text = data.text;
+    const fontSize = parseFloat(data.fontSize);
+    const fontname = data.font;
+
+    if (!textPaths.length) return;
+
+    // Get position from the first path
+    const position = textPaths[0].creationProperties.position;
+    const x = position.x;
+    const y = position.y;
+
+    // Store original path IDs and names to preserve them
+    const originalPaths = textPaths.map(p => ({
+        id: p.id,
+        name: p.name,
+        selected: p.selected
+    }));
+
+    // Remove existing text paths from sidebar and array
+    textPaths.forEach(textPath => {
+        const pathIndex = svgpaths.findIndex(p => p.id === textPath.id);
+        if (pathIndex !== -1) {
+            removeSvgPath(textPath.id);
+            svgpaths.splice(pathIndex, 1);
+        }
+    });
+
+    // Create new text paths using the same logic as the original text tool
+    let currentX = x;
+    let fontSizeScaled = Math.round(4 * fontSize * svgscale);
+    let pathIdCounter = 0; // Track which original ID to reuse
+
+    const chars = text.split('');
+    chars.forEach((char, index) => {
+        var fontPath = font.getPath(char, currentX, y, fontSizeScaled);
+
+        // Track separate subpaths
+        var currentPathData = [];
+        var allPaths = [];
+        var lastX = currentX;
+        var lastY = y;
+        var firstPoint = null;
+
+        fontPath.commands.forEach(function (cmd) {
+            switch (cmd.type) {
+                case 'M': // Move - Start new subpath
+                    if (currentPathData.length > 0) {
+                        if (currentPathData.length >= 2) {
+                            allPaths.push([...currentPathData]);
+                        }
+                    }
+                    currentPathData = [];
+                    firstPoint = { x: cmd.x, y: cmd.y };
+                    if (fontname.indexOf("SingleLine") == -1) {
+                        currentPathData.push({ x: cmd.x, y: cmd.y });
+                    }
+                    lastX = cmd.x;
+                    lastY = cmd.y;
+                    break;
+
+                case 'L': // Line
+                    currentPathData.push({ x: cmd.x, y: cmd.y });
+                    lastX = cmd.x;
+                    lastY = cmd.y;
+                    break;
+
+                case 'C': // Curve
+                    var steps = 10;
+                    for (var i = 0; i <= steps; i++) {
+                        var t = i / steps;
+                        var tx = Math.pow(1 - t, 3) * lastX +
+                            3 * Math.pow(1 - t, 2) * t * cmd.x1 +
+                            3 * (1 - t) * Math.pow(t, 2) * cmd.x2 +
+                            Math.pow(t, 3) * cmd.x;
+                        var ty = Math.pow(1 - t, 3) * lastY +
+                            3 * Math.pow(1 - t, 2) * t * cmd.y1 +
+                            3 * (1 - t) * Math.pow(t, 2) * cmd.y2 +
+                            Math.pow(t, 3) * cmd.y;
+                        currentPathData.push({ x: tx, y: ty });
+                    }
+                    lastX = cmd.x;
+                    lastY = cmd.y;
+                    break;
+
+                case 'Q': // Quadratic curve
+                    var steps = 10;
+                    for (var i = 0; i <= steps; i++) {
+                        var t = i / steps;
+                        var tx = Math.pow(1 - t, 2) * lastX +
+                            2 * (1 - t) * t * cmd.x1 +
+                            Math.pow(t, 2) * cmd.x;
+                        var ty = Math.pow(1 - t, 2) * lastY +
+                            2 * (1 - t) * t * cmd.y1 +
+                            Math.pow(t, 2) * cmd.y;
+                        currentPathData.push({ x: tx, y: ty });
+                    }
+                    lastX = cmd.x;
+                    lastY = cmd.y;
+                    break;
+
+                case 'Z': // Close path
+                    if (firstPoint && currentPathData.length > 0) {
+                        currentPathData.push({x: firstPoint.x, y: firstPoint.y});
+                    }
+                    break;
+            }
+        });
+
+        // Add the last subpath if it exists
+        if (currentPathData.length >= 2) {
+            allPaths.push(currentPathData);
+        }
+
+        // Create separate SVG path for each subpath
+        allPaths.forEach((pathData, pathIndex) => {
+            pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
+            if (pathData.length > 0) {
+                var pathType = pathIndex === 0 ? 'outer' : 'inner';
+
+                // Reuse original ID and name if available, otherwise create new
+                var pathId, pathName, isSelected;
+                if (pathIdCounter < originalPaths.length) {
+                    pathId = originalPaths[pathIdCounter].id;
+                    pathName = originalPaths[pathIdCounter].name;
+                    isSelected = originalPaths[pathIdCounter].selected;
+                } else {
+                    // If we need more paths than before, create new ones
+                    pathId = 'Text' + svgpathId;
+                    pathName = 'Text_' + char + '_' + pathType + '_' + svgpathId;
+                    isSelected = false;
+                    svgpathId++;
+                }
+
+                var svgPath = {
+                    id: pathId,
+                    type: 'path',
+                    name: pathName,
+                    selected: isSelected,
+                    visible: true,
+                    path: pathData,
+                    bbox: boundingBox(pathData),
+                    // Store creation properties for editing
+                    creationTool: 'Text',
+                    creationProperties: {
+                        text: text,
+                        font: fontname,
+                        fontSize: fontSize,
+                        position: { x: x, y: y },
+                        character: char,
+                        pathType: pathType
+                    }
+                };
+
+                svgpaths.push(svgPath);
+                addSvgPath(svgPath.id, svgPath.name);
+                pathIdCounter++;
+            }
+        });
+
+        // Move to next character position
+        currentX += font.getAdvanceWidth(char, fontSizeScaled);
     });
 }
 
@@ -856,6 +1570,27 @@ function handleOperationClick(operation) {
 
 function handlePathClick(pathId) {
     doSelect(pathId);
+
+    // Check if this path has creation properties for editing
+    const path = svgpaths.find(p => p.id === pathId);
+    if (path && path.creationTool && path.creationProperties) {
+        // Only show properties editor if this is a draw tool that supports editing
+        if (path.creationTool === 'Text' || path.creationTool === 'Polygon') {
+            // Always switch to Draw Tools tab when editing from paths list
+            const drawToolsTab = document.getElementById('draw-tools-tab');
+            const drawToolsPane = document.getElementById('draw-tools');
+
+            // Switch to draw tools tab
+            document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+
+            drawToolsTab.classList.add('active');
+            drawToolsPane.classList.add('show', 'active');
+
+            // Show properties editor for this path
+            showPathPropertiesEditor(path);
+        }
+    }
 }
 
 // Context menu
@@ -1177,14 +1912,135 @@ function w2popup() {
 // Make w2popup available globally for compatibility
 window.w2popup = w2popup();
 
+// Bottom panel visibility control functions
+function showBottomPanel() {
+    const toolPanelContainer = document.querySelector('.tool-panel-container');
+    const bottomResize = document.getElementById('bottom-resize');
+    if (toolPanelContainer) {
+        toolPanelContainer.style.display = 'block';
+    }
+    if (bottomResize) {
+        bottomResize.style.display = 'block';
+    }
+}
+
+function hideBottomPanel() {
+    const toolPanelContainer = document.querySelector('.tool-panel-container');
+    const bottomResize = document.getElementById('bottom-resize');
+    if (toolPanelContainer) {
+        toolPanelContainer.style.display = 'none';
+    }
+    if (bottomResize) {
+        bottomResize.style.display = 'none';
+    }
+}
+
+// Resize functionality
+function initializeResizeHandles() {
+    const sidebarResize = document.getElementById('sidebar-resize');
+    const bottomResize = document.getElementById('bottom-resize');
+    const sidebar = document.getElementById('sidebar');
+    const toolPanelContainer = document.querySelector('.tool-panel-container');
+
+    // Sidebar horizontal resize
+    if (sidebarResize && sidebar) {
+        let isResizingSidebar = false;
+        let startX = 0;
+        let startWidth = 0;
+
+        sidebarResize.addEventListener('mousedown', function(e) {
+            isResizingSidebar = true;
+            startX = e.clientX;
+            startWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
+            sidebarResize.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizingSidebar) return;
+
+            const newWidth = startWidth + (e.clientX - startX);
+            const minWidth = 200;
+            const maxWidth = window.innerWidth * 0.5;
+
+            if (newWidth >= minWidth && newWidth <= maxWidth) {
+                sidebar.style.width = newWidth + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (isResizingSidebar) {
+                isResizingSidebar = false;
+                sidebarResize.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+
+                // Update canvas center after sidebar resize
+                if (typeof updateCanvasCenter === 'function') {
+                    updateCanvasCenter();
+                    if (typeof redraw === 'function') {
+                        redraw();
+                    }
+                }
+            }
+        });
+    }
+
+    // Bottom panel vertical resize
+    if (bottomResize && toolPanelContainer) {
+        let isResizingBottom = false;
+        let startY = 0;
+        let startHeight = 0;
+
+        bottomResize.addEventListener('mousedown', function(e) {
+            isResizingBottom = true;
+            startY = e.clientY;
+            startHeight = parseInt(window.getComputedStyle(toolPanelContainer).height, 10);
+            bottomResize.classList.add('dragging');
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizingBottom) return;
+
+            const newHeight = startHeight - (e.clientY - startY);
+            const minHeight = 150;
+            const maxHeight = window.innerHeight * 0.6;
+
+            if (newHeight >= minHeight && newHeight <= maxHeight) {
+                toolPanelContainer.style.height = newHeight + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (isResizingBottom) {
+                isResizingBottom = false;
+                bottomResize.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+
+                // Update canvas center after bottom panel resize
+                if (typeof updateCanvasCenter === 'function') {
+                    updateCanvasCenter();
+                    if (typeof redraw === 'function') {
+                        redraw();
+                    }
+                }
+            }
+        });
+    }
+}
+
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function () {
-
-
     initializeLayout();
+    initializeResizeHandles();
     newProject();
     toggleTooltips(getOption('showTooltips'));
-   
 });
 
 function toggleTooltips(on)

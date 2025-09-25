@@ -65,6 +65,57 @@
             flex-shrink: 0;
             height: 40px;
         }
+
+        /* Resize Handle Styles */
+        .resize-handle {
+            position: relative;
+            background-color: #e9ecef;
+            z-index: 10;
+        }
+
+        .resize-handle-horizontal {
+            width: 5px;
+            cursor: col-resize;
+            flex-shrink: 0;
+        }
+
+        .resize-handle-vertical {
+            height: 5px;
+            cursor: row-resize;
+            flex-shrink: 0;
+        }
+
+        .resize-handle-bar {
+            position: absolute;
+            background-color: #6c757d;
+            opacity: 0.3;
+            transition: opacity 0.2s;
+        }
+
+        .resize-handle-horizontal .resize-handle-bar {
+            width: 1px;
+            height: 100%;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+        }
+
+        .resize-handle-vertical .resize-handle-bar {
+            height: 1px;
+            width: 100%;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+        }
+
+        .resize-handle:hover .resize-handle-bar,
+        .resize-handle.dragging .resize-handle-bar {
+            opacity: 0.8;
+        }
+
+        .resize-handle.dragging {
+            background-color: #007bff;
+        }
     </style>
 </head>
 <body>
@@ -72,9 +123,14 @@
         <div class="row g-0 main-row">
             <!-- Full Height Sidebar -->
             <div class="col-auto">
-                <div id="sidebar" class="bg-light border-end" style="width: 250px;">
+                <div id="sidebar" class="bg-light border-end" style="width: 320px;">
 
                 </div>
+            </div>
+
+            <!-- Horizontal Resize Handle -->
+            <div class="resize-handle resize-handle-horizontal" id="sidebar-resize">
+                <div class="resize-handle-bar"></div>
             </div>
 
             <!-- Right Panel Stack -->
@@ -89,6 +145,11 @@
                     <!-- Canvas Area -->
                     <div class="canvas-container border-bottom">
                         <canvas id="canvas" width="2000" height="2000"></canvas>
+                    </div>
+
+                    <!-- Vertical Resize Handle -->
+                    <div class="resize-handle resize-handle-vertical" id="bottom-resize">
+                        <div class="resize-handle-bar"></div>
                     </div>
 
                     <!-- Tool Panel -->
@@ -135,6 +196,8 @@
 <script src="js/operations/Text.js"></script>
 <script src="js/operations/Drill.js"></script>
 <script src="js/operations/OperationManager.js"></script>
+<script src="js/ToolPropertiesEditor.js"></script>
+<script src="js/StepWiseHelpSystem.js"></script>
 <script src="js/CncController.js"></script>
 
 <script type="text/javascript" src="js/cnc.js"></script>

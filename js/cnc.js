@@ -22,9 +22,50 @@ var pixelsPerInch = 72; // 72 for illustrator 96 for inkscape
 var svgscale = viewScale * 25.4 / pixelsPerInch;
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
-const Xcenter = 800;
-const Ycenter = 300;
+
+// Calculate dynamic center based on viewport dimensions and coordinate system
+function getCanvasCenter() {
+
+	canvas.width = $('#canvas').parent()[0].clientWidth;
+	canvas.height = $('#canvas').parent()[0].clientHeight;
+
+	return {
+		x: canvas.width / 2,
+		y: canvas.height / 2
+	};
+}
+
+// Function to update center values
+function updateCanvasCenter() {
+	var center = getCanvasCenter();
+	var oldXcenter = Xcenter;
+	var oldYcenter = Ycenter;
+
+	Xcenter = center.x;
+	Ycenter = center.y;
+
+	if (!origin) {
+		origin = { x: Xcenter, y: Ycenter };
+	} else {
+		// Only update origin if it's still at the old center position
+		// This preserves user-set origin points
+		if (Math.abs(origin.x - oldXcenter) < 10 && Math.abs(origin.y - oldYcenter) < 10) {
+			origin.x = Xcenter;
+			origin.y = Ycenter;
+		}
+	}
+}
+
+// Use dynamic center calculation
+var Xcenter = getCanvasCenter().x;
+var Ycenter = getCanvasCenter().y;
 var origin = { x: Xcenter, y: Ycenter };
+
+// Add window resize listener to update center when viewport changes
+//window.addEventListener('resize', function () {
+//	updateCanvasCenter();
+//	redraw();
+//});
 
 var toolpathId = 1;
 var svgpathId = 1;
@@ -57,10 +98,10 @@ cncController.setupEventListeners();
 
 canvas.addEventListener('mousewheel', handleScroll, false);
 
-function newnormalizeEventCoords(target, e){
+function newnormalizeEventCoords(target, e) {
 	const rect = canvas.getBoundingClientRect();
-    const x = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
-    const y = Math.round((e.clientY - rect.top) * (canvas.height / rect.height));
+	const x = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
+	const y = Math.round((e.clientY - rect.top) * (canvas.height / rect.height));
 	return { x, y };
 }
 
@@ -508,7 +549,7 @@ function newParseSvgContent(data) {
 				addSvgPath(id, name);
 				svgpathId++;
 			}
-			
+
 		}
 		var bbox = boundingBoxPaths(svgpaths);
 
@@ -787,11 +828,10 @@ function drawGrid() {
 	ctx.beginPath();
 	const maxX = getOption("tableLength") / 2;
 	const maxY = getOption("tableWidth") / 2;
+
 	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
 		ctx.moveTo(-maxX + origin.x, y + origin.y);
 		ctx.lineTo(maxX + origin.x, y + origin.y);
-
-
 	}
 	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
 		ctx.moveTo(x + origin.x, -maxY + origin.y);
@@ -805,7 +845,7 @@ function drawGrid() {
 	ctx.fillStyle = "blue";
 	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
 
-		ctx.fillText((y / viewScale), origin.x + 2, y + origin.y - 2);
+		ctx.fillText((-y / viewScale), origin.x + 2, y + origin.y - 2);
 	}
 	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
 
@@ -831,8 +871,16 @@ function drawOrigin() {
 }
 
 function redraw() {
+
+
+
+
+	// The context is reset when the size changes, so get a fresh one.
+	//const ctx = canvas.getContext('2d');
+
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
 	clear();
+
 	ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
 	if (getOption("showWorkpiece"))
 		drawWorkpiece();
@@ -843,7 +891,7 @@ function redraw() {
 		drawOrigin();
 	drawSvgPaths();
 	drawToolPaths();
-	
+
 	// Draw material removal and travel moves during simulation
 	if (simulationState.isRunning) {
 		if (materialRemovalPoints.length > 0) {
@@ -860,13 +908,13 @@ function drawWorkpiece() {
 	var width = getOption("workpieceWidth") * viewScale;
 	var length = getOption("workpieceLength") * viewScale;
 	var woodSpecies = getOption("woodSpecies");
-	
+
 	// Get the wood color from the species database
 	var woodColor = '#F5DEB3'; // Default to wheat color
 	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
 		woodColor = woodSpeciesDatabase[woodSpecies].color;
 	}
-	
+
 	// Draw the workpiece rectangle centered on origin
 	var startX = Xcenter - width / 2;
 	var startY = Ycenter - length / 2;
@@ -875,7 +923,7 @@ function drawWorkpiece() {
 	ctx.rect(startX, startY, width, length);
 	ctx.fillStyle = woodColor;
 	ctx.fill();
-	
+
 	// Add a subtle border
 	ctx.strokeStyle = "#888888";
 	ctx.lineWidth = 0.5;
@@ -887,25 +935,25 @@ function calculateFeedRate(tool, woodSpecies) {
 	if (!getOption("autoFeedRate") || !tool) {
 		return tool ? tool.feed : 600; // Return original feed rate if auto calculation is disabled
 	}
-	
+
 	// Get wood species data - check if database exists
 	if (typeof woodSpeciesDatabase === 'undefined') {
 		return tool.feed; // Fallback if database not available
 	}
-	
+
 	var speciesData = woodSpeciesDatabase[woodSpecies];
 	if (!speciesData) {
 		return tool.feed; // Return original feed rate if species not found
 	}
-	
+
 	// Base calculation factors
 	var baseFeed = tool.feed;
 	var toolDiameter = tool.diameter;
 	var feedMultiplier = speciesData.feedMultiplier;
-	
+
 	// Adjust feed rate based on tool diameter (smaller tools need slower feeds)
 	var diameterFactor = Math.max(0.5, Math.min(2.0, toolDiameter / 6.0)); // 6mm reference diameter
-	
+
 	// Adjust based on tool type
 	var toolTypeFactor = 1.0;
 	if (tool.bit === 'VBit') {
@@ -913,10 +961,10 @@ function calculateFeedRate(tool, woodSpecies) {
 	} else if (tool.bit === 'Drill') {
 		toolTypeFactor = 0.6; // Drills need slower feeds for plunge
 	}
-	
+
 	// Calculate final feed rate
 	var calculatedFeed = baseFeed * feedMultiplier * diameterFactor * toolTypeFactor;
-	
+
 	// Ensure reasonable bounds (100-2000 mm/min)
 	return Math.max(100, Math.min(2000, Math.round(calculatedFeed)));
 }
@@ -926,21 +974,21 @@ function calculateZFeedRate(tool, woodSpecies) {
 	if (!getOption("autoFeedRate") || !tool) {
 		return tool ? tool.zfeed : 200;
 	}
-	
+
 	// Check if database exists
 	if (typeof woodSpeciesDatabase === 'undefined') {
 		return tool.zfeed; // Fallback if database not available
 	}
-	
+
 	var speciesData = woodSpeciesDatabase[woodSpecies];
 	if (!speciesData) {
 		return tool.zfeed;
 	}
-	
+
 	// Z feed is typically 20-40% of XY feed for wood
 	var calculatedXYFeed = calculateFeedRate(tool, woodSpecies);
 	var zFeedRate = calculatedXYFeed * 0.3;
-	
+
 	// Ensure reasonable bounds (50-500 mm/min)
 	return Math.max(50, Math.min(500, Math.round(zFeedRate)));
 }
@@ -1517,9 +1565,11 @@ function doRemoveToolPath(id) {
 
 function center() {
 
-	var w = $('#canvas').parent()[0].clientWidth;
-	var h = $('#canvas').parent()[0].clientHeight;
+	//var w = $('#canvas').parent()[0].clientWidth;
+	//var h = $('#canvas').parent()[0].clientHeight;
 
+	const w = canvas.getBoundingClientRect().width;
+	const h = canvas.getBoundingClientRect().height;
 
 	var boxWidth = w;
 	var boxHeight = h;
@@ -1539,21 +1589,16 @@ function center() {
 		console.log("width " + boxWidth + " height " + boxHeight);
 
 	}
-	const maxX = getOption("tableLength");
-	const maxY = getOption("tableWidth");
-	offsetX = (maxX - w) / 2;
-	offsetY = (maxY - h) / 2;
+
 	offsetX = 0;
 	offsetY = 0;
 
 
-	$('#canvas').parent()[0].scrollTop = offsetY;
-	$('#canvas').parent()[0].scrollLeft = offsetX;
-	origin.x = Xcenter;
-	origin.y = Ycenter;
+	// Update center values dynamically
+	updateCanvasCenter();
 }
 
-function addUndo(toolPathschanged=false, svgPathsChanged=false, originChanged=false) {
+function addUndo(toolPathschanged = false, svgPathsChanged = false, originChanged = false) {
 
 	if (toolPathschanged || svgPathsChanged || originChanged) {
 		var project = {
@@ -1564,7 +1609,7 @@ function addUndo(toolPathschanged=false, svgPathsChanged=false, originChanged=fa
 		if (undoList.length < MAX_UNDO) {
 			undoList.push(JSON.stringify(project));
 		}
-		else{
+		else {
 			undoList.shift();
 			undoList.push(JSON.stringify(project));
 		}
@@ -1573,16 +1618,16 @@ function addUndo(toolPathschanged=false, svgPathsChanged=false, originChanged=fa
 }
 
 function doUndo() {
-	if(undoList.length == 0) return;
+	if (undoList.length == 0) return;
 	var project = JSON.parse(undoList.pop());
 
 	if (project.origin) origin = project.origin;
 	if (project.toolpaths) {
-	    clearToolPaths();
+		clearToolPaths();
 		toolpaths = project.toolpaths;
 		toolpathId = 1;
 		for (var i in toolpaths) {
-			toolpaths[i].id = 'T'+toolpathId;
+			toolpaths[i].id = 'T' + toolpathId;
 			addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
 			toolpathId++;
 		}
@@ -1608,9 +1653,9 @@ async function saveProject() {
 		tools: tools,
 		options: options
 	};
-	
+
 	var json = JSON.stringify(project);
-	
+
 	// Use the File System Access API if available (modern browsers)
 	if ('showSaveFilePicker' in window) {
 		try {
@@ -1636,18 +1681,18 @@ async function saveProject() {
 			}
 		}
 	}
-	
+
 	// Fallback: prompt for filename and use download method
 	var filename = prompt("Enter filename for project save:", currentFileName + ".json");
 	if (!filename) {
 		return; // User cancelled
 	}
-	
+
 	// Ensure .json extension
 	if (!filename.endsWith('.json')) {
 		filename += '.json';
 	}
-	
+
 	var blob = new Blob([json], { type: "application/json" });
 	var url = URL.createObjectURL(blob);
 	var a = document.createElement("a");
@@ -1678,7 +1723,7 @@ function loadProject(json) {
 		}
 
 	}
-	
+
 	if (project.options) {
 		options = project.options;
 		// Update options display if using Bootstrap layout
@@ -1695,7 +1740,7 @@ function loadProject(json) {
 	}
 	toolpathId = 1;
 	for (var i in toolpaths) {
-		toolpaths[i].id = 'T'+toolpathId;
+		toolpaths[i].id = 'T' + toolpathId;
 		addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
 		toolpathId++;
 	}
@@ -1717,6 +1762,8 @@ function newProject() {
 	undoList = [];
 	clearToolPaths();
 	clearSvgPaths();
+
+	// Ensure canvas center is calculated correctly
 	center();
 	cncController.setMode("Select");
 	loadOptions();
@@ -1870,9 +1917,9 @@ function addCircles(path, r) {
 }
 
 
-function pushToolPath(paths, name) {
+function pushToolPath(paths, name, svgId) {
 	addUndo(true, false, false);
-	toolpaths.push({ id: "T"+toolpathId, paths: paths, visible: true, operation: name, tool: { ...currentTool } });
+	toolpaths.push({ id: "T" + toolpathId, paths: paths, visible: true, operation: name, tool: { ...currentTool }, svgId: svgId });
 	addToolPath('T' + toolpathId, name + ' ' + toolpathId, name, currentTool.name);
 	toolpathId++;
 
@@ -1921,7 +1968,7 @@ function doOutside() {
 			}
 
 		}
-		pushToolPath(paths, name);
+		pushToolPath(paths, name, svgpaths[i].id);
 	}
 	unselectAll();
 }
@@ -1973,7 +2020,7 @@ function doInside() {
 				paths.push({ path: circles, tpath: tpath });
 			}
 		}
-		pushToolPath(paths, name);
+		pushToolPath(paths, name, svgpaths[i].id);
 	}
 	unselectAll();
 }
@@ -2011,7 +2058,7 @@ function doCenter() {
 			paths.push({ path: circles, tpath: tpath });
 		}
 
-		pushToolPath(paths, name);
+		pushToolPath(paths, name, svgpaths[i].id);
 	}
 	unselectAll();
 
@@ -2063,7 +2110,7 @@ function makeHole(pt) {
 	var paths = [];
 	paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
 
-	pushToolPath(paths, name);
+	pushToolPath(paths, name, null);
 
 }
 
@@ -2124,7 +2171,7 @@ function doPocket() {
 
 
 		}
-		pushToolPath(paths, name);
+		pushToolPath(paths, name, svgpaths[i].id);
 	}
 	unselectAll();
 
@@ -2166,7 +2213,7 @@ function getSelectedPath() {
 	return null;
 }
 
-function medialAxis(name, path, holes) {
+function medialAxis(name, path, holes, svgId) {
 	// todo need to find a way to traverse the medial axis.
 
 
@@ -2198,7 +2245,7 @@ function medialAxis(name, path, holes) {
 
 	var tpath = findBestPath(segments).toolpath;
 	var paths = [{ path: circles, tpath: tpath }];
-	pushToolPath(paths, name);
+	pushToolPath(paths, name, svgId);
 }
 function compute(outside, name) {
 	var selected = [];
@@ -2222,7 +2269,7 @@ function compute(outside, name) {
 				}
 			}
 		}
-		medialAxis(name, path, holes);
+		medialAxis(name, path, holes, selected[i].id);
 	}
 
 }
@@ -2247,7 +2294,7 @@ function oldcompute(outside, name) {
 
 		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
 
-		medialAxis(name, path);
+		medialAxis(name, path, [], svgpaths[i].id);
 		continue;
 
 		var r = radius;
@@ -2290,7 +2337,7 @@ function oldcompute(outside, name) {
 			}
 		}
 
-		pushToolPath(paths, name);
+		pushToolPath(paths, name, svgpaths[i].id);
 
 	}
 
@@ -2319,9 +2366,9 @@ async function doGcode() {
 		notify('No toolpaths to export');
 		return;
 	}
-	
+
 	var text = toGcode();
-	
+
 	// Use the File System Access API if available (modern browsers)
 	if ('showSaveFilePicker' in window) {
 		try {
@@ -2347,18 +2394,18 @@ async function doGcode() {
 			}
 		}
 	}
-	
+
 	// Fallback: prompt for filename and use download method
 	var filename = prompt("Enter filename for G-code export:", currentFileName + ".gcode");
 	if (!filename) {
 		return; // User cancelled
 	}
-	
+
 	// Ensure .gcode extension
 	if (!filename.endsWith('.gcode')) {
 		filename += '.gcode';
 	}
-	
+
 	saveString(text, filename);
 	notify('G-code download started');
 }
@@ -2406,7 +2453,7 @@ var allMaterialPoints = []; // Pre-computed all material removal points
 var allTravelMoves = []; // Pre-computed all travel moves
 
 function toGcode() {
-	var output = "G21\n"; // mm
+	var output = "G0 G54 G17 G21 G90 G94\n"; // reset to known state
 
 	for (var i = 0; i < toolpaths.length; i++) {
 		var visible = toolpaths[i].visible;
@@ -2534,20 +2581,20 @@ function parseGcodeForSimulation(gcode) {
 	var currentTool = null;
 	var lines = gcode.split('\n');
 	const zbacklash = getOption("zbacklash");
-	
+
 	// Find current tool info from comments
 	var currentOperation = '';
 	var currentToolDiameter = 6; // Default
-	
+
 	for (var i = 0; i < lines.length; i++) {
 		var line = lines[i].trim();
 		if (line === '' || line.startsWith(';')) continue;
-		
+
 		// Parse operation comments
 		if (line.startsWith('(') && line.endsWith(')')) {
 			var comment = line.substring(1, line.length - 1);
 			currentOperation = comment;
-			
+
 			// Try to extract tool info from operation
 			for (var j = 0; j < toolpaths.length; j++) {
 				if (toolpaths[j].visible && comment.includes(toolpaths[j].id)) {
@@ -2558,11 +2605,11 @@ function parseGcodeForSimulation(gcode) {
 			}
 			continue;
 		}
-		
+
 		var newPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
 		var newFeed = currentFeed;
 		var moveType = 'rapid'; // G0
-		
+
 		// Parse G-code commands
 		var parts = line.split(' ');
 		for (var j = 0; j < parts.length; j++) {
@@ -2581,26 +2628,26 @@ function parseGcodeForSimulation(gcode) {
 				newFeed = parseFloat(part.substring(1));
 			}
 		}
-		
+
 		// Calculate move distance and time
 		var distance = Math.sqrt(
-			Math.pow(newPos.x - currentPos.x, 2) + 
-			Math.pow(newPos.y - currentPos.y, 2) + 
+			Math.pow(newPos.x - currentPos.x, 2) +
+			Math.pow(newPos.y - currentPos.y, 2) +
 			Math.pow(newPos.z - currentPos.z, 2)
 		);
-		
+
 		var moveTime = distance / newFeed * 60; // Convert mm/min to seconds
-		
+
 		// Create move object
 		if (distance > 0) {
 			var toolRadius = currentToolDiameter / 2;
-			
+
 			// For V-carve operations, calculate radius based on Z depth
-			if (currentOperation.includes('VCarve') && currentTool && currentTool.angle > 0 ) {
-				if(newPos.z > zbacklash) toolRadius = 0; // Clamp to 0 max
+			if (currentOperation.includes('VCarve') && currentTool && currentTool.angle > 0) {
+				if (newPos.z > zbacklash) toolRadius = 0; // Clamp to 0 max
 				else toolRadius = Math.abs(newPos.z) * Math.tan((currentTool.angle * Math.PI / 180) / 2);
 			}
-			
+
 			moves.push({
 				type: moveType,
 				x: newPos.x,
@@ -2612,14 +2659,14 @@ function parseGcodeForSimulation(gcode) {
 				isCutting: newPos.z <= zbacklash,
 				tool: currentTool
 			});
-			
+
 			totalTime += moveTime;
 		}
-		
+
 		currentPos = newPos;
 		currentFeed = newFeed;
 	}
-	
+
 	return {
 		moves: moves,
 		totalTime: totalTime
@@ -2631,37 +2678,37 @@ function preComputeAllMaterialPoints(simulationData) {
 	allMaterialPoints = [];
 	allTravelMoves = [];
 	let lastPosition = null;
-	
+
 	for (let i = 0; i < simulationData.moves.length; i++) {
 		const move = simulationData.moves[i];
-		
+
 		// Convert G-code coordinates to canvas coordinates
 		const canvasX = move.x * viewScale + origin.x;
 		const canvasY = origin.y - move.y * viewScale;
 		const canvasRadius = move.toolRadius * viewScale;
-		
+
 		// Handle interpolation if we have a previous position and this is a cutting move
 		if (lastPosition && move.isCutting) {
 			const lastCanvasX = lastPosition.x * viewScale + origin.x;
 			const lastCanvasY = origin.y - lastPosition.y * viewScale;
 			const lastCanvasRadius = lastPosition.r * viewScale;
 
-			const dist = Math.sqrt((lastCanvasX-canvasX)*(lastCanvasX-canvasX) + (lastCanvasY-canvasY)*(lastCanvasY-canvasY));
-			
+			const dist = Math.sqrt((lastCanvasX - canvasX) * (lastCanvasX - canvasX) + (lastCanvasY - canvasY) * (lastCanvasY - canvasY));
+
 			// Calculate steps based on feed rate - slower moves get more points (denser/darker)
 			// Base step calculation on distance, but adjust by inverse of time (which reflects feed rate)
 			let baseSteps = Math.ceil(dist / 5); // Base density
-			
+
 			// Calculate feed rate factor - slower moves (more time) get more density
 			// Normalize against a reference feed rate to get a multiplier
 			const referenceFeedTime = dist / 1000 * 60; // Time for 1000mm/min feed rate
 			const feedRateMultiplier = Math.max(0.2, Math.min(5, move.time / referenceFeedTime)); // Clamp between 0.2x and 5x density
-			
+
 			const steps = Math.max(1, Math.ceil(baseSteps * feedRateMultiplier));
-			
+
 			// Calculate time per step for this move
 			const timePerStep = move.time / steps;
-			
+
 			for (let j = 1; j <= steps; j++) {
 				const t = j / steps;
 				const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
@@ -2699,12 +2746,12 @@ function preComputeAllMaterialPoints(simulationData) {
 				isActualGcodePoint: true // Single points are always actual G-code points
 			});
 		}
-		
+
 		// Handle travel moves (Z positive)
 		if (!move.isCutting && lastPosition) {
 			const lastCanvasX = lastPosition.x * viewScale + origin.x;
 			const lastCanvasY = origin.y - lastPosition.y * viewScale;
-			
+
 			allTravelMoves.push({
 				fromX: lastCanvasX,
 				fromY: lastCanvasY,
@@ -2715,7 +2762,7 @@ function preComputeAllMaterialPoints(simulationData) {
 				moveType: move.type
 			});
 		}
-		
+
 		// Update last position
 		lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
 	}
@@ -2727,14 +2774,14 @@ function startSimulation() {
 		notify('No toolpaths to simulate');
 		return;
 	}
-	
+
 	// Generate G-code and parse it for simulation
 	var gcode = toGcode();
 	simulationData = parseGcodeForSimulation(gcode);
-	
+
 	// Pre-compute all material removal points for smooth animation
 	preComputeAllMaterialPoints(simulationData);
-	
+
 	simulationState.isRunning = true;
 	simulationState.isPaused = false;
 	simulationState.currentStep = 0;
@@ -2744,20 +2791,20 @@ function startSimulation() {
 	materialRemovalPoints = [];
 	simulationState.travelMoves = [];
 	simulationState.lastPosition = null;
-	
+
 	// Update UI
 	document.getElementById('start-simulation').disabled = true;
 	document.getElementById('pause-simulation').disabled = false;
 	document.getElementById('stop-simulation').disabled = false;
 	document.getElementById('total-time').textContent = formatTime(simulationData.totalTime);
-	
+
 	// Setup step slider
 	const stepSlider = document.getElementById('simulation-step');
 	stepSlider.max = allMaterialPoints.length;
 	stepSlider.value = 0;
 	stepSlider.disabled = false;
 	document.getElementById('step-display').textContent = `0/${allMaterialPoints.length}`;
-	
+
 	// Start animation
 	runSmoothSimulation();
 }
@@ -2789,18 +2836,18 @@ function stopSimulation() {
 	simulationState.travelMoves = [];
 	allMaterialPoints = [];
 	allTravelMoves = [];
-	
+
 	if (simulationState.animationFrame) {
 		cancelAnimationFrame(simulationState.animationFrame);
 	}
-	
+
 	// Reset step slider
 	const stepSlider = document.getElementById('simulation-step');
 	stepSlider.max = 100;
 	stepSlider.value = 0;
 	stepSlider.disabled = true;
 	document.getElementById('step-display').textContent = '0/0';
-	
+
 	// Update UI
 	document.getElementById('start-simulation').innerHTML = '<i data-lucide="Play"></i> Play';
 	document.getElementById('start-simulation').disabled = false;
@@ -2809,12 +2856,12 @@ function stopSimulation() {
 	document.getElementById('pause-simulation').innerHTML = '<i data-lucide="pause"></i> Pause';
 	document.getElementById('simulation-time').textContent = '0:00';
 	lucide.createIcons();
-	
+
 	// Restore normal status
 	if (typeof setMode === 'function') {
 		setMode(null);
 	}
-	
+
 	// Redraw without simulation overlay
 	redraw();
 }
@@ -2828,29 +2875,29 @@ function setSimulationStep(step) {
 	if (!simulationData || allMaterialPoints.length === 0) {
 		return;
 	}
-	
+
 	// Clamp step value
 	step = Math.max(0, Math.min(step, allMaterialPoints.length));
-	
+
 	// Update animation step
 	simulationState.currentAnimationStep = step;
-	
+
 	// Rebuild materialRemovalPoints up to current step
 	materialRemovalPoints = [];
 	for (let i = 0; i < step; i++) {
 		materialRemovalPoints.push(allMaterialPoints[i]);
 	}
-	
+
 	// Update travel moves up to current step
 	if (step > 0 && step <= allMaterialPoints.length) {
 		const currentPoint = allMaterialPoints[step - 1];
-		simulationState.travelMoves = allTravelMoves.filter(move => 
+		simulationState.travelMoves = allTravelMoves.filter(move =>
 			move.moveIndex <= currentPoint.moveIndex
 		);
 	} else {
 		simulationState.travelMoves = [];
 	}
-	
+
 	// Calculate elapsed time based on step position
 	let elapsedTime = 0;
 	if (step > 0 && step <= allMaterialPoints.length) {
@@ -2864,12 +2911,12 @@ function setSimulationStep(step) {
 			elapsedTime += simulationData.moves[currentPoint.moveIndex].time * progress;
 		}
 	}
-	
+
 	// Update UI
 	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
 	document.getElementById('step-display').textContent = `${step}/${allMaterialPoints.length}`;
-	
+
 	// Redraw with current simulation state
 	redraw();
 }
@@ -2881,21 +2928,21 @@ function runSmoothSimulation() {
 	if (!simulationState.isRunning || simulationState.isPaused) {
 		return;
 	}
-	
+
 	// Add the current point to materialRemovalPoints for rendering
 	if (simulationState.currentAnimationStep < allMaterialPoints.length) {
 		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep];
 		materialRemovalPoints.push(currentPoint);
-		
+
 		// Update travel moves up to this point's moveIndex
-		simulationState.travelMoves = allTravelMoves.filter(move => 
+		simulationState.travelMoves = allTravelMoves.filter(move =>
 			move.moveIndex <= currentPoint.moveIndex
 		);
 	}
-	
+
 	// Move to next animation step
 	simulationState.currentAnimationStep++;
-	
+
 	// Calculate elapsed time based on animation step progress (after increment)
 	let elapsedTime = 0;
 	if (simulationState.currentAnimationStep <= allMaterialPoints.length) {
@@ -2915,25 +2962,25 @@ function runSmoothSimulation() {
 			}
 		}
 	}
-	
+
 	// Update UI
 	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
-	
+
 	// Update step slider to show current position
 	const stepSlider = document.getElementById('simulation-step');
 	stepSlider.value = simulationState.currentAnimationStep;
 	document.getElementById('step-display').textContent = `${simulationState.currentAnimationStep}/${allMaterialPoints.length}`;
-	
+
 	// Redraw with simulation
 	redraw();
-	
+
 	// Check if animation is complete after processing and incrementing
 	if (simulationState.currentAnimationStep >= allMaterialPoints.length) {
 		pauseSimulation();
 		return;
 	}
-	
+
 	// Use fixed timing for all animation steps - the visual feed rate effect comes from point density
 	// At 1x speed, the total animation should take the same time as actual G-code execution
 	let realTimeDelayMs = 0;
@@ -2948,7 +2995,7 @@ function runSmoothSimulation() {
 		// Fallback to fast animation if no timing data
 		realTimeDelayMs = 10;
 	}
-	
+
 	setTimeout(() => {
 		simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
 	}, realTimeDelayMs);
@@ -2968,37 +3015,37 @@ function updateStatusWithSimulation(currentTime, totalTime) {
 // Draw travel moves (red lines for rapid moves above workpiece)
 function drawTravelMoves() {
 	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
-	
+
 	ctx.save();
 	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'; // Red for travel moves
 	ctx.lineWidth = 1;
 	ctx.setLineDash([5, 5]); // Dashed line
-	
+
 	for (let i = 0; i < simulationState.travelMoves.length; i++) {
 		const move = simulationState.travelMoves[i];
-		
+
 		ctx.beginPath();
 		ctx.moveTo(move.fromX, move.fromY);
 		ctx.lineTo(move.toX, move.toY);
 		ctx.stroke();
 	}
-	
+
 	ctx.restore();
 }
 
 // Draw material removal during simulation
 function drawMaterialRemoval() {
 	if (materialRemovalPoints.length === 0) return;
-	
+
 	ctx.save();
 	ctx.globalCompositeOperation = 'multiply';
-	
+
 	for (let i = 0; i < materialRemovalPoints.length; i++) {
 		const point = materialRemovalPoints[i];
-		
+
 		ctx.beginPath();
 		ctx.arc(point.x, point.y, point.radius, 0, 2 * Math.PI);
-		
+
 		// Choose color based on whether it's an actual G-code point or interpolated
 		if (point.isActualGcodePoint) {
 			// Actual G-code points - use brighter/more saturated colors for visibility
@@ -3019,9 +3066,9 @@ function drawMaterialRemoval() {
 				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)'; // Dark brown for cutting
 			}
 		}
-		
+
 		ctx.fill();
 	}
-	
+
 	ctx.restore();
 }

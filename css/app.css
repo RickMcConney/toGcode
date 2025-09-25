@@ -210,3 +210,108 @@ html, body {
     font-size: 0.875rem;
 }
 
+/* Tabbed Sidebar Styles */
+#sidebar-tabs {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0;
+}
+
+#sidebar-tabs .nav-link {
+    border: none;
+    background: none;
+    color: #6c757d;
+    font-size: 13px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 0;
+}
+
+#sidebar-tabs .nav-link:hover {
+    background-color: #e9ecef;
+    color: #495057;
+}
+
+#sidebar-tabs .nav-link.active {
+    background-color: #ffffff;
+    color: #495057;
+    border-bottom: 2px solid #0d6efd;
+}
+
+#sidebar-tabs .nav-link i {
+    width: 16px;
+    height: 16px;
+}
+
+/* Properties Editor Styles */
+#tool-properties-editor,
+#operation-properties-editor {
+    background-color: #ffffff;
+}
+
+#tool-properties-editor .bg-light,
+#operation-properties-editor .bg-light {
+    background-color: #f8f9fa !important;
+}
+
+/* Help System Styles */
+.help-step {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.help-text {
+    color: #495057;
+    line-height: 1.4;
+}
+
+.help-navigation {
+    margin-top: 8px;
+}
+
+.help-navigation .btn-group-sm > .btn {
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+/* Step progress bar */
+.progress {
+    height: 4px !important;
+    background-color: #e9ecef;
+}
+
+.progress-bar {
+    background-color: #0d6efd;
+}
+
+/* Alert styles for properties */
+.alert {
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.alert i {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+}
+
+/* Form range customization */
+.form-range {
+    margin-bottom: 8px;
+}
+
+/* Tab content height management */
+.tab-content {
+    overflow-y: auto;
+}
+
+.tab-pane {
+    min-height: 400px;
+}
+

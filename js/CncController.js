@@ -16,6 +16,8 @@ class CncController {
     this.operationManager.registerOperation(new Text());
     this.operationManager.registerOperation(new Drill());
 
+    // Set default operation to Select
+    this.operationManager.setCurrentOperation('Select');
   }
 
   setupEventListeners() {

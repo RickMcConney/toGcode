@@ -8,6 +8,10 @@ class OperationManager {
     this.operations.set(operation.name, operation);
   }
 
+  getOperation(name) {
+    return this.operations.get(name);
+  }
+
   setCurrentOperation(name) {
     if (this.currentOperation) {
       this.currentOperation.stop();

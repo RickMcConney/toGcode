@@ -1,6 +1,12 @@
 class Text extends Operation {
     constructor() {
         super('Text', 'fa fa-font');
+        this.properties = {
+            text: 'Sample Text',
+            font: 'fonts/ReliefSingleLineCAD-Regular.ttf',
+            fontSize: 20
+        };
+        this.pendingPosition = null;
     }
 
 
@@ -8,8 +14,17 @@ class Text extends Operation {
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
         this.mouseDown = true;
-        this.createTextDialog(mouse.x, mouse.y);
 
+        // Always store the position
+        this.pendingPosition = { x: mouse.x, y: mouse.y };
+
+        // If we have text properties set, create text immediately
+        if (this.properties.text && this.properties.text.trim() !== '') {
+            this.addText(this.properties.text, mouse.x, mouse.y, this.properties.fontSize, this.properties.font);
+            this.nextHelpStep(); // Progress to completion step
+        } else {
+            this.setHelpStep(3); // Show completion message
+        }
     }
 
     onMouseMove(canvas, evt) {
@@ -18,6 +33,74 @@ class Text extends Operation {
     }
     onMouseUp(canvas, evt) {
         this.mouseDown = false;
+    }
+
+    // Properties Editor Interface
+    getPropertiesHTML() {
+        return `
+            <div class="mb-3">
+                <label for="text-input" class="form-label">Text</label>
+                <textarea class="form-control"
+                         id="text-input"
+                         name="text"
+                         rows="3"
+                         placeholder="Enter your text here...">${this.properties.text}</textarea>
+            </div>
+
+            <div class="mb-3">
+                <label for="font-select" class="form-label">Font</label>
+                <select class="form-select" id="font-select" name="font">
+                    <option value="fonts/ReliefSingleLineCAD-Regular.ttf" ${this.properties.font === 'fonts/ReliefSingleLineCAD-Regular.ttf' ? 'selected' : ''}>Relief Single Line</option>
+                    <option value="fonts/Roboto-Regular.ttf" ${this.properties.font === 'fonts/Roboto-Regular.ttf' ? 'selected' : ''}>Roboto</option>
+                    <option value="fonts/EduNSWACTCursive-VariableFont_wght.ttf" ${this.properties.font === 'fonts/EduNSWACTCursive-VariableFont_wght.ttf' ? 'selected' : ''}>Edu Cursive</option>
+                    <option value="fonts/AVHersheySimplexLight.ttf" ${this.properties.font === 'fonts/AVHersheySimplexLight.ttf' ? 'selected' : ''}>AV Hershey Simplex Light</option>
+                    <option value="fonts/AVHersheyComplexHeavy.ttf" ${this.properties.font === 'fonts/AVHersheyComplexHeavy.ttf' ? 'selected' : ''}>AV Hershey Complex Heavy</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="font-size" class="form-label">Font Size: <span id="font-size-value">${this.properties.fontSize}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="font-size"
+                       name="fontSize"
+                       min="5"
+                       max="100"
+                       step="1"
+                       value="${this.properties.fontSize}"
+                       oninput="document.getElementById('font-size-value').textContent = this.value">
+            </div>
+
+            ${this.pendingPosition ? `
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Position stored at (${this.pendingPosition.x.toFixed(1)}, ${this.pendingPosition.y.toFixed(1)})
+            </div>
+            ` : ''}
+        `;
+    }
+
+    onPropertiesChanged(data) {
+        // Update our properties with the new values
+        this.properties = { ...this.properties, ...data };
+
+        // Create text immediately if we have a pending position and text
+        if (this.pendingPosition && data.text && data.text.trim() !== '') {
+            this.addText(data.text, this.pendingPosition.x, this.pendingPosition.y, parseFloat(data.fontSize), data.font);
+            this.pendingPosition = null;
+            this.setHelpStep(3); // Show completion message
+        }
+        super.onPropertiesChanged(data);
+    }
+
+    // Help System Interface
+    getHelpSteps() {
+        return [
+            'Enter your text in the properties panel above',
+            'Choose font and size settings',
+            'Click on the canvas to place the text',
+            'Text paths created! Edit properties or click Done'
+        ];
     }
 
     createTextDialog(x, y) {
@@ -231,11 +314,28 @@ class Text extends Operation {
                         selected: false,
                         visible: true,
                         path: pathData,
-                        bbox: boundingBox(pathData)
+                        bbox: boundingBox(pathData),
+                        // Store creation properties for editing
+                        creationTool: 'Text',
+                        creationProperties: {
+                            text: text,
+                            font: fontname,
+                            fontSize: sizeInMM,
+                            position: { x: x, y: y },
+                            character: char,
+                            pathType: pathType
+                        }
                     };
 
                     svgpaths.push(svgPath);
                     addSvgPath(svgPath.id, 'Text_' + char + '_' + pathType + '_' + svgpathId);
+
+                    // Auto-select the first path created for this text
+                    if (pathIndex === 0) {
+                        svgPath.selected = true;
+                        selectSidebarNode(svgPath.id);
+                    }
+
                     svgpathId++;
                 }
             });
@@ -244,7 +344,29 @@ class Text extends Operation {
             currentX += font.getAdvanceWidth(char, fontSize);
         });
 
+        // After all text paths are created, show properties for the first one
+        setTimeout(() => {
+            const firstTextPath = svgpaths.find(p =>
+                p.creationTool === 'Text' &&
+                p.creationProperties.text === text &&
+                p.creationProperties.position.x === x &&
+                p.creationProperties.position.y === y
+            );
 
+            if (firstTextPath) {
+                // Switch to draw tools tab and show properties
+                const drawToolsTab = document.getElementById('draw-tools-tab');
+                const drawToolsPane = document.getElementById('draw-tools');
+
+                document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+
+                drawToolsTab.classList.add('active');
+                drawToolsPane.classList.add('show', 'active');
+
+                showPathPropertiesEditor(firstTextPath);
+            }
+        }, 100);
     }
 
 

@@ -6,8 +6,12 @@
 class Polygon extends Operation {
     constructor() {
         super("Polygon", "fa fa-star-o");
-        this.defaultSides = 6;
-        this.defaultSize = 10; // 10mm default size
+        this.properties = {
+            sides: 6,
+            radius: 10
+        };
+        this.centerPoint = null;
+        this.isDrawing = false;
     }
 
    createPolyDialog(mouse) {
@@ -84,8 +88,41 @@ class Polygon extends Operation {
     }
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
-        var self = this;
-        this.createPolyDialog(mouse);
+
+        if (!this.isDrawing) {
+            // First click sets center point
+            this.centerPoint = { x: mouse.x, y: mouse.y };
+            this.isDrawing = true;
+            this.nextHelpStep(); // Move to drag radius step
+        }
+    }
+
+    onMouseMove(canvas, evt) {
+        if (this.isDrawing && this.centerPoint) {
+            var mouse = this.normalizeEvent(canvas, evt);
+            // Calculate radius from center to mouse
+            const dx = mouse.x - this.centerPoint.x;
+            const dy = mouse.y - this.centerPoint.y;
+            this.properties.radius = Math.sqrt(dx * dx + dy * dy) / viewScale;
+
+            // Update the properties display if visible
+            const radiusInput = document.getElementById('polygon-radius');
+            const radiusValue = document.getElementById('polygon-radius-value');
+            if (radiusInput) radiusInput.value = this.properties.radius.toFixed(1);
+            if (radiusValue) radiusValue.textContent = this.properties.radius.toFixed(1);
+
+            redraw();
+        }
+    }
+
+    onMouseUp(canvas, evt) {
+        if (this.isDrawing && this.centerPoint) {
+            // Create the polygon using current properties
+            this.createPolygon(this.centerPoint, parseInt(this.properties.sides), this.properties.radius * viewScale);
+            this.isDrawing = false;
+            this.centerPoint = null;
+            this.nextHelpStep(); // Move to completion step
+        }
     }
 
 
@@ -109,13 +146,151 @@ class Polygon extends Operation {
             selected: false,
             visible: true,
             path: points,
-            bbox: boundingBox(points)
+            bbox: boundingBox(points),
+            // Store creation properties for editing
+            creationTool: 'Polygon',
+            creationProperties: {
+                sides: numSides,
+                radius: radius / viewScale, // Store in mm
+                center: { x: center.x, y: center.y }
+            }
         };
         svgpaths.push(svgPath);
         addSvgPath(svgPath.id, svgPath.name);
+
+        // Auto-select the newly created polygon
+        svgPath.selected = true;
+        selectSidebarNode(svgPath.id);
+
         svgpathId++;
         redraw();
 
+        // Show properties panel for the newly created polygon
+        setTimeout(() => {
+            // Switch to draw tools tab and show properties
+            const drawToolsTab = document.getElementById('draw-tools-tab');
+            const drawToolsPane = document.getElementById('draw-tools');
+
+            document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+
+            drawToolsTab.classList.add('active');
+            drawToolsPane.classList.add('show', 'active');
+
+            showPathPropertiesEditor(svgPath);
+        }, 100);
+    }
+
+    // Properties Editor Interface
+    getPropertiesHTML() {
+        return `
+            <div class="mb-3">
+                <label for="polygon-sides" class="form-label">Number of Sides</label>
+                <input type="number"
+                       class="form-control"
+                       id="polygon-sides"
+                       name="sides"
+                       min="3"
+                       max="20"
+                       value="${this.properties.sides}">
+            </div>
+
+            <div class="mb-3">
+                <label for="polygon-radius" class="form-label">Radius: <span id="polygon-radius-value">${this.properties.radius.toFixed(1)}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="polygon-radius"
+                       name="radius"
+                       min="1"
+                       max="50"
+                       step="0.1"
+                       value="${this.properties.radius}"
+                       oninput="document.getElementById('polygon-radius-value').textContent = this.value">
+            </div>
+
+            ${this.centerPoint ? `
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Center point set at (${this.centerPoint.x.toFixed(1)}, ${this.centerPoint.y.toFixed(1)})
+            </div>
+            ` : ''}
+
+            ${this.isDrawing ? `
+            <div class="alert alert-warning">
+                <i data-lucide="mouse"></i>
+                Drag to set radius, then release to create polygon
+            </div>
+            ` : ''}
+        `;
+    }
+
+    onPropertiesChanged(data) {
+        // Update our properties with the new values
+        this.properties = { ...this.properties, ...data };
+
+        // Convert string values to numbers
+        this.properties.sides = parseInt(this.properties.sides);
+        this.properties.radius = parseFloat(this.properties.radius);
+
+        // If we have a center point and we're not currently drawing, create immediately
+        if (this.centerPoint && !this.isDrawing) {
+            this.createPolygon(this.centerPoint, this.properties.sides, this.properties.radius * viewScale);
+            this.centerPoint = null;
+            this.setHelpStep(3); // Show completion message
+        }
+        super.onPropertiesChanged(data);
+    }
+
+    // Help System Interface
+    getHelpSteps() {
+        return [
+            'Set the number of sides in the properties panel above',
+            'Click on the canvas to set the center point of the polygon',
+            'Drag outward to set the radius, then release to create',
+            'Polygon created! Adjust properties or click Done to finish'
+        ];
+    }
+
+    // Drawing
+    draw(ctx) {
+        if (this.isDrawing && this.centerPoint) {
+            // Draw preview polygon while dragging
+            const points = [];
+            const sides = parseInt(this.properties.sides);
+            const angle = 360 / sides;
+
+            for (let i = 0; i < sides; i++) {
+                const thisAngle = angle * i * (Math.PI / 180);
+                const x = this.centerPoint.x + (this.properties.radius * viewScale) * Math.cos(thisAngle);
+                const y = this.centerPoint.y + (this.properties.radius * viewScale) * Math.sin(thisAngle);
+                points.push({x: x, y: y});
+            }
+
+            // Draw preview
+            ctx.save();
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            for (let i = 0; i < points.length; i++) {
+                if (i === 0) {
+                    ctx.moveTo(points[i].x, points[i].y);
+                } else {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+            }
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+
+            // Draw center point
+            ctx.save();
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(this.centerPoint.x, this.centerPoint.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.restore();
+        }
     }
 }
 
