@@ -991,7 +991,14 @@ function updateTextPathsInPlace(textPaths, font, data) {
 
     // Create new text paths using the same logic as the original text tool
     let currentX = x;
-    let fontSizeScaled = Math.round(4 * fontSize * svgscale);
+
+    // Calculate proper font size based on capital letter height
+    // Use a reference character (capital 'H') to determine actual scaling needed
+    const referenceChar = font.charToGlyph('H');
+    const referenceBBox = referenceChar.getBoundingBox();
+    const referenceHeight = referenceBBox.y2 - referenceBBox.y1;
+    const scaleFactor = font.unitsPerEm / referenceHeight;
+    let fontSizeScaled = fontSize * viewScale * scaleFactor;
     let pathIdCounter = 0; // Track which original ID to reuse
 
     const chars = text.split('');

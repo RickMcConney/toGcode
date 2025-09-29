@@ -201,6 +201,7 @@ class Text extends Operation {
                 return;
             }
             else {
+
                 this.createTextPath(font, text, x, y, sizeInMM, fontname);
                 redraw();
             }
@@ -211,7 +212,14 @@ class Text extends Operation {
     createTextPath(font, text, x, y, sizeInMM, fontname) {
         // Process each character separately
         let currentX = x;
-        let fontSize = Math.round(4*sizeInMM*svgscale);
+
+        // Calculate proper font size based on capital letter height
+        // Use a reference character (capital 'H') to determine actual scaling needed
+        const referenceChar = font.charToGlyph('H');
+        const referenceBBox = referenceChar.getBoundingBox();
+        const referenceHeight = referenceBBox.y2 - referenceBBox.y1;
+        const scaleFactor = font.unitsPerEm / referenceHeight;
+        let fontSize = sizeInMM * viewScale * scaleFactor;
 
         // Split text into individual characters
         const chars = text.split('');

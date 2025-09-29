@@ -317,6 +317,10 @@ function newParseSvgContent(data) {
 			console.log("Adobe 72")
 			pixelsPerInch = 72;
 		}
+		else if (data.indexOf("woodgears.ca") >= 0) {
+			console.log("Woodgears 254")
+			pixelsPerInch = 254; // 100 pixels per mm
+		}
 		else {
 			console.log("Inkscape 92")
 			pixelsPerInch = 96;
@@ -351,7 +355,7 @@ function newParseSvgContent(data) {
 				// Transform from viewBox coordinates to screen coordinates
 				var scaleX = width / viewBoxCoords.width;
 				var scaleY = height / viewBoxCoords.height;
-				console.log(scaleX, scaleY);
+
 				scaleX = 1;
 				scaleY = 1;
 				return {
@@ -399,14 +403,15 @@ function newParseSvgContent(data) {
 			var points = polygonEl.getAttribute('points');
 			if (points) {
 				try {
-					console.log('Creating polygon from points:', points.substring(0, 50) + '...');
+					
 					var paperPolygon = new paper.Path();
-					var pointPairs = points.trim().split(/\s+/);
-					for (var j = 0; j < pointPairs.length; j++) {
-						var coords = pointPairs[j].split(',');
-						if (coords.length >= 2) {
-							var rawX = parseFloat(coords[0]);
-							var rawY = parseFloat(coords[1]);
+
+					// Handle both comma-separated and space-separated coordinate formats
+					var pointValues = points.trim().split(/[\s,]+/);
+					for (var j = 0; j < pointValues.length; j += 2) {
+						if (j + 1 < pointValues.length) {
+							var rawX = parseFloat(pointValues[j]);
+							var rawY = parseFloat(pointValues[j + 1]);
 							var transformed = transformCoordinates(rawX, rawY);
 							if (j === 0) {
 								paperPolygon.moveTo(transformed.x, transformed.y);
@@ -416,7 +421,7 @@ function newParseSvgContent(data) {
 						}
 					}
 					paperPolygon.closePath();
-					console.log('Polygon created:', paperPolygon);
+					
 					var convertedPaths = newTransformFromPaperPath(paperPolygon, "Poly");
 					paths = paths.concat(convertedPaths);
 				} catch (polygonError) {
@@ -433,12 +438,13 @@ function newParseSvgContent(data) {
 			var points = polylineEl.getAttribute('points');
 			if (points) {
 				var paperPolyline = new paper.Path();
-				var pointPairs = points.trim().split(/\s+/);
-				for (var j = 0; j < pointPairs.length; j++) {
-					var coords = pointPairs[j].split(',');
-					if (coords.length >= 2) {
-						var rawX = parseFloat(coords[0]);
-						var rawY = parseFloat(coords[1]);
+
+				// Handle both comma-separated and space-separated coordinate formats
+				var pointValues = points.trim().split(/[\s,]+/);
+				for (var j = 0; j < pointValues.length; j += 2) {
+					if (j + 1 < pointValues.length) {
+						var rawX = parseFloat(pointValues[j]);
+						var rawY = parseFloat(pointValues[j + 1]);
 						var transformed = transformCoordinates(rawX, rawY);
 						if (j === 0) {
 							paperPolyline.moveTo(transformed.x, transformed.y);
