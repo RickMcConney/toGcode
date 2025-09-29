@@ -6,9 +6,14 @@
 class Polygon extends Operation {
     constructor() {
         super("Polygon", "fa fa-star-o");
+
+        // Try to load saved properties, fall back to defaults
+        const savedSides = getOption("polygonSides") || 6;
+        const savedRadius = getOption("polygonRadius") || 10;
+
         this.properties = {
-            sides: 6,
-            radius: 10
+            sides: savedSides,
+            radius: savedRadius
         };
         this.centerPoint = null;
         this.isDrawing = false;
@@ -100,10 +105,13 @@ class Polygon extends Operation {
     onMouseMove(canvas, evt) {
         if (this.isDrawing && this.centerPoint) {
             var mouse = this.normalizeEvent(canvas, evt);
-            // Calculate radius from center to mouse
+            // Calculate radius from center to mouse in world coordinates
             const dx = mouse.x - this.centerPoint.x;
             const dy = mouse.y - this.centerPoint.y;
-            this.properties.radius = Math.sqrt(dx * dx + dy * dy) / viewScale;
+            this.worldRadius = Math.sqrt(dx * dx + dy * dy);
+
+            // Convert to mm for properties display
+            this.properties.radius = this.worldRadius / viewScale;
 
             // Update the properties display if visible
             const radiusInput = document.getElementById('polygon-radius');
@@ -117,8 +125,9 @@ class Polygon extends Operation {
 
     onMouseUp(canvas, evt) {
         if (this.isDrawing && this.centerPoint) {
-            // Create the polygon using current properties
-            this.createPolygon(this.centerPoint, parseInt(this.properties.sides), this.properties.radius * viewScale);
+            // Create the polygon using current UI values
+            const currentProps = this.getCurrentProperties();
+            this.createPolygon(this.centerPoint, currentProps.sides, this.properties.radius * viewScale);
             this.isDrawing = false;
             this.centerPoint = null;
             this.nextHelpStep(); // Move to completion step
@@ -128,13 +137,29 @@ class Polygon extends Operation {
 
     createPolygon(center, numSides, radius) {
         const points = [];
-        const angle = 360 / numSides;
 
-        for (let i = 0; i < numSides; i++) {
-            const thisAngle = angle * i * (Math.PI / 180); // Convert to radians
-            const x = center.x + radius * Math.cos(thisAngle);
-            const y = center.y + radius * Math.sin(thisAngle);
-            points.push({x:x, y:y});
+        if (numSides % 2 === 1) {
+            // Odd-sided polygons: put one point at the bottom
+            const angleStep = (2 * Math.PI) / numSides;
+            const startAngle = -Math.PI / 2; // Start with a point at bottom (flip 180 degrees from 90)
+
+            for (let i = 0; i < numSides; i++) {
+                const angle = startAngle + (i * angleStep);
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                points.push({x: x, y: y});
+            }
+        } else {
+            // Even-sided polygons: put an edge at the bottom
+            const angleStep = (2 * Math.PI) / numSides;
+            const startAngle = -Math.PI / 2 + (angleStep / 2); // Flip 180 degrees and offset so edge is at bottom
+
+            for (let i = 0; i < numSides; i++) {
+                const angle = startAngle + (i * angleStep);
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                points.push({x: x, y: y});
+            }
         }
         points.push(points[0]); // Close the polygon
 
@@ -164,25 +189,41 @@ class Polygon extends Operation {
 
         svgpathId++;
         redraw();
+    }
 
-        // Show properties panel for the newly created polygon
-        setTimeout(() => {
-            // Switch to draw tools tab and show properties
-            const drawToolsTab = document.getElementById('draw-tools-tab');
-            const drawToolsPane = document.getElementById('draw-tools');
+    // Helper method to get current property values from UI
+    getCurrentProperties() {
+        const sidesInput = document.getElementById('polygon-sides');
+        const radiusInput = document.getElementById('polygon-radius');
 
-            document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+        // If inputs exist, use their values
+        // Otherwise use current properties (which may have been updated from UI)
+        // Finally fall back to saved options
+        const sides = sidesInput ? parseInt(sidesInput.value) :
+                     (this.properties.sides || getOption("polygonSides") || 6);
+        const radius = radiusInput ? parseFloat(radiusInput.value) :
+                      (this.properties.radius || getOption("polygonRadius") || 10);
 
-            drawToolsTab.classList.add('active');
-            drawToolsPane.classList.add('show', 'active');
+        return { sides, radius };
+    }
 
-            showPathPropertiesEditor(svgPath);
-        }, 100);
+    // Lifecycle methods
+    start() {
+        // Refresh saved properties when tool is activated
+        const savedSides = getOption("polygonSides") || 6;
+        const savedRadius = getOption("polygonRadius") || 10;
+
+        this.properties.sides = savedSides;
+        this.properties.radius = savedRadius;
+
+        super.start();
     }
 
     // Properties Editor Interface
     getPropertiesHTML() {
+        // Get current values from UI if available, otherwise use properties
+        const currentProps = this.getCurrentProperties();
+
         return `
             <div class="mb-3">
                 <label for="polygon-sides" class="form-label">Number of Sides</label>
@@ -192,11 +233,11 @@ class Polygon extends Operation {
                        name="sides"
                        min="3"
                        max="20"
-                       value="${this.properties.sides}">
+                       value="${currentProps.sides}">
             </div>
 
             <div class="mb-3">
-                <label for="polygon-radius" class="form-label">Radius: <span id="polygon-radius-value">${this.properties.radius.toFixed(1)}</span>mm</label>
+                <label for="polygon-radius" class="form-label">Radius: <span id="polygon-radius-value">${currentProps.radius.toFixed(1)}</span>mm</label>
                 <input type="range"
                        class="form-range"
                        id="polygon-radius"
@@ -204,7 +245,7 @@ class Polygon extends Operation {
                        min="1"
                        max="50"
                        step="0.1"
-                       value="${this.properties.radius}"
+                       value="${currentProps.radius}"
                        oninput="document.getElementById('polygon-radius-value').textContent = this.value">
             </div>
 
@@ -232,9 +273,19 @@ class Polygon extends Operation {
         this.properties.sides = parseInt(this.properties.sides);
         this.properties.radius = parseFloat(this.properties.radius);
 
+        // Save properties for future polygon instances
+        setOption("polygonSides", this.properties.sides);
+        setOption("polygonRadius", this.properties.radius);
+
+        // If we're currently drawing, update the preview immediately
+        if (this.isDrawing && this.centerPoint) {
+            redraw();
+        }
+
         // If we have a center point and we're not currently drawing, create immediately
         if (this.centerPoint && !this.isDrawing) {
-            this.createPolygon(this.centerPoint, this.properties.sides, this.properties.radius * viewScale);
+            const currentProps = this.getCurrentProperties();
+            this.createPolygon(this.centerPoint, currentProps.sides, currentProps.radius * viewScale);
             this.centerPoint = null;
             this.setHelpStep(3); // Show completion message
         }
@@ -254,17 +305,40 @@ class Polygon extends Operation {
     // Drawing
     draw(ctx) {
         if (this.isDrawing && this.centerPoint) {
-            // Draw preview polygon while dragging
-            const points = [];
-            const sides = parseInt(this.properties.sides);
-            const angle = 360 / sides;
+            // Draw preview polygon while dragging - work in world coordinates then convert to screen
+            const worldPoints = [];
+            // Get current sides value from UI, not from saved properties
+            const currentProps = this.getCurrentProperties();
+            const sides = currentProps.sides;
+            // Use the world radius for calculations
+            const radiusInWorldUnits = this.worldRadius || 0;
 
-            for (let i = 0; i < sides; i++) {
-                const thisAngle = angle * i * (Math.PI / 180);
-                const x = this.centerPoint.x + (this.properties.radius * viewScale) * Math.cos(thisAngle);
-                const y = this.centerPoint.y + (this.properties.radius * viewScale) * Math.sin(thisAngle);
-                points.push({x: x, y: y});
+            if (sides % 2 === 1) {
+                // Odd-sided polygons: put one point at the bottom
+                const angleStep = (2 * Math.PI) / sides;
+                const startAngle = -Math.PI / 2; // Start with a point at bottom (flip 180 degrees)
+
+                for (let i = 0; i < sides; i++) {
+                    const angle = startAngle + (i * angleStep);
+                    const worldX = this.centerPoint.x + radiusInWorldUnits * Math.cos(angle);
+                    const worldY = this.centerPoint.y + radiusInWorldUnits * Math.sin(angle);
+                    worldPoints.push({x: worldX, y: worldY});
+                }
+            } else {
+                // Even-sided polygons: put an edge at the bottom
+                const angleStep = (2 * Math.PI) / sides;
+                const startAngle = -Math.PI / 2 + (angleStep / 2); // Flip 180 degrees and offset so edge is at bottom
+
+                for (let i = 0; i < sides; i++) {
+                    const angle = startAngle + (i * angleStep);
+                    const worldX = this.centerPoint.x + radiusInWorldUnits * Math.cos(angle);
+                    const worldY = this.centerPoint.y + radiusInWorldUnits * Math.sin(angle);
+                    worldPoints.push({x: worldX, y: worldY});
+                }
             }
+
+            // Convert world points to screen coordinates for drawing
+            const screenPoints = worldPoints.map(point => worldToScreen(point.x, point.y));
 
             // Draw preview
             ctx.save();
@@ -272,22 +346,23 @@ class Polygon extends Operation {
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
-            for (let i = 0; i < points.length; i++) {
+            for (let i = 0; i < screenPoints.length; i++) {
                 if (i === 0) {
-                    ctx.moveTo(points[i].x, points[i].y);
+                    ctx.moveTo(screenPoints[i].x, screenPoints[i].y);
                 } else {
-                    ctx.lineTo(points[i].x, points[i].y);
+                    ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
                 }
             }
             ctx.closePath();
             ctx.stroke();
             ctx.restore();
 
-            // Draw center point
+            // Draw center point (convert from world coordinates to screen coordinates)
+            const centerScreen = worldToScreen(this.centerPoint.x, this.centerPoint.y);
             ctx.save();
             ctx.fillStyle = '#ff0000';
             ctx.beginPath();
-            ctx.arc(this.centerPoint.x, this.centerPoint.y, 3, 0, 2 * Math.PI);
+            ctx.arc(centerScreen.x, centerScreen.y, 3, 0, 2 * Math.PI);
             ctx.fill();
             ctx.restore();
         }

@@ -1,7 +1,8 @@
 // --- Virtual coordinate system for zoom/pan ---
 var zoomLevel = .5; // initial zoom
-var panX = -150;
-var panY = -150;
+var panX = 0; // will be calculated dynamically by centerWorkpiece()
+var panY = 0; // will be calculated dynamically by centerWorkpiece()
+var origin = { x: 0, y: 0 }; // origin in virtual coordinates
 
 function worldToScreen(x, y) {
 	return {
@@ -33,7 +34,39 @@ function newZoom(delta, centerX, centerY) {
 	var world = screenToWorld(centerX, centerY);
 	panX = centerX - world.x * zoomLevel;
 	panY = centerY - world.y * zoomLevel;
+
+	// Update properties panel if Pan tool is currently active
+	if (typeof cncController !== 'undefined' &&
+		cncController.operationManager &&
+		cncController.operationManager.currentOperation &&
+		cncController.operationManager.currentOperation.name === 'Pan' &&
+		typeof cncController.operationManager.currentOperation.updatePropertiesPanel === 'function') {
+		cncController.operationManager.currentOperation.updatePropertiesPanel();
+	}
+
 	redraw();
+}
+
+// Function to automatically center the workpiece in the canvas viewport
+function centerWorkpiece() {
+	// Get canvas dimensions
+	const canvasCenter = getCanvasCenter();
+
+	// Get workpiece dimensions from options
+	const workpieceWidth = getOption("workpieceWidth") * viewScale;
+	const workpieceLength = getOption("workpieceLength") * viewScale;
+
+	// Calculate pan values to center the workpiece
+	// The workpiece center should appear at the canvas center
+	// Using transform: screenX = worldX * zoomLevel + panX
+	// To center: canvasCenter.x = (workpieceWidth/2) * zoomLevel + panX
+	// Therefore: panX = canvasCenter.x - (workpieceWidth/2) * zoomLevel
+	panX = canvasCenter.x - (workpieceWidth / 2) * zoomLevel;
+	panY = canvasCenter.y - (workpieceLength / 2) * zoomLevel;
+
+
+
+	console.log(`Centering workpiece: canvas(${canvasCenter.x}, ${canvasCenter.y}), workpiece(${workpieceWidth}, ${workpieceLength}), zoom(${zoomLevel}), pan(${panX.toFixed(1)}, ${panY.toFixed(1)})`);
 }
 
 
@@ -74,41 +107,9 @@ function getCanvasCenter() {
 	};
 }
 
-// Function to update center values
-function updateCanvasCenter() {
-	var center = getCanvasCenter();
-	var oldXcenter = Xcenter;
-	var oldYcenter = Ycenter;
 
-	Xcenter = center.x;
-	Ycenter = center.y;
 
-	if (!origin) {
-		origin = { x: Xcenter, y: Ycenter };
-	} else {
-		// Only update origin if it's still at the old center position
-		// This preserves user-set origin points
-		if (Math.abs(origin.x - oldXcenter) < 10 && Math.abs(origin.y - oldYcenter) < 10) {
-			origin.x = Xcenter;
-			origin.y = Ycenter;
-		}
-	}
-	const width = getOption("workpieceWidth")*viewScale;
-	const length = getOption("workpieceLength")*viewScale;
-	origin.x = width/2;
-	origin.y = length/2;
-}
 
-// Use dynamic center calculation
-var Xcenter = getCanvasCenter().x;
-var Ycenter = getCanvasCenter().y;
-var origin = { x: Xcenter, y: Ycenter };
-
-// Add window resize listener to update center when viewport changes
-//window.addEventListener('resize', function () {
-//	updateCanvasCenter();
-//	redraw();
-//});
 
 var toolpathId = 1;
 var svgpathId = 1;
@@ -151,26 +152,15 @@ canvas.addEventListener('mousewheel', function(evt) {
 	evt.preventDefault();
 }, { passive: false });
 
-function newnormalizeEventCoords(target, e) {
-	const rect = canvas.getBoundingClientRect();
-	const x = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
-	const y = Math.round((e.clientY - rect.top) * (canvas.height / rect.height));
-	return { x, y };
-}
-
-function normalizeEventCoords(target, e) {
-
-	if (!e) { e = self.event; }
-	var x = 0;
-	var y = 0;
-	var rect = canvas.getBoundingClientRect();
-
-	x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
-	y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
-
-
-	return { x: (x - target.offsetLeft - offsetX) / scaleFactor, y: (y - target.offsetTop - offsetY) / scaleFactor };
-}
+// Add window resize handler to re-center workpiece when viewport changes
+window.addEventListener('resize', function() {
+	// Debounce resize events to avoid excessive recalculations
+	clearTimeout(window.resizeTimeout);
+	window.resizeTimeout = setTimeout(function() {
+		centerWorkpiece();
+		redraw();
+	}, 150);
+});
 
 function handleScroll(evt) {
 	var mouse = normalizeEventCoords(canvas, evt);
@@ -182,33 +172,7 @@ function handleScroll(evt) {
 	return evt.preventDefault() && false;
 };
 
-function zoom(clicks, zoomX, zoomY) {
 
-	var oldScale = scaleFactor;
-	if (clicks > 0 && scaleFactor < 50) scaleFactor += 0.1;
-	else if (clicks < 0 && scaleFactor > 0.2) scaleFactor -= 0.1;
-
-	var zx = zoomX - offsetX;
-	var zy = zoomY - offsetY;
-
-
-	var px = zx / oldScale;
-	var py = zy / oldScale;
-
-
-	var nx = zx / scaleFactor;
-	var ny = zy / scaleFactor;
-
-	var dx = nx - px;
-	var dy = ny - py;
-
-
-	offsetX += dx * scaleFactor;
-	offsetY += dy * scaleFactor;
-
-	redraw();
-
-}
 
 function unselectAll() {
 	for (var i = 0; i < svgpaths.length; i++) {
@@ -758,14 +722,7 @@ function parseSvgContent(data) {
 
 
 
-function olddrawMarker(x, y) {
-	ctx.beginPath();
-	ctx.rect(x - 2, y - 2, 4, 4);
-	ctx.fillStyle = 'black';
-	ctx.fill();
-	ctx.strokeStyle = '#888';
-	ctx.stroke();
-}
+
 
 function drawMarker(x, y) {
 	ctx.beginPath();
@@ -790,15 +747,6 @@ function clear() {
 
 
 
-function olddrawLine(norm, color) {
-	ctx.beginPath();
-	ctx.moveTo(norm.x1, norm.y1);
-	ctx.lineTo(norm.x2, norm.y2);
-	ctx.strokeStyle = color;
-	ctx.lineWidth = 0.1;
-	ctx.stroke();
-}
-
 function drawLine(norm, color) {
 	ctx.beginPath();
 	var p1 = worldToScreen(norm.x1, norm.y1);
@@ -810,14 +758,6 @@ function drawLine(norm, color) {
 	ctx.stroke();
 }
 
-
-
-function olddrawNorms(norms) {
-	for (var i = 0; i < norms.length; i++) {
-		var norm = norms[i];
-		olddrawLine(norm, '#0000ff');
-	}
-}
 
 function drawNorms(norms) {
 	for (var i = 0; i < norms.length; i++) {
@@ -837,24 +777,6 @@ function isClockwise(path) {
 }
 
 
-
-function olddrawSvgPath(svgpath, color, lineWidth) {
-	ctx.beginPath();
-	ctx.lineCap = 'round';
-	ctx.lineJoin = 'round';
-	var path = svgpath.path;
-	for (var j = 0; j < path.length; j++) {
-		var point = path[j];
-		if (j == 0) {
-			ctx.moveTo(point.x, point.y);
-		} else {
-			ctx.lineTo(point.x, point.y);
-		}
-	}
-	ctx.lineWidth = lineWidth;
-	ctx.strokeStyle = color;
-	ctx.stroke();
-}
 
 function drawSvgPath(svgpath, color, lineWidth) {
 	ctx.beginPath();
@@ -878,23 +800,6 @@ function drawSvgPath(svgpath, color, lineWidth) {
 
 
 
-function olddrawPath(path, color, lineWidth) {
-	ctx.beginPath();
-	ctx.lineCap = 'round';
-	ctx.lineJoin = 'round';
-	for (var j = 0; j < path.length; j++) {
-		var point = path[j];
-		if (j == 0) {
-			ctx.moveTo(point.x, point.y);
-		} else {
-			ctx.lineTo(point.x, point.y);
-		}
-	}
-	ctx.lineWidth = lineWidth;
-	ctx.strokeStyle = color;
-	ctx.stroke();
-}
-
 function drawPath(path, color, lineWidth) {
 	ctx.beginPath();
 	ctx.lineCap = 'round';
@@ -916,19 +821,6 @@ function drawPath(path, color, lineWidth) {
 
 
 
-function olddrawDebug() {
-	for (var i = 0; i < debug.length; i++) {
-		ctx.beginPath();
-		ctx.moveTo(debug[i].p.x, debug[i].p.y);
-		ctx.lineTo(debug[i].s.x, debug[i].s.y);
-		ctx.moveTo(debug[i].p.x, debug[i].p.y);
-		ctx.lineTo(debug[i].e.x, debug[i].e.y);
-		ctx.strokeStyle = '#00ffff';
-		ctx.lineWidth = 1;
-		ctx.stroke();
-	}
-}
-
 function drawDebug() {
 	for (var i = 0; i < debug.length; i++) {
 		ctx.beginPath();
@@ -946,33 +838,6 @@ function drawDebug() {
 }
 
 
-// Preserve original drawGrid as olddrawGrid
-function olddrawGrid() {
-	ctx.beginPath();
-	const maxX = getOption("tableLength") / 2;
-	const maxY = getOption("tableWidth") / 2;
-
-	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
-		ctx.moveTo(-maxX + origin.x, y + origin.y);
-		ctx.lineTo(maxX + origin.x, y + origin.y);
-	}
-	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
-		ctx.moveTo(x + origin.x, -maxY + origin.y);
-		ctx.lineTo(x + origin.x, maxY + origin.y);
-	}
-
-	ctx.lineWidth = 0.5;
-	ctx.strokeStyle = lineColor;
-	ctx.stroke();
-
-	ctx.fillStyle = "blue";
-	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
-		ctx.fillText((-y / viewScale), origin.x + 2, y + origin.y - 2);
-	}
-	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
-		ctx.fillText((x / viewScale), x + origin.x + 2, origin.y - 2);
-	}
-}
 
 // New drawGrid using virtual coordinates
 function drawGrid() {
@@ -987,7 +852,8 @@ function drawGrid() {
 	var topLeft = worldToScreen(startX, startY);
 	var bottomRight = worldToScreen(width, length);
 	let o = worldToScreen(origin.x, origin.y);
-	let grid = 10*viewScale*zoomLevel;
+	let gridSize = (typeof getOption !== 'undefined' && getOption("gridSize")) ? getOption("gridSize") : 10;
+	let grid = gridSize*viewScale*zoomLevel;
 
 
 
@@ -1009,52 +875,14 @@ function drawGrid() {
 		ctx.moveTo(x, topLeft.y);
 		ctx.lineTo(x, bottomRight.y);
 	}
-	ctx.lineWidth = 0.1;
+	ctx.lineWidth = 0.25;
 	ctx.strokeStyle = lineColor;
 	ctx.stroke();
 
-	ctx.fillStyle = "blue";
-	// Draw Y axis labels on the origin's X axis
-	let l =0;
-	for (var y = o.y; y <= bottomRight.y; y += grid) {		
-		ctx.fillText(-l, o.x + 2, y - 2);
-		l += 10;
-	}
-	l = 0;
-	for (var y = o.y; y >= topLeft.y; y -= grid) {		
-		ctx.fillText(-l, o.x + 2, y - 2);
-		l -= 10;
-	}
-	// Draw vertical grid lines (covering negative and positive X)
-	l =0;
-	for (var x = o.x; x <= bottomRight.x; x += grid) {
-		
-		ctx.fillText(l, x + 2, o.y - 2)
-		l += 10;
-	}
-	l =0;
-	for (var x = o.x; x >= topLeft.x; x -= grid) {
-		
-		ctx.fillText(l, x + 2, o.y - 2)
-		l -= 10;
-	}
-
 }
 
 
 
-function olddrawOrigin() {
-	ctx.beginPath();
-	const maxX = getOption("tableLength") / 2;
-	const maxY = getOption("tableWidth") / 2;
-	ctx.moveTo(-maxX + origin.x, origin.y);
-	ctx.lineTo(maxX + origin.x, origin.y);
-	ctx.moveTo(origin.x, -maxY + origin.y);
-	ctx.lineTo(origin.x, maxY + origin.y);
-	ctx.lineWidth = 1;
-	ctx.strokeStyle = "#0000ff";
-	ctx.stroke();
-}
 
 function drawOrigin() {
 	ctx.beginPath();
@@ -1068,7 +896,8 @@ function drawOrigin() {
 	var topLeft = worldToScreen(startX, startY);
 	var bottomRight = worldToScreen(startX + width, startY + length);
 	let o = worldToScreen(origin.x, origin.y);
-	let grid = 10*viewScale*zoomLevel;
+	let gridSize = (typeof getOption !== 'undefined' && getOption("gridSize")) ? getOption("gridSize") : 10;
+	let grid = gridSize*viewScale*zoomLevel;
 
 	let offsetx = 0;
 	let offsety = 0;
@@ -1084,6 +913,49 @@ function drawOrigin() {
 	ctx.lineWidth = 1;
 	ctx.strokeStyle = "#0000ff";
 	ctx.stroke();
+
+	// Draw axis numbers - use 10mm intervals if grid size is less than 10mm, otherwise use grid size
+	ctx.fillStyle = "blue";
+	ctx.font = "12px Arial";
+
+	let numberInterval = gridSize < 10 ? 10 : gridSize;
+	let numberGrid = numberInterval * viewScale * zoomLevel;
+
+	// Draw Y axis labels (vertical positions)
+	let label = 0;
+	for (var y = o.y; y <= bottomRight.y; y += numberGrid) {
+		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
+			ctx.fillText(-label, o.x + 2, y - 2);
+		}
+		label += numberInterval;
+	}
+	label = 0;
+	for (var y = o.y; y >= topLeft.y; y -= numberGrid) {
+		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
+			ctx.fillText(-label, o.x + 2, y - 2);
+		}
+		label -= numberInterval;
+	}
+
+	// Draw X axis labels (horizontal positions)
+	label = 0;
+	for (var x = o.x; x <= bottomRight.x; x += numberGrid) {
+		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
+			ctx.fillText(label, x + 2, o.y - 2);
+		}
+		label += numberInterval;
+	}
+	label = 0;
+	for (var x = o.x; x >= topLeft.x; x -= numberGrid) {
+		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
+			ctx.fillText(label, x + 2, o.y - 2);
+		}
+		label -= numberInterval;
+	}
+
+	// Draw origin marker (0,0)
+	ctx.fillStyle = "red";
+	ctx.fillText("0", o.x + 2, o.y - 2);
 }
 
 function redraw() {
@@ -1101,9 +973,9 @@ function redraw() {
 	if (getOption("showWorkpiece"))
 		drawWorkpiece();
 	// Hide grid during simulation for clearer visualization
-	if (getOption("Grid") && !simulationState.isRunning)
+	if (getOption("showGrid") && !simulationState.isRunning)
 		drawGrid();
-	if (getOption("Origin"))
+	if (getOption("showOrigin"))
 		drawOrigin();
 	drawSvgPaths();
 	drawToolPaths();
@@ -1121,25 +993,6 @@ function redraw() {
 }
 
 
-
-function olddrawWorkpiece() {
-	var width = getOption("workpieceWidth") * viewScale;
-	var length = getOption("workpieceLength") * viewScale;
-	var woodSpecies = getOption("woodSpecies");
-	var woodColor = '#F5DEB3';
-	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
-		woodColor = woodSpeciesDatabase[woodSpecies].color;
-	}
-	var startX = Xcenter - width / 2;
-	var startY = Ycenter - length / 2;
-	ctx.beginPath();
-	ctx.rect(startX, startY, width, length);
-	ctx.fillStyle = woodColor;
-	ctx.fill();
-	ctx.strokeStyle = "#888888";
-	ctx.lineWidth = 0.5;
-	ctx.stroke();
-}
 
 function drawWorkpiece() {
 	var width = getOption("workpieceWidth") * viewScale;
@@ -1826,8 +1679,7 @@ function center() {
 	offsetY = 0;
 
 
-	// Update center values dynamically
-	updateCanvasCenter();
+
 }
 
 function addUndo(toolPathschanged = false, svgPathsChanged = false, originChanged = false) {
@@ -1981,7 +1833,35 @@ function loadProject(json) {
 	redraw();
 }
 
+// Calculate origin coordinates based on position and workpiece dimensions
+function calculateOriginFromPosition(position, width, length) {
+	switch (position) {
+		case 'top-left':
+			return { x: 0, y: 0 };
+		case 'top-center':
+			return { x: width / 2, y: 0 };
+		case 'top-right':
+			return { x: width, y: 0 };
+		case 'middle-left':
+			return { x: 0, y: length / 2 };
+		case 'middle-center':
+			return { x: width / 2, y: length / 2 };
+		case 'middle-right':
+			return { x: width, y: length / 2 };
+		case 'bottom-left':
+			return { x: 0, y: length };
+		case 'bottom-center':
+			return { x: width / 2, y: length };
+		case 'bottom-right':
+			return { x: width, y: length };
+		default:
+			return { x: width / 2, y: length / 2 };
+	}
+}
+
 function newProject() {
+
+
 
 	toolpathId = 1;
 	svgpathId = 1;
@@ -1995,11 +1875,19 @@ function newProject() {
 	clearToolPaths();
 	clearSvgPaths();
 
-	// Ensure canvas center is calculated correctly
-	center();
+	// Center the workpiece in the canvas viewport
+	centerWorkpiece();
 	cncController.setMode("Select");
 	loadOptions();
 	loadTools();
+	const width = getOption("workpieceWidth")*viewScale;
+	const length = getOption("workpieceLength")*viewScale;
+	const originPosition = getOption("originPosition") || 'middle-center';
+
+	// Calculate origin based on saved position preference
+	const originCoords = calculateOriginFromPosition(originPosition, width, length);
+	origin.x = originCoords.x;
+	origin.y = originCoords.y;
 
 	redraw();
 }
@@ -2298,6 +2186,10 @@ function doCenter() {
 
 function doOrigin() {
 	cncController.setMode("Origin");
+}
+
+function doWorkpiece() {
+	cncController.setMode("Workpiece");
 }
 
 function doPan() {
@@ -3246,21 +3138,6 @@ function updateStatusWithSimulation(currentTime, totalTime) {
 
 
 
-function olddrawTravelMoves() {
-	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
-	ctx.save();
-	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
-	ctx.lineWidth = 1;
-	ctx.setLineDash([5, 5]);
-	for (let i = 0; i < simulationState.travelMoves.length; i++) {
-		const move = simulationState.travelMoves[i];
-		ctx.beginPath();
-		ctx.moveTo(move.fromX, move.fromY);
-		ctx.lineTo(move.toX, move.toY);
-		ctx.stroke();
-	}
-	ctx.restore();
-}
 
 function drawTravelMoves() {
 	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
@@ -3282,35 +3159,6 @@ function drawTravelMoves() {
 
 
 
-function olddrawMaterialRemoval() {
-	if (materialRemovalPoints.length === 0) return;
-	ctx.save();
-	ctx.globalCompositeOperation = 'multiply';
-	for (let i = 0; i < materialRemovalPoints.length; i++) {
-		const point = materialRemovalPoints[i];
-		ctx.beginPath();
-		ctx.arc(point.x, point.y, point.radius, 0, 2 * Math.PI);
-		if (point.isActualGcodePoint) {
-			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
-			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
-			} else {
-				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)';
-			}
-		} else {
-			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)';
-			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)';
-			} else {
-				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)';
-			}
-		}
-		ctx.fill();
-	}
-	ctx.restore();
-}
 
 function drawMaterialRemoval() {
 	if (materialRemovalPoints.length === 0) return;

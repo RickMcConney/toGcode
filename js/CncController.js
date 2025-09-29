@@ -8,6 +8,7 @@ class CncController {
     
     // Register all operations
     this.operationManager.registerOperation(new Select());
+    this.operationManager.registerOperation(new Workpiece());
     this.operationManager.registerOperation(new Origin());
     this.operationManager.registerOperation(new Pan());
     this.operationManager.registerOperation(new Transform());

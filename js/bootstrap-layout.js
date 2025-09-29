@@ -80,8 +80,8 @@ function loadOptions() {
         options = JSON.parse(optionData);
     } else {
         options = [
-            { recid: 1, option: 'Grid', value: true, desc: 'Show Grid' },
-            { recid: 2, option: 'Origin', value: true, desc: 'Show Origin' },
+            { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid' },
+            { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin' },
             { recid: 3, option: 'Inches', value: false, desc: 'Display Inches' },
             { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
             { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
@@ -91,10 +91,12 @@ function loadOptions() {
             { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)' },
             { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
             { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
-            { recid: 12, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
-            { recid: 13, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
-            { recid: 14, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
-            { recid: 15, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+            { recid: 12, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
+            { recid: 13, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
+            { recid: 14, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
+            { recid: 15, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
+            { recid: 16, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
+            { recid: 17, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
 
         ];
     }
@@ -287,6 +289,9 @@ function createSidebar() {
             <!-- Draw Tools Tab -->
             <div class="tab-pane fade show active h-100" id="draw-tools" role="tabpanel">
                 <div id="draw-tools-list" class="p-3">
+                    <div class="sidebar-item" data-operation="Workpiece" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure workpiece dimensions and material">
+                        <i data-lucide="package"></i>Workpiece
+                    </div>
                     <div class="sidebar-item" data-operation="Origin" data-bs-toggle="tooltip" data-bs-placement="right" title="Set the origin point">
                         <i data-lucide="crosshair"></i>Origin
                     </div>
@@ -425,7 +430,7 @@ function createSidebar() {
 
         if (operation) {
             // Check if this is a draw tool or operation
-            const isDrawTool = ['Select', 'Origin', 'Pan', 'Move', 'Pen', 'Polygon', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Pan', 'Move', 'Pen', 'Polygon', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -505,6 +510,10 @@ function showToolPropertiesEditor(operationName) {
                         if (inp.name) {
                             if (inp.type === 'checkbox') {
                                 data[inp.name] = inp.checked;
+                            } else if (inp.type === 'radio') {
+                                if (inp.checked) {
+                                    data[inp.name] = inp.value;
+                                }
                             } else {
                                 data[inp.name] = inp.value;
                             }
@@ -563,6 +572,10 @@ function showOperationPropertiesEditor(operationName) {
                         if (inp.name) {
                             if (inp.type === 'checkbox') {
                                 data[inp.name] = inp.checked;
+                            } else if (inp.type === 'radio') {
+                                if (inp.checked) {
+                                    data[inp.name] = inp.value;
+                                }
                             } else {
                                 data[inp.name] = inp.value;
                             }
@@ -851,16 +864,33 @@ function updatePolygonInPlace(path, data) {
     const newSides = parseInt(data.sides);
     const newRadius = parseFloat(data.radius);
 
-    // Generate new points for the polygon
+    // Generate new points for the polygon using same logic as polygon creation
     const center = path.creationProperties.center;
     const points = [];
-    const angle = 360 / newSides;
+    const radius = newRadius * viewScale;
 
-    for (let i = 0; i < newSides; i++) {
-        const thisAngle = angle * i * (Math.PI / 180);
-        const x = center.x + (newRadius * viewScale) * Math.cos(thisAngle);
-        const y = center.y + (newRadius * viewScale) * Math.sin(thisAngle);
-        points.push({x: x, y: y});
+    if (newSides % 2 === 1) {
+        // Odd-sided polygons: put one point at the bottom
+        const angleStep = (2 * Math.PI) / newSides;
+        const startAngle = -Math.PI / 2; // Start with a point at bottom (flip 180 degrees from 90)
+
+        for (let i = 0; i < newSides; i++) {
+            const angle = startAngle + (i * angleStep);
+            const x = center.x + radius * Math.cos(angle);
+            const y = center.y + radius * Math.sin(angle);
+            points.push({x: x, y: y});
+        }
+    } else {
+        // Even-sided polygons: put an edge at the bottom
+        const angleStep = (2 * Math.PI) / newSides;
+        const startAngle = -Math.PI / 2 + (angleStep / 2); // Flip 180 degrees and offset so edge is at bottom
+
+        for (let i = 0; i < newSides; i++) {
+            const angle = startAngle + (i * angleStep);
+            const x = center.x + radius * Math.cos(angle);
+            const y = center.y + radius * Math.sin(angle);
+            points.push({x: x, y: y});
+        }
     }
     points.push(points[0]); // Close the polygon
 
@@ -1439,26 +1469,32 @@ function renderOptionsTable() {
     const tbody = document.getElementById('options-table-body');
     tbody.innerHTML = '';
 
-    options.forEach((option, index) => {
+    // Filter out workpiece options that are now managed by the workpiece properties panel
+    const workpieceOptions = ['workpieceWidth', 'workpieceLength', 'workpieceThickness', 'woodSpecies', 'originPosition', 'showGrid', 'showOrigin', 'gridSize', 'showWorkpiece'];
+    const filteredOptions = options.filter(option => !workpieceOptions.includes(option.option));
+
+    filteredOptions.forEach((option, filteredIndex) => {
+        // Find the original index in the full options array for the change handler
+        const originalIndex = options.findIndex(opt => opt.option === option.option);
         const row = document.createElement('tr');
         let inputHtml = '';
         
         if (typeof option.value === 'boolean') {
             inputHtml = `<div class="form-check">
-                         <input type="checkbox" class="form-check-input" ${option.value ? 'checked' : ''} 
-                                data-option-index="${index}">
+                         <input type="checkbox" class="form-check-input" ${option.value ? 'checked' : ''}
+                                data-option-index="${originalIndex}">
                        </div>`;
         } else if (option.option === 'woodSpecies') {
-            // Create dropdown for wood species
-            const speciesOptions = Object.keys(woodSpeciesDatabase).map(species => 
+            // Create dropdown for wood species (this should never appear since woodSpecies is filtered out)
+            const speciesOptions = Object.keys(woodSpeciesDatabase).map(species =>
                 `<option value="${species}" ${option.value === species ? 'selected' : ''}>${species}</option>`
             ).join('');
-            inputHtml = `<select class="form-select" data-option-index="${index}">
+            inputHtml = `<select class="form-select" data-option-index="${originalIndex}">
                            ${speciesOptions}
                          </select>`;
         } else {
-            inputHtml = `<input type="number" class="form-control" value="${option.value}" 
-                              data-option-index="${index}" step="0.1">`;
+            inputHtml = `<input type="number" class="form-control" value="${option.value}"
+                              data-option-index="${originalIndex}" step="0.1">`;
         }
         
         row.innerHTML = `
@@ -1524,6 +1560,9 @@ function handleOperationClick(operation) {
             break;
         case 'Origin':
             doOrigin();
+            break;
+        case 'Workpiece':
+            doWorkpiece();
             break;
         case 'Pan':
             doPan();
@@ -1779,6 +1818,15 @@ function getOperationIcon(operation) {
 function getOption(name) {
     const option = options.find(opt => opt.option === name);
     return option ? option.value : false;
+}
+
+function setOption(name, value) {
+    const option = options.find(opt => opt.option === name);
+    if (option) {
+        option.value = value;
+        // Save to localStorage to persist the change
+        localStorage.setItem('options', JSON.stringify(options));
+    }
 }
 
 function freeToolId() {

@@ -255,6 +255,13 @@ class StepWiseHelpSystem {
                 'Uses V-bit to create tapered cuts',
                 'Deeper cuts create wider grooves',
                 'V-carve toolpath generated'
+            ],
+            'Workpiece': [
+                'Configure your workpiece dimensions: width, length, and thickness in millimeters',
+                'Select your wood species from the dropdown to optimize cutting parameters',
+                'Set the grid size and toggle display options (grid, origin, workpiece outline)',
+                'Choose the origin position by clicking on the 3x3 grid - this sets where (0,0) will be located',
+                'All changes update the canvas immediately and are saved automatically'
             ]
         };
 
