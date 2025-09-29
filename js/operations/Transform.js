@@ -99,7 +99,7 @@ class Transform extends Select {
             }
 
             this.transformStartPos = { x: mouse.x, y: mouse.y };
-            canvas.style.cursor = "grabbing";
+           //canvas.style.cursor = "grabbing";
             addUndo(false, true, false);
 
             if (this.activeHandle.type === 'rotate') {
@@ -321,7 +321,7 @@ class Transform extends Select {
         const hadSelectBox = this.selectBox; // Check if we were doing drag selection
         super.onMouseUp(canvas, evt);
         this.mouseDown = false;
-        canvas.style.cursor = "grab";
+        //canvas.style.cursor = "grab";
 
         if (this.hasSelectedPaths()) {
             this.transformBox = this.createTransformBox(svgpaths);
@@ -427,25 +427,34 @@ class Transform extends Select {
         ctx.strokeStyle = 'blue';
         ctx.lineWidth = 1;
 
-        // Rotate context around center point
-        ctx.translate(this.transformBox.centerX, this.transformBox.centerY);
+        // Rotate context around center point (convert center to screen coordinates)
+        let screenCenter = worldToScreen(this.transformBox.centerX, this.transformBox.centerY);
+        ctx.translate(screenCenter.x, screenCenter.y);
         ctx.rotate(this.transformBox.rotation);
-        ctx.translate(-this.transformBox.centerX, -this.transformBox.centerY);
+        ctx.translate(-screenCenter.x, -screenCenter.y);
 
-        // Draw main box
+        // Draw main box (convert all corners to screen coordinates)
+        let p1 = worldToScreen(this.transformBox.minx, this.transformBox.miny);
+        let p2 = worldToScreen(this.transformBox.maxx, this.transformBox.miny);
+        let p3 = worldToScreen(this.transformBox.maxx, this.transformBox.maxy);
+        let p4 = worldToScreen(this.transformBox.minx, this.transformBox.maxy);
         ctx.beginPath();
-        ctx.rect(this.transformBox.minx, this.transformBox.miny,
-            this.transformBox.width, this.transformBox.height);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.lineTo(p4.x, p4.y);
+        ctx.closePath();
         ctx.stroke();
 
-        // Draw handles
+        // Draw handles (convert handle positions to screen coordinates)
         const handles = this.getTransformHandles();
         handles.forEach(handle => {
+            let screenHandle = worldToScreen(handle.x, handle.y);
             ctx.beginPath();
             if (handle.type === 'rotate') {
-                ctx.arc(handle.x, handle.y, this.handleSize / 2, 0, Math.PI * 2);
+                ctx.arc(screenHandle.x, screenHandle.y, this.handleSize / 2, 0, Math.PI * 2);
             } else {
-                ctx.rect(handle.x - this.handleSize / 2, handle.y - this.handleSize / 2,
+                ctx.rect(screenHandle.x - this.handleSize / 2, screenHandle.y - this.handleSize / 2,
                     this.handleSize, this.handleSize);
             }
             ctx.fillStyle = 'blue';

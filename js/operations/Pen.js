@@ -78,13 +78,14 @@ class Pen extends Operation {
     }
 
     draw(ctx) {
-
         // Draw all existing line segments
         if (this.drawingPoints.length > 1) {
             ctx.beginPath();
-            ctx.moveTo(this.drawingPoints[0].x, this.drawingPoints[0].y);
+            let p0 = worldToScreen(this.drawingPoints[0].x, this.drawingPoints[0].y);
+            ctx.moveTo(p0.x, p0.y);
             for (var i = 1; i < this.drawingPoints.length; i++) {
-                ctx.lineTo(this.drawingPoints[i].x, this.drawingPoints[i].y);
+                let pi = worldToScreen(this.drawingPoints[i].x, this.drawingPoints[i].y);
+                ctx.lineTo(pi.x, pi.y);
             }
             ctx.strokeStyle = '#000000';
             ctx.lineWidth = 1;
@@ -94,8 +95,10 @@ class Pen extends Operation {
         // Draw preview line
         if (this.previewLine) {
             ctx.beginPath();
-            ctx.moveTo(this.previewLine.start.x, this.previewLine.start.y);
-            ctx.lineTo(this.previewLine.end.x, this.previewLine.end.y);
+            let pStart = worldToScreen(this.previewLine.start.x, this.previewLine.start.y);
+            let pEnd = worldToScreen(this.previewLine.end.x, this.previewLine.end.y);
+            ctx.moveTo(pStart.x, pStart.y);
+            ctx.lineTo(pEnd.x, pEnd.y);
 
             // Use different color/style for closing preview
             if (this.previewLine.closing) {
@@ -113,8 +116,9 @@ class Pen extends Operation {
         // Highlight first point when near it for closing
         if (this.nearFirstPoint && this.drawingPoints.length >= 3) {
             const firstPoint = this.drawingPoints[0];
+            let pFirst = worldToScreen(firstPoint.x, firstPoint.y);
             ctx.beginPath();
-            ctx.arc(firstPoint.x, firstPoint.y, this.closeDistance, 0, 2 * Math.PI);
+            ctx.arc(pFirst.x, pFirst.y, this.closeDistance, 0, 2 * Math.PI);
             ctx.strokeStyle = '#00AA00';
             ctx.lineWidth = 2;
             ctx.setLineDash([3, 3]);
@@ -122,7 +126,7 @@ class Pen extends Operation {
 
             // Draw a filled circle at the first point
             ctx.beginPath();
-            ctx.arc(firstPoint.x, firstPoint.y, 4, 0, 2 * Math.PI);
+            ctx.arc(pFirst.x, pFirst.y, 4, 0, 2 * Math.PI);
             ctx.fillStyle = '#00AA00';
             ctx.fill();
         }

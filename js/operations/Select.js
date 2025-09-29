@@ -225,11 +225,13 @@ class Select extends Operation {
     draw(ctx) {
         if (this.selectBox) {
             ctx.strokeStyle = 'blue';
+            let topLeft = worldToScreen(this.selectBox.minx, this.selectBox.miny);
+            let bottomRight = worldToScreen(this.selectBox.maxx, this.selectBox.maxy);
             ctx.strokeRect(
-                this.selectBox.minx,
-                this.selectBox.miny,
-                this.selectBox.maxx - this.selectBox.minx,
-                this.selectBox.maxy - this.selectBox.miny
+                topLeft.x,
+                topLeft.y,
+                bottomRight.x - topLeft.x,
+                bottomRight.y - topLeft.y
             );
         }
     }

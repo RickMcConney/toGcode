@@ -1,3 +1,42 @@
+// --- Virtual coordinate system for zoom/pan ---
+var zoomLevel = .5; // initial zoom
+var panX = -150;
+var panY = -150;
+
+function worldToScreen(x, y) {
+	return {
+		x: (x * zoomLevel + panX),
+		y: (y * zoomLevel + panY) 
+	};
+}
+
+function screenToWorld(x, y) {
+	return {
+		x: (x - panX) / zoomLevel,
+		y: (y - panY) / zoomLevel
+	};
+}
+
+function newZoom(delta, centerX, centerY) {
+	// centerX, centerY are screen coordinates where zoom is centered
+	// Compute world coordinate under mouse before zoom
+	var world = screenToWorld(centerX, centerY);
+	// Update zoom level multiplicatively
+	var zoomFactor = (delta > 0) ? 1.1 : 1 / 1.1;
+	var newZoom = Math.max(0.2, Math.min(50, zoomLevel * zoomFactor));
+	// Adjust pan so the world coordinate stays under the mouse
+	panX = centerX - world.x * newZoom;
+	panY = centerY - world.y * newZoom;
+	zoomLevel = newZoom;
+	redraw();
+	// keep mouse position stable
+	var world = screenToWorld(centerX, centerY);
+	panX = centerX - world.x * zoomLevel;
+	panY = centerY - world.y * zoomLevel;
+	redraw();
+}
+
+
 //todo tab support
 //pocket stops short of inner lines 
 //support feed rates and tool dimension in inches as well as mm
@@ -54,6 +93,10 @@ function updateCanvasCenter() {
 			origin.y = Ycenter;
 		}
 	}
+	const width = getOption("workpieceWidth")*viewScale;
+	const length = getOption("workpieceLength")*viewScale;
+	origin.x = width/2;
+	origin.y = length/2;
 }
 
 // Use dynamic center calculation
@@ -96,7 +139,17 @@ var cncController = new CncController();
 
 cncController.setupEventListeners();
 
-canvas.addEventListener('mousewheel', handleScroll, false);
+//canvas.addEventListener('mousewheel', handleScroll, false);
+
+// New mousewheel event for newZoom
+canvas.addEventListener('mousewheel', function(evt) {
+	var rect = canvas.getBoundingClientRect();
+	var zoomX = evt.clientX - rect.left;
+	var zoomY = evt.clientY - rect.top;
+	var delta = evt.deltaY < 0 ? 1 : -1;
+	newZoom(delta, zoomX, zoomY);
+	evt.preventDefault();
+}, { passive: false });
 
 function newnormalizeEventCoords(target, e) {
 	const rect = canvas.getBoundingClientRect();
@@ -703,9 +756,21 @@ function parseSvgContent(data) {
 	return newParseSvgContent(data);
 }
 
-function drawMarker(x, y) {
+
+
+function olddrawMarker(x, y) {
 	ctx.beginPath();
 	ctx.rect(x - 2, y - 2, 4, 4);
+	ctx.fillStyle = 'black';
+	ctx.fill();
+	ctx.strokeStyle = '#888';
+	ctx.stroke();
+}
+
+function drawMarker(x, y) {
+	ctx.beginPath();
+	var pt = worldToScreen(x, y);
+	ctx.rect(pt.x - 2, pt.y - 2, 4, 4);
 	ctx.fillStyle = 'black';
 	ctx.fill();
 	ctx.strokeStyle = '#888';
@@ -723,15 +788,35 @@ function clear() {
 
 }
 
-function drawLine(norm, color) {
+
+
+function olddrawLine(norm, color) {
 	ctx.beginPath();
-
 	ctx.moveTo(norm.x1, norm.y1);
-
 	ctx.lineTo(norm.x2, norm.y2);
 	ctx.strokeStyle = color;
 	ctx.lineWidth = 0.1;
 	ctx.stroke();
+}
+
+function drawLine(norm, color) {
+	ctx.beginPath();
+	var p1 = worldToScreen(norm.x1, norm.y1);
+	var p2 = worldToScreen(norm.x2, norm.y2);
+	ctx.moveTo(p1.x, p1.y);
+	ctx.lineTo(p2.x, p2.y);
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 0.1;
+	ctx.stroke();
+}
+
+
+
+function olddrawNorms(norms) {
+	for (var i = 0; i < norms.length; i++) {
+		var norm = norms[i];
+		olddrawLine(norm, '#0000ff');
+	}
 }
 
 function drawNorms(norms) {
@@ -751,53 +836,76 @@ function isClockwise(path) {
 	return (area < 0);
 }
 
+
+
+function olddrawSvgPath(svgpath, color, lineWidth) {
+	ctx.beginPath();
+	ctx.lineCap = 'round';
+	ctx.lineJoin = 'round';
+	var path = svgpath.path;
+	for (var j = 0; j < path.length; j++) {
+		var point = path[j];
+		if (j == 0) {
+			ctx.moveTo(point.x, point.y);
+		} else {
+			ctx.lineTo(point.x, point.y);
+		}
+	}
+	ctx.lineWidth = lineWidth;
+	ctx.strokeStyle = color;
+	ctx.stroke();
+}
+
 function drawSvgPath(svgpath, color, lineWidth) {
 	ctx.beginPath();
 	ctx.lineCap = 'round';
 	ctx.lineJoin = 'round';
-
 	var path = svgpath.path;
-
-
 	for (var j = 0; j < path.length; j++) {
-
-		var point = path[j];
+		var pt = worldToScreen(path[j].x, path[j].y);
 		if (j == 0) {
-			//drawMarker(point.x,point.y);
-			ctx.moveTo(point.x, point.y);
-
+			ctx.moveTo(pt.x, pt.y);
+		} else {
+			ctx.lineTo(pt.x, pt.y);
 		}
-		else {
-			ctx.lineTo(point.x, point.y);
-			//drawMarker(point.x,point.y);
-		}
-
 	}
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
 	ctx.stroke();
 
 
+}
+
+
+
+function olddrawPath(path, color, lineWidth) {
+	ctx.beginPath();
+	ctx.lineCap = 'round';
+	ctx.lineJoin = 'round';
+	for (var j = 0; j < path.length; j++) {
+		var point = path[j];
+		if (j == 0) {
+			ctx.moveTo(point.x, point.y);
+		} else {
+			ctx.lineTo(point.x, point.y);
+		}
+	}
+	ctx.lineWidth = lineWidth;
+	ctx.strokeStyle = color;
+	ctx.stroke();
 }
 
 function drawPath(path, color, lineWidth) {
 	ctx.beginPath();
 	ctx.lineCap = 'round';
 	ctx.lineJoin = 'round';
-
 	for (var j = 0; j < path.length; j++) {
-
-		var point = path[j];
+		var pt = worldToScreen(path[j].x, path[j].y);
 		if (j == 0) {
-			//drawMarker(point.x, point.y);
-			ctx.moveTo(point.x, point.y);
-
+			ctx.moveTo(pt.x, pt.y);
+		} else {
+			ctx.lineTo(pt.x, pt.y);
 		}
-		else {
-			//drawMarker(point.x, point.y);
-			ctx.lineTo(point.x, point.y);
-		}
-
 	}
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
@@ -806,17 +914,14 @@ function drawPath(path, color, lineWidth) {
 
 }
 
-function drawDebug() {
+
+
+function olddrawDebug() {
 	for (var i = 0; i < debug.length; i++) {
-
 		ctx.beginPath();
-
 		ctx.moveTo(debug[i].p.x, debug[i].p.y);
-
 		ctx.lineTo(debug[i].s.x, debug[i].s.y);
-
 		ctx.moveTo(debug[i].p.x, debug[i].p.y);
-
 		ctx.lineTo(debug[i].e.x, debug[i].e.y);
 		ctx.strokeStyle = '#00ffff';
 		ctx.lineWidth = 1;
@@ -824,7 +929,25 @@ function drawDebug() {
 	}
 }
 
-function drawGrid() {
+function drawDebug() {
+	for (var i = 0; i < debug.length; i++) {
+		ctx.beginPath();
+		var p = worldToScreen(debug[i].p.x, debug[i].p.y);
+		var s = worldToScreen(debug[i].s.x, debug[i].s.y);
+		ctx.moveTo(p.x, p.y);
+		ctx.lineTo(s.x, s.y);
+		ctx.moveTo(p.x, p.y);
+		var e = worldToScreen(debug[i].e.x, debug[i].e.y);
+		ctx.lineTo(e.x, e.y);
+		ctx.strokeStyle = '#00ffff';
+		ctx.lineWidth = 1;
+		ctx.stroke();
+	}
+}
+
+
+// Preserve original drawGrid as olddrawGrid
+function olddrawGrid() {
 	ctx.beginPath();
 	const maxX = getOption("tableLength") / 2;
 	const maxY = getOption("tableWidth") / 2;
@@ -844,26 +967,119 @@ function drawGrid() {
 
 	ctx.fillStyle = "blue";
 	for (var y = -maxY; y <= maxY; y += 10 * viewScale) {
-
 		ctx.fillText((-y / viewScale), origin.x + 2, y + origin.y - 2);
 	}
 	for (var x = -maxX; x <= maxX; x += 10 * viewScale) {
-
 		ctx.fillText((x / viewScale), x + origin.x + 2, origin.y - 2);
+	}
+}
+
+// New drawGrid using virtual coordinates
+function drawGrid() {
+	ctx.beginPath();
+	// Get workpiece dimensions
+	const width = getOption("workpieceWidth")*viewScale;
+	const length = getOption("workpieceLength")*viewScale;
+	// Workpiece bounds in world coordinates
+
+	var startX = 0;
+	var startY = 0;
+	var topLeft = worldToScreen(startX, startY);
+	var bottomRight = worldToScreen(width, length);
+	let o = worldToScreen(origin.x, origin.y);
+	let grid = 10*viewScale*zoomLevel;
+
+
+
+	// Draw horizontal grid lines (covering negative and positive Y)
+	for (var y = o.y; y <= bottomRight.y; y += grid) {
+		ctx.moveTo(topLeft.x, y);
+		ctx.lineTo(bottomRight.x, y);
+	}
+	for (var y = o.y; y >= topLeft.y; y -= grid) {
+		ctx.moveTo(topLeft.x, y);
+		ctx.lineTo(bottomRight.x, y);
+	}
+	// Draw vertical grid lines (covering negative and positive X)
+	for (var x = o.x; x <= bottomRight.x; x += grid) {
+		ctx.moveTo(x, topLeft.y);
+		ctx.lineTo(x, bottomRight.y);
+	}
+	for (var x = o.x; x >= topLeft.x; x -= grid) {
+		ctx.moveTo(x, topLeft.y);
+		ctx.lineTo(x, bottomRight.y);
+	}
+	ctx.lineWidth = 0.1;
+	ctx.strokeStyle = lineColor;
+	ctx.stroke();
+
+	ctx.fillStyle = "blue";
+	// Draw Y axis labels on the origin's X axis
+	let l =0;
+	for (var y = o.y; y <= bottomRight.y; y += grid) {		
+		ctx.fillText(-l, o.x + 2, y - 2);
+		l += 10;
+	}
+	l = 0;
+	for (var y = o.y; y >= topLeft.y; y -= grid) {		
+		ctx.fillText(-l, o.x + 2, y - 2);
+		l -= 10;
+	}
+	// Draw vertical grid lines (covering negative and positive X)
+	l =0;
+	for (var x = o.x; x <= bottomRight.x; x += grid) {
+		
+		ctx.fillText(l, x + 2, o.y - 2)
+		l += 10;
+	}
+	l =0;
+	for (var x = o.x; x >= topLeft.x; x -= grid) {
+		
+		ctx.fillText(l, x + 2, o.y - 2)
+		l -= 10;
 	}
 
 }
 
-function drawOrigin() {
+
+
+function olddrawOrigin() {
 	ctx.beginPath();
 	const maxX = getOption("tableLength") / 2;
 	const maxY = getOption("tableWidth") / 2;
 	ctx.moveTo(-maxX + origin.x, origin.y);
 	ctx.lineTo(maxX + origin.x, origin.y);
-
 	ctx.moveTo(origin.x, -maxY + origin.y);
 	ctx.lineTo(origin.x, maxY + origin.y);
+	ctx.lineWidth = 1;
+	ctx.strokeStyle = "#0000ff";
+	ctx.stroke();
+}
 
+function drawOrigin() {
+	ctx.beginPath();
+	// Get workpiece dimensions
+	const width = getOption("workpieceWidth")*viewScale;
+	const length = getOption("workpieceLength")*viewScale;
+	// Workpiece bounds in world coordinates
+
+	var startX = 0;
+	var startY = 0;
+	var topLeft = worldToScreen(startX, startY);
+	var bottomRight = worldToScreen(startX + width, startY + length);
+	let o = worldToScreen(origin.x, origin.y);
+	let grid = 10*viewScale*zoomLevel;
+
+	let offsetx = 0;
+	let offsety = 0;
+
+
+	// Draw blue X axis only within workpiece bounds
+
+	ctx.moveTo(offsetx+topLeft.x,offsety+o.y);
+	ctx.lineTo(offsetx+bottomRight.x,offsety+o.y);
+	ctx.moveTo(offsetx+o.x,offsety+topLeft.y);
+	ctx.lineTo(offsetx+o.x,offsety+bottomRight.y);
 
 	ctx.lineWidth = 1;
 	ctx.strokeStyle = "#0000ff";
@@ -878,10 +1094,10 @@ function redraw() {
 	// The context is reset when the size changes, so get a fresh one.
 	//const ctx = canvas.getContext('2d');
 
-	ctx.setTransform(1, 0, 0, 1, 0, 0);
+	//ctx.setTransform(1, 0, 0, 1, 0, 0);
 	clear();
 
-	ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
+	//ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
 	if (getOption("showWorkpiece"))
 		drawWorkpiece();
 	// Hide grid during simulation for clearer visualization
@@ -904,27 +1120,43 @@ function redraw() {
 
 }
 
-function drawWorkpiece() {
+
+
+function olddrawWorkpiece() {
 	var width = getOption("workpieceWidth") * viewScale;
 	var length = getOption("workpieceLength") * viewScale;
 	var woodSpecies = getOption("woodSpecies");
-
-	// Get the wood color from the species database
-	var woodColor = '#F5DEB3'; // Default to wheat color
+	var woodColor = '#F5DEB3';
 	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
 		woodColor = woodSpeciesDatabase[woodSpecies].color;
 	}
-
-	// Draw the workpiece rectangle centered on origin
 	var startX = Xcenter - width / 2;
 	var startY = Ycenter - length / 2;
-
 	ctx.beginPath();
 	ctx.rect(startX, startY, width, length);
 	ctx.fillStyle = woodColor;
 	ctx.fill();
+	ctx.strokeStyle = "#888888";
+	ctx.lineWidth = 0.5;
+	ctx.stroke();
+}
 
-	// Add a subtle border
+function drawWorkpiece() {
+	var width = getOption("workpieceWidth") * viewScale;
+	var length = getOption("workpieceLength") * viewScale;
+	var woodSpecies = getOption("woodSpecies");
+	var woodColor = '#F5DEB3';
+	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
+		woodColor = woodSpeciesDatabase[woodSpecies].color;
+	}
+	var startX = 0;
+	var startY = 0;
+	var topLeft = worldToScreen(startX, startY);
+	var bottomRight = worldToScreen(width, length);
+	ctx.beginPath();
+	ctx.rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+	ctx.fillStyle = woodColor;
+	ctx.fill();
 	ctx.strokeStyle = "#888888";
 	ctx.lineWidth = 0.5;
 	ctx.stroke();
@@ -3012,63 +3244,101 @@ function updateStatusWithSimulation(currentTime, totalTime) {
 	document.getElementById('status').innerHTML = `<span>${statusText}</span>`;
 }
 
-// Draw travel moves (red lines for rapid moves above workpiece)
-function drawTravelMoves() {
+
+
+function olddrawTravelMoves() {
 	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
-
 	ctx.save();
-	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)'; // Red for travel moves
+	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
 	ctx.lineWidth = 1;
-	ctx.setLineDash([5, 5]); // Dashed line
-
+	ctx.setLineDash([5, 5]);
 	for (let i = 0; i < simulationState.travelMoves.length; i++) {
 		const move = simulationState.travelMoves[i];
-
 		ctx.beginPath();
 		ctx.moveTo(move.fromX, move.fromY);
 		ctx.lineTo(move.toX, move.toY);
 		ctx.stroke();
 	}
-
 	ctx.restore();
 }
 
-// Draw material removal during simulation
-function drawMaterialRemoval() {
-	if (materialRemovalPoints.length === 0) return;
+function drawTravelMoves() {
+	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
+	ctx.save();
+	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+	ctx.lineWidth = 1;
+	ctx.setLineDash([5, 5]);
+	for (let i = 0; i < simulationState.travelMoves.length; i++) {
+		const move = simulationState.travelMoves[i];
+		var from = worldToScreen(move.fromX, move.fromY);
+		var to = worldToScreen(move.toX, move.toY);
+		ctx.beginPath();
+		ctx.moveTo(from.x, from.y);
+		ctx.lineTo(to.x, to.y);
+		ctx.stroke();
+	}
+	ctx.restore();
+}
 
+
+
+function olddrawMaterialRemoval() {
+	if (materialRemovalPoints.length === 0) return;
 	ctx.save();
 	ctx.globalCompositeOperation = 'multiply';
-
 	for (let i = 0; i < materialRemovalPoints.length; i++) {
 		const point = materialRemovalPoints[i];
-
 		ctx.beginPath();
 		ctx.arc(point.x, point.y, point.radius, 0, 2 * Math.PI);
-
-		// Choose color based on whether it's an actual G-code point or interpolated
 		if (point.isActualGcodePoint) {
-			// Actual G-code points - use brighter/more saturated colors for visibility
 			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)'; // Bright red for actual G-code drilling points
+				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
 			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)'; // Bright orange for actual G-code v-carving points  
+				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
 			} else {
-				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)'; // Bright pink for actual G-code cutting points
+				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)';
 			}
 		} else {
-			// Interpolated points - use darker/muted colors (original colors)
 			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)'; // Brown for drilling
+				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)';
 			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)'; // Saddle brown for v-carving
+				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)';
 			} else {
-				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)'; // Dark brown for cutting
+				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)';
 			}
 		}
-
 		ctx.fill();
 	}
+	ctx.restore();
+}
 
+function drawMaterialRemoval() {
+	if (materialRemovalPoints.length === 0) return;
+	ctx.save();
+	ctx.globalCompositeOperation = 'multiply';
+	for (let i = 0; i < materialRemovalPoints.length; i++) {
+		const point = materialRemovalPoints[i];
+		var pt = worldToScreen(point.x, point.y);
+		ctx.beginPath();
+		ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
+		if (point.isActualGcodePoint) {
+			if (point.operation && point.operation.includes('Drill')) {
+				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+			} else if (point.operation && point.operation.includes('VCarve')) {
+				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
+			} else {
+				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)';
+			}
+		} else {
+			if (point.operation && point.operation.includes('Drill')) {
+				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)';
+			} else if (point.operation && point.operation.includes('VCarve')) {
+				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)';
+			} else {
+				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)';
+			}
+		}
+		ctx.fill();
+	}
 	ctx.restore();
 }

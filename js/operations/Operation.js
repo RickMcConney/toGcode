@@ -100,20 +100,33 @@ class Operation {
         }
     }
 
-    // Utility methods available to all operations
-    normalizeEvent(target, e) {
 
+
+    oldNormalizeEvent(target, e) {
         if (!e) { e = self.event; }
         var x = 0;
         var y = 0;
         var rect = canvas.getBoundingClientRect();
-
-
         x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
         y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
-
-
         return { x: (x - target.offsetLeft - offsetX) / scaleFactor, y: (y - target.offsetTop - offsetY) / scaleFactor };
+    }
+
+    normalizeEvent(target, e) {
+        if (!e) { e = self.event; }
+        var x = 0;
+        var y = 0;
+        var rect = canvas.getBoundingClientRect();
+        x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
+        y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
+        // Use worldToScreen from global scope
+        if (typeof worldToScreen === 'function' && typeof screenToWorld === 'function') {
+            var screen = { x: x - target.offsetLeft, y: y - target.offsetTop };
+            return screenToWorld(screen.x, screen.y);
+        } else {
+            // fallback to old method if mapping not available
+            return { x: (x - target.offsetLeft - offsetX) / scaleFactor, y: (y - target.offsetTop - offsetY) / scaleFactor };
+        }
     }
 
         highlightPathsInRect(selectBox) {
