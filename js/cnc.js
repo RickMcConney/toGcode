@@ -1109,8 +1109,10 @@ function getBack(len, x1, y1, x2, y2) {
 }
 
 function drawCircle(circle) {
+	var pt = worldToScreen(circle.x, circle.y);
+	var r = circle.r * zoomLevel;
 	ctx.beginPath();
-	ctx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
+	ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
 	ctx.strokeStyle = circleColor;
 	ctx.lineWidth = 0.1;
 	ctx.stroke();
@@ -1119,10 +1121,14 @@ function drawCircle(circle) {
 function drawCircles(circles, color) {
 	for (var i = 0; i < circles.length; i++) {
 		var circle = circles[i];
+		var pt = worldToScreen(circle.x, circle.y);
+		var r = (circle.r || circle.radius) * zoomLevel;
 		ctx.beginPath();
-		ctx.arc(circle.x, circle.y, circle.r || circle.radius, 0, 2 * Math.PI);
-		if (i < circles.length - 1)
-			canvasDrawArrow(ctx, circle.x, circle.y, circles[i + 1].x, circles[i + 1].y);
+		ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
+		if (i < circles.length - 1) {
+			var nextPt = worldToScreen(circles[i + 1].x, circles[i + 1].y);
+			canvasDrawArrow(ctx, pt.x, pt.y, nextPt.x, nextPt.y);
+		}
 
 		ctx.strokeStyle = color;
 		ctx.lineWidth = 0.5;
@@ -1136,8 +1142,10 @@ function drawCircles(circles, color) {
 function fillCircles(circles, color) {
 	for (var i = 0; i < circles.length; i++) {
 		var circle = circles[i];
+		var pt = worldToScreen(circle.x, circle.y);
+		var r = circle.r * zoomLevel;
 		ctx.beginPath();
-		ctx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
+		ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
 		ctx.fillStyle = color;
 		ctx.fill();
 		ctx.strokeStyle = color;
@@ -1148,12 +1156,16 @@ function fillCircles(circles, color) {
 }
 
 function drawBoundingBox(bbox) {
+	var pt1 = worldToScreen(bbox.minx, bbox.miny);
+	var pt2 = worldToScreen(bbox.minx, bbox.maxy);
+	var pt3 = worldToScreen(bbox.maxx, bbox.maxy);
+	var pt4 = worldToScreen(bbox.maxx, bbox.miny);
 	ctx.beginPath();
-	ctx.moveTo(bbox.minx, bbox.miny);
-	ctx.lineTo(bbox.minx, bbox.maxy);
-	ctx.lineTo(bbox.maxx, bbox.maxy);
-	ctx.lineTo(bbox.maxx, bbox.miny);
-	ctx.lineTo(bbox.minx, bbox.miny);
+	ctx.moveTo(pt1.x, pt1.y);
+	ctx.lineTo(pt2.x, pt2.y);
+	ctx.lineTo(pt3.x, pt3.y);
+	ctx.lineTo(pt4.x, pt4.y);
+	ctx.lineTo(pt1.x, pt1.y);
 	ctx.lineWidth = 0.1;
 	ctx.strokeStyle = lineColor;
 	ctx.stroke();
@@ -1211,7 +1223,37 @@ function drawToolPaths() {
 						fillCircles(path, '#' + toolpaths[i].tool.color);
 					else
 						drawCircles(path, '#' + toolpaths[i].tool.color);
-				if (tpath) {
+
+				// Check if this is a plunge point
+				if (paths[p].isPlunge && paths[p].plungePoint) {
+					// Draw plunge point as a filled circle with cross
+					var plungePoint = paths[p].plungePoint;
+					var screenPoint = worldToScreen(plungePoint.x, plungePoint.y);
+					var color = '#' + toolpaths[i].tool.color;
+					var size = 8 * zoomLevel; // Size of the plunge marker, scaled with zoom
+
+					ctx.save();
+					// Draw filled circle
+					ctx.beginPath();
+					ctx.arc(screenPoint.x, screenPoint.y, size, 0, 2 * Math.PI);
+					ctx.fillStyle = color;
+					ctx.globalAlpha = 0.5;
+					ctx.fill();
+
+					// Draw cross
+					ctx.globalAlpha = 1.0;
+					ctx.strokeStyle = color;
+					ctx.lineWidth = 2;
+					ctx.beginPath();
+					ctx.moveTo(screenPoint.x - size, screenPoint.y);
+					ctx.lineTo(screenPoint.x + size, screenPoint.y);
+					ctx.moveTo(screenPoint.x, screenPoint.y - size);
+					ctx.lineTo(screenPoint.x, screenPoint.y + size);
+					ctx.stroke();
+					ctx.restore();
+				}
+				else if (tpath) {
+					// Normal path drawing
 					if (toolpaths[i].selected) {
 						drawCircles(path, '#' + toolpaths[i].tool.color);
 						drawPath(tpath, '#' + toolpaths[i].tool.color, 3);
@@ -2257,6 +2299,7 @@ function doPocket() {
 
 	var radius = toolRadius();
 	var stepover = 2 * radius * currentTool.stepover / 100;
+	var finishingStepover = radius * 0.20; // 10% of diameter (20% of radius) for finishing pass
 	var name = 'Pocket';
 
 	for (var i = 0; i < svgpaths.length; i++) {
@@ -2268,6 +2311,8 @@ function doPocket() {
 		nearbypaths = nearbyPaths(svgpaths[i], radius);
 
 		var offsetPaths = offsetPath(path, radius, false);
+		var isFirstOffset = true; // Track if this is the first offset from the outer wall
+
 		while (offsetPaths.length > 0) {
 
 			var path = offsetPaths.pop();
@@ -2277,23 +2322,54 @@ function doPocket() {
 			var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 			if (tpath.length > 0) {
+				// Calculate bounding box to check if path is too small
+				var bbox = boundingBox(tpath);
+				var diagonal = Math.sqrt(
+					Math.pow(bbox.maxx - bbox.minx, 2) +
+					Math.pow(bbox.maxy - bbox.miny, 2)
+				);
+
+				var isPlunge = diagonal < (2 * radius * 0.8); // 80% of diameter threshold
+				var plungePoint = null;
+
+				if (isPlunge) {
+					// Calculate centroid
+					plungePoint = {
+						x: (bbox.minx + bbox.maxx) / 2,
+						y: (bbox.miny + bbox.maxy) / 2
+					};
+				}
+
 				if (currentTool.direction == "Climb") {
 					var rcircles = reversePath(circles);
 					var rtpath = reversePath(tpath);
-					paths.push({ path: rcircles, tpath: rtpath });
+					paths.push({
+						path: rcircles,
+						tpath: rtpath,
+						isPlunge: isPlunge,
+						plungePoint: plungePoint
+					});
 				}
 				else {
-					paths.push({ path: circles, tpath: tpath });
+					paths.push({
+						path: circles,
+						tpath: tpath,
+						isPlunge: isPlunge,
+						plungePoint: plungePoint
+					});
 				}
 
+				// Use finishing stepover for first interior offset, then normal stepover
+				var currentStepover = isFirstOffset ? finishingStepover : stepover;
+				isFirstOffset = false;
 
-				var innerPaths = offsetPath(tpath, stepover, false);
+				var innerPaths = offsetPath(tpath, currentStepover, false);
 
 				if (innerPaths.length == 0)
-					innerPaths = offsetPath(tpath, stepover / 2, false);
+					innerPaths = offsetPath(tpath, currentStepover / 2, false);
 
 				if (innerPaths.length == 0)
-					innerPaths = offsetPath(tpath, stepover / 4, false);
+					innerPaths = offsetPath(tpath, currentStepover / 4, false);
 
 				for (var j = 0; j < innerPaths.length; j++)
 					offsetPaths.push(innerPaths[j]);
@@ -2603,94 +2679,151 @@ function toGcode() {
 			var zbacklash = getOption("zbacklash");
 			var safeHeight = getOption("safeHeight") + zbacklash;
 
-			for (var k = 0; k < paths.length; k++) {
-				var path = paths[k].tpath;
-
+			// Handle pocket operations differently - complete each layer before going deeper
+			if (operation == 'Pocket') {
 				output += '(' + operation + ' ' + name + ')\n';
 
 				var z = safeHeight;
-				var lastZ = z;
-				var movingUp = false;
-
 				output += 'G0 Z' + z + ' F' + (zfeed / 2) + '\n';
 
-				if (operation == 'Drill') {
-					z = 0;
-					var left = depth;
-					var pass = 0;
-					path = paths[k].path;
-					for (var j = 0; j < path.length; j++) {
-						var p = toMM(path[j].x, path[j].y);
-						output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+				if (bit == 'VBit') {
+					depth = toolDepth(angle, radius);
+				}
 
-						while (left > 0) {
-							left -= toolStep;
-							if (left < 0 || toolStep <= 0) left = 0;
+				var left = depth;
+				var pass = 0;
 
-							z = left - depth;
-							output += 'G0 Z' + z + 'F' + zfeed + '\n';
-							output += 'G0 Z' + (z + toolStep + zbacklash) + 'F' + zfeed + '\n'; // pull up to																// clear chip					
+				// Loop through depth passes
+				while (left > 0) {
+					pass++;
+					left -= toolStep;
+					if (left < 0 || toolStep <= 0) left = 0;
+
+					z = left - depth;
+					output += '(pass ' + pass + ')\n';
+
+					// For each depth pass, do all paths from innermost to outermost
+					for (var k = paths.length - 1; k >= 0; k--) {
+						var path = paths[k].tpath;
+
+						if (path.length > 0) {
+							// Check if this is a plunge point
+							if (paths[k].isPlunge && paths[k].plungePoint) {
+								// Simple plunge - just move to center point, no retract
+								var p = toMM(paths[k].plungePoint.x, paths[k].plungePoint.y);
+								output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+								output += 'G1 Z' + z + ' F' + zfeed + '\n';
+								// No retract - continue to next path
+							}
+							else {
+								// Normal path following
+								for (var j = 0; j < path.length; j++) {
+									var p = toMM(path[j].x, path[j].y);
+
+									if (j == 0) {
+										output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+										output += 'G0 Z' + z + ' F' + zfeed + '\n';
+									}
+									else {
+										output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+									}
+								}
+							}
 						}
 					}
 				}
-				else if (operation == 'VCarve In' || operation == 'VCarve Out') {
-					z = 0;
+			}
+			else // Non-pocket operations (Drill, VCarve, profiles)
+			{
+				for (var k = 0; k < paths.length; k++) {
+					var path = paths[k].tpath;
 
-					for (var j = 0; j < path.length; j++) {
+					output += '(' + operation + ' ' + name + ')\n';
 
-						var p = toMM(path[j].x, path[j].y);
-						var cz = toolDepth(angle, path[j].r);
-						var cz = -toMMZ(cz);
+					var z = safeHeight;
+					var lastZ = z;
+					var movingUp = false;
 
-						if (movingUp == false && lastZ < cz) movingUp = true;
-						else movingUp = false;
+					output += 'G0 Z' + z + ' F' + (zfeed / 2) + '\n';
 
-						lastZ = cz;
-
-						if (movingUp) {
-							cz += zbacklash;
-							cz = Math.round((cz + 0.00001) * 100) / 100;
-							zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies) / 2;
-						}
-						else {
-							zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
-						}
-
-
-						if (j == 0) {
-							output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
-						}
-
-						output += 'G1 X' + p.x + ' Y' + p.y + ' Z' + cz + ' F' + zfeed + '\n';
-					}
-
-				}
-				else // path profile or pocket
-				{
-					z = 0;
-
-					if (bit == 'VBit') {
-						depth = toolDepth(angle, radius);
-					}
-					var left = depth;
-					var pass = 0;
-					while (path.length && left > 0) {
+					if (operation == 'Drill') {
+						z = 0;
+						var left = depth;
+						var pass = 0;
+						path = paths[k].path;
 						for (var j = 0; j < path.length; j++) {
 							var p = toMM(path[j].x, path[j].y);
+							output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
 
-							if (j == 0) {
-								pass++;
+							while (left > 0) {
 								left -= toolStep;
 								if (left < 0 || toolStep <= 0) left = 0;
 
 								z = left - depth;
-								output += '(pass ' + pass + ')\n';
+								output += 'G0 Z' + z + 'F' + zfeed + '\n';
+								output += 'G0 Z' + (z + toolStep + zbacklash) + 'F' + zfeed + '\n'; // pull up to																// clear chip
+							}
+						}
+					}
+					else if (operation == 'VCarve In' || operation == 'VCarve Out') {
+						z = 0;
 
-								output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
-								output += 'G0 Z' + z + ' F' + zfeed + '\n';
+						for (var j = 0; j < path.length; j++) {
+
+							var p = toMM(path[j].x, path[j].y);
+							var cz = toolDepth(angle, path[j].r);
+							var cz = -toMMZ(cz);
+
+							if (movingUp == false && lastZ < cz) movingUp = true;
+							else movingUp = false;
+
+							lastZ = cz;
+
+							if (movingUp) {
+								cz += zbacklash;
+								cz = Math.round((cz + 0.00001) * 100) / 100;
+								zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies) / 2;
 							}
 							else {
+								zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
+							}
+
+
+							if (j == 0) {
 								output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+							}
+
+							output += 'G1 X' + p.x + ' Y' + p.y + ' Z' + cz + ' F' + zfeed + '\n';
+						}
+
+					}
+					else // path profile
+					{
+						z = 0;
+
+						if (bit == 'VBit') {
+							depth = toolDepth(angle, radius);
+						}
+						var left = depth;
+						var pass = 0;
+						while (path.length && left > 0) {
+							for (var j = 0; j < path.length; j++) {
+								var p = toMM(path[j].x, path[j].y);
+
+								if (j == 0) {
+									pass++;
+									left -= toolStep;
+									if (left < 0 || toolStep <= 0) left = 0;
+
+									z = left - depth;
+									output += '(pass ' + pass + ')\n';
+
+									output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+									output += 'G0 Z' + z + ' F' + zfeed + '\n';
+								}
+								else {
+									output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+								}
 							}
 						}
 					}
