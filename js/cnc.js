@@ -1022,66 +1022,134 @@ function drawWorkpiece() {
 }
 
 // Calculate feed rate based on tool and wood species
-function calculateFeedRate(tool, woodSpecies) {
+// Chip load lookup table (mm per tooth) for different wood species
+const chipLoadTable = {
+	'Pine': { base: 0.15, min: 0.10, max: 0.20 },
+	'Oak': { base: 0.08, min: 0.05, max: 0.10 },
+	'Maple': { base: 0.10, min: 0.08, max: 0.13 },
+	'Cherry': { base: 0.12, min: 0.09, max: 0.15 },
+	'Walnut': { base: 0.10, min: 0.07, max: 0.13 },
+	'Birch': { base: 0.09, min: 0.07, max: 0.12 },
+	'Poplar': { base: 0.16, min: 0.12, max: 0.22 },
+	'Cedar': { base: 0.18, min: 0.14, max: 0.24 },
+	'Ash': { base: 0.08, min: 0.06, max: 0.11 },
+	'Mahogany': { base: 0.13, min: 0.10, max: 0.16 }
+};
+
+// Get chip load for a specific material and tool combination
+function getChipLoad(woodSpecies, toolDiameter, toolType) {
+	// Get material data, default to Oak if species not found
+	const materialData = chipLoadTable[woodSpecies] || chipLoadTable['Oak'];
+	let chipLoad = materialData.base;
+
+	// Scale by tool diameter (larger tools can handle more chip load)
+	// Using square root scaling to be conservative
+	const diameterFactor = Math.sqrt(toolDiameter / 6.0); // 6mm reference diameter
+	chipLoad *= diameterFactor;
+
+	// Adjust for tool type
+	if (toolType === 'VBit') {
+		chipLoad *= 0.6; // V-bits are more fragile
+	} else if (toolType === 'Drill') {
+		chipLoad *= 0.5; // Drills have poor chip clearance
+	}
+
+	// Clamp to safe range for this material
+	return Math.max(materialData.min, Math.min(materialData.max, chipLoad));
+}
+
+function calculateFeedRate(tool, woodSpecies, operation) {
+	// Manual mode - return user-specified feed rate
 	if (!getOption("autoFeedRate") || !tool) {
-		return tool ? tool.feed : 600; // Return original feed rate if auto calculation is disabled
+		return tool ? tool.feed : 600;
 	}
 
-	// Get wood species data - check if database exists
-	if (typeof woodSpeciesDatabase === 'undefined') {
-		return tool.feed; // Fallback if database not available
+	// Get chip load for this material and tool
+	const chipLoad = getChipLoad(woodSpecies, tool.diameter, tool.bit);
+
+	// Get tool parameters with safe defaults
+	const rpm = tool.rpm || 18000;
+	const flutes = tool.flutes || 2;
+
+	// Base feed rate calculation: Feed = RPM × Flutes × Chip Load
+	let feedRate = rpm * flutes * chipLoad;
+
+	// Adjust for depth of cut (deeper cuts need slower feeds)
+	// Conservative approach: reduce feed by up to 50% for deep cuts
+	const maxRecommendedDepth = tool.diameter; // Rule of thumb: max depth = tool diameter
+	const depthRatio = Math.min(1.0, tool.step / maxRecommendedDepth);
+	const depthFactor = Math.max(0.5, 1.0 - (depthRatio * 0.5));
+	feedRate *= depthFactor;
+
+	// Adjust for radial engagement based on operation type
+	// Profile cuts (Inside, Outside, Center): 100% engagement (full side of bit cutting)
+	// Pocket operations: engagement = stepover percentage (partial engagement)
+	let radialEngagement;
+	if (operation === 'Pocket') {
+		// Pocket: only stepover% of bit is engaged with fresh material
+		radialEngagement = tool.stepover / 100;
+	} else {
+		// Profile cuts: entire side of bit is cutting = 100% engagement
+		radialEngagement = 1.0;
 	}
 
-	var speciesData = woodSpeciesDatabase[woodSpecies];
-	if (!speciesData) {
-		return tool.feed; // Return original feed rate if species not found
+	// Apply feed reduction based on radial engagement
+	// Higher engagement = more material contact = need slower feed
+	// Conservative: reduce by up to 50% for full engagement
+	const engagementFactor = Math.max(0.5, 1.0 - (radialEngagement * 0.5));
+	feedRate *= engagementFactor;
+
+	// Apply wood species fine-tuning multiplier if available
+	if (typeof woodSpeciesDatabase !== 'undefined') {
+		const speciesData = woodSpeciesDatabase[woodSpecies];
+		if (speciesData && speciesData.feedMultiplier) {
+			feedRate *= speciesData.feedMultiplier;
+		}
 	}
 
-	// Base calculation factors
-	var baseFeed = tool.feed;
-	var toolDiameter = tool.diameter;
-	var feedMultiplier = speciesData.feedMultiplier;
+	// Get user-configured limits from options
+	const minFeed = getOption('minFeedRate') || 100;
+	const maxFeed = getOption('maxFeedRate') || 3000;
 
-	// Adjust feed rate based on tool diameter (smaller tools need slower feeds)
-	var diameterFactor = Math.max(0.5, Math.min(2.0, toolDiameter / 6.0)); // 6mm reference diameter
-
-	// Adjust based on tool type
-	var toolTypeFactor = 1.0;
-	if (tool.bit === 'VBit') {
-		toolTypeFactor = 0.7; // V-bits need slower feeds
-	} else if (tool.bit === 'Drill') {
-		toolTypeFactor = 0.6; // Drills need slower feeds for plunge
-	}
-
-	// Calculate final feed rate
-	var calculatedFeed = baseFeed * feedMultiplier * diameterFactor * toolTypeFactor;
-
-	// Ensure reasonable bounds (100-2000 mm/min)
-	return Math.max(100, Math.min(2000, Math.round(calculatedFeed)));
+	// Ensure reasonable bounds
+	return Math.max(minFeed, Math.min(maxFeed, Math.round(feedRate)));
 }
 
 // Calculate Z feed rate (plunge rate)
-function calculateZFeedRate(tool, woodSpecies) {
+function calculateZFeedRate(tool, woodSpecies, operation) {
+	// Manual mode - return user-specified Z feed rate
 	if (!getOption("autoFeedRate") || !tool) {
 		return tool ? tool.zfeed : 200;
 	}
 
-	// Check if database exists
-	if (typeof woodSpeciesDatabase === 'undefined') {
-		return tool.zfeed; // Fallback if database not available
+	// Z feed is typically 25-35% of XY feed for wood
+	const xyFeed = calculateFeedRate(tool, woodSpecies, operation);
+	let zFeedRate = xyFeed * 0.3;
+
+	// Additional reduction for deep plunges
+	// Plunging is more aggressive than lateral cutting
+	const diameter = tool.diameter;
+	const step = tool.step || 1;
+
+	if (step > diameter * 0.5) {
+		// Deep plunge (more than 50% of diameter) - reduce further
+		zFeedRate *= 0.7;
 	}
 
-	var speciesData = woodSpeciesDatabase[woodSpecies];
-	if (!speciesData) {
-		return tool.zfeed;
+	// Drills and V-bits need even slower plunge rates
+	if (tool.bit === 'Drill') {
+		zFeedRate *= 0.8; // Drills need slower plunge for chip evacuation
+	} else if (tool.bit === 'VBit') {
+		zFeedRate *= 0.75; // V-bits are fragile at the tip
 	}
 
-	// Z feed is typically 20-40% of XY feed for wood
-	var calculatedXYFeed = calculateFeedRate(tool, woodSpecies);
-	var zFeedRate = calculatedXYFeed * 0.3;
+	// Get user-configured limits from options
+	// Z feed max is typically lower than XY feed max
+	const minFeed = getOption('minFeedRate') || 50;
+	const maxFeed = Math.min(500, getOption('maxFeedRate') || 500);
 
-	// Ensure reasonable bounds (50-500 mm/min)
-	return Math.max(50, Math.min(500, Math.round(zFeedRate)));
+	// Ensure reasonable bounds
+	return Math.max(minFeed, Math.min(maxFeed, Math.round(zFeedRate)));
 }
 
 function canvasDrawArrow(context, fromx, fromy, tox, toy) {
@@ -2199,7 +2267,7 @@ function doCenter() {
 		return;
 	}
 	if (getSelectedPath() == null) {
-		notify('Select a path to Vcarve');
+		notify('Select a path to center cut');
 		return;
 	}
 
@@ -2658,33 +2726,157 @@ var materialRemovalPoints = [];
 var allMaterialPoints = []; // Pre-computed all material removal points
 var allTravelMoves = []; // Pre-computed all travel moves
 
+// Apply G-code template with selective parameter substitution
+// Template example: "G0 X Y Z F"
+// Params: { x: 10.5, y: 20.3, f: 600 }
+// Output: "G0 X10.5 Y20.3 F600" (Z omitted since not provided)
+function applyGcodeTemplate(template, params) {
+	if (!template) return '';
+
+	var output = template;
+
+	// Process each parameter
+	if (params.x !== undefined && params.x !== null) {
+		output = output.replace(/\bX\b/g, 'X' + params.x);
+	} else {
+		// Remove X if not provided
+		output = output.replace(/\bX\b/g, '').trim();
+	}
+
+	if (params.y !== undefined && params.y !== null) {
+		output = output.replace(/\bY\b/g, 'Y' + params.y);
+	} else {
+		// Remove Y if not provided
+		output = output.replace(/\bY\b/g, '').trim();
+	}
+
+	if (params.z !== undefined && params.z !== null) {
+		output = output.replace(/\bZ\b/g, 'Z' + params.z);
+	} else {
+		// Remove Z if not provided
+		output = output.replace(/\bZ\b/g, '').trim();
+	}
+
+	if (params.f !== undefined && params.f !== null) {
+		output = output.replace(/\bF\b/g, 'F' + params.f);
+	} else {
+		// Remove F if not provided
+		output = output.replace(/\bF\b/g, '').trim();
+	}
+
+	// Clean up multiple spaces
+	output = output.replace(/\s+/g, ' ').trim();
+
+	return output;
+}
+
+// Format a comment using the current profile's comment character
+function formatComment(text, profile) {
+	if (!profile || !profile.commentsEnabled) return '';
+
+	var commentChar = profile.commentChar || '(';
+	var closingChar = commentChar === '(' ? ')' : '';
+
+	return commentChar + text + closingChar;
+}
+
+// Get operation priority for sorting (lower number = earlier in sequence)
+// Order: Drill (1), VCarve (2), Pocket (3), Profiles (4)
+function getOperationPriority(operation) {
+	if (operation === 'Drill') return 1;
+	if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
+	if (operation === 'Pocket') return 3;
+	// All profile operations (Inside, Outside, Center) come last
+	return 4;
+}
+
+// Sort toolpaths by operation priority to ensure safe machining order
+function getSortedToolpaths(toolpaths) {
+	// Create a copy to avoid modifying the original array
+	var sorted = toolpaths.slice();
+
+	sorted.sort(function(a, b) {
+		var priorityA = getOperationPriority(a.operation);
+		var priorityB = getOperationPriority(b.operation);
+
+		// If same priority, maintain original order
+		if (priorityA === priorityB) {
+			return 0;
+		}
+
+		return priorityA - priorityB;
+	});
+
+	return sorted;
+}
+
 function toGcode() {
-	var output = "G0 G54 G17 G21 G90 G94\n"; // reset to known state
+	// Get current G-code profile
+	var profile = currentGcodeProfile || {
+		startGcode: 'G0 G54 G17 G21 G90 G94',
+		endGcode: 'M5\nG0 Z5',
+		toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
+		rapidTemplate: 'G0 X Y Z F',
+		cutTemplate: 'G1 X Y Z F',
+		spindleOnGcode: 'M3 S12000',
+		spindleOffGcode: 'M5',
+		commentChar: '(',
+		commentsEnabled: true
+	};
 
-	for (var i = 0; i < toolpaths.length; i++) {
-		var visible = toolpaths[i].visible;
+	var output = "";
+
+	// Add start G-code if provided
+	if (profile.startGcode && profile.startGcode.trim() !== '') {
+		output += profile.startGcode + '\n';
+	}
+
+	// Add spindle on command if provided
+	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
+		output += profile.spindleOnGcode + '\n';
+	}
+
+	// Sort toolpaths by operation priority for safe machining order
+	// Order: Drill -> VCarve -> Pocket -> Profiles
+	var sortedToolpaths = getSortedToolpaths(toolpaths);
+
+	var lastToolId = null;
+
+	for (var i = 0; i < sortedToolpaths.length; i++) {
+		var visible = sortedToolpaths[i].visible;
 		if (visible) {
-			var name = toolpaths[i].id;
-			var operation = toolpaths[i].operation;
-			var toolStep = toolpaths[i].tool.step;
-			var bit = toolpaths[i].tool.bit;
-			var radius = toolpaths[i].tool.diameter / 2;
-			var depth = toolpaths[i].tool.depth;
+			var name = sortedToolpaths[i].id;
+			var operation = sortedToolpaths[i].operation;
+			var toolStep = sortedToolpaths[i].tool.step;
+			var bit = sortedToolpaths[i].tool.bit;
+			var radius = sortedToolpaths[i].tool.diameter / 2;
+			var depth = sortedToolpaths[i].tool.depth;
 			var woodSpecies = getOption("woodSpecies");
-			var feed = calculateFeedRate(toolpaths[i].tool, woodSpecies);
-			var zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
-			var angle = toolpaths[i].tool.angle;
+			var feed = calculateFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
+			var zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
+			var angle = sortedToolpaths[i].tool.angle;
 
-			var paths = toolpaths[i].paths;
+			var paths = sortedToolpaths[i].paths;
 			var zbacklash = getOption("zbacklash");
 			var safeHeight = getOption("safeHeight") + zbacklash;
 
+			// Check for tool change
+			var currentToolId = sortedToolpaths[i].tool.recid;
+			if (lastToolId !== null && lastToolId !== currentToolId) {
+				// Insert tool change G-code
+				if (profile.toolChangeGcode && profile.toolChangeGcode.trim() !== '') {
+					output += profile.toolChangeGcode + '\n';
+				}
+			}
+			lastToolId = currentToolId;
+
 			// Handle pocket operations differently - complete each layer before going deeper
 			if (operation == 'Pocket') {
-				output += '(' + operation + ' ' + name + ')\n';
+				var comment = formatComment(operation + ' ' + name, profile);
+				if (comment) output += comment + '\n';
 
 				var z = safeHeight;
-				output += 'G0 Z' + z + ' F' + (zfeed / 2) + '\n';
+				output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
 
 				if (bit == 'VBit') {
 					depth = toolDepth(angle, radius);
@@ -2700,7 +2892,8 @@ function toGcode() {
 					if (left < 0 || toolStep <= 0) left = 0;
 
 					z = left - depth;
-					output += '(pass ' + pass + ')\n';
+					var passComment = formatComment('pass ' + pass, profile);
+					if (passComment) output += passComment + '\n';
 
 					// For each depth pass, do all paths from innermost to outermost
 					for (var k = paths.length - 1; k >= 0; k--) {
@@ -2711,8 +2904,8 @@ function toGcode() {
 							if (paths[k].isPlunge && paths[k].plungePoint) {
 								// Simple plunge - just move to center point, no retract
 								var p = toMM(paths[k].plungePoint.x, paths[k].plungePoint.y);
-								output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
-								output += 'G1 Z' + z + ' F' + zfeed + '\n';
+								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+								output += applyGcodeTemplate(profile.cutTemplate, { z: z, f: zfeed }) + '\n';
 								// No retract - continue to next path
 							}
 							else {
@@ -2721,11 +2914,11 @@ function toGcode() {
 									var p = toMM(path[j].x, path[j].y);
 
 									if (j == 0) {
-										output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
-										output += 'G0 Z' + z + ' F' + zfeed + '\n';
+										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+										output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
 									}
 									else {
-										output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+										output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
 									}
 								}
 							}
@@ -2738,13 +2931,14 @@ function toGcode() {
 				for (var k = 0; k < paths.length; k++) {
 					var path = paths[k].tpath;
 
-					output += '(' + operation + ' ' + name + ')\n';
+					var comment = formatComment(operation + ' ' + name, profile);
+					if (comment) output += comment + '\n';
 
 					var z = safeHeight;
 					var lastZ = z;
 					var movingUp = false;
 
-					output += 'G0 Z' + z + ' F' + (zfeed / 2) + '\n';
+					output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
 
 					if (operation == 'Drill') {
 						z = 0;
@@ -2753,15 +2947,15 @@ function toGcode() {
 						path = paths[k].path;
 						for (var j = 0; j < path.length; j++) {
 							var p = toMM(path[j].x, path[j].y);
-							output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
 
 							while (left > 0) {
 								left -= toolStep;
 								if (left < 0 || toolStep <= 0) left = 0;
 
 								z = left - depth;
-								output += 'G0 Z' + z + 'F' + zfeed + '\n';
-								output += 'G0 Z' + (z + toolStep + zbacklash) + 'F' + zfeed + '\n'; // pull up to																// clear chip
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: z + toolStep + zbacklash, f: zfeed }) + '\n'; // pull up to clear chip
 							}
 						}
 					}
@@ -2782,18 +2976,18 @@ function toGcode() {
 							if (movingUp) {
 								cz += zbacklash;
 								cz = Math.round((cz + 0.00001) * 100) / 100;
-								zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies) / 2;
+								zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation) / 2;
 							}
 							else {
-								zfeed = calculateZFeedRate(toolpaths[i].tool, woodSpecies);
+								zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
 							}
 
 
 							if (j == 0) {
-								output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
 							}
 
-							output += 'G1 X' + p.x + ' Y' + p.y + ' Z' + cz + ' F' + zfeed + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: zfeed }) + '\n';
 						}
 
 					}
@@ -2816,13 +3010,14 @@ function toGcode() {
 									if (left < 0 || toolStep <= 0) left = 0;
 
 									z = left - depth;
-									output += '(pass ' + pass + ')\n';
+									var passComment = formatComment('pass ' + pass, profile);
+									if (passComment) output += passComment + '\n';
 
-									output += 'G0 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
-									output += 'G0 Z' + z + ' F' + zfeed + '\n';
+									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+									output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
 								}
 								else {
-									output += 'G1 X' + p.x + ' Y' + p.y + ' F' + feed + '\n';
+									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
 								}
 							}
 						}
@@ -2831,7 +3026,20 @@ function toGcode() {
 			}
 		}
 	}
-	output += 'G0 Z' + safeHeight + ' F' + (zfeed / 2) + '\n';
+
+	// Add final retract to safe height
+	output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: zfeed / 2 }) + '\n';
+
+	// Add spindle off command if provided
+	if (profile.spindleOffGcode && profile.spindleOffGcode.trim() !== '') {
+		output += profile.spindleOffGcode + '\n';
+	}
+
+	// Add end G-code if provided
+	if (profile.endGcode && profile.endGcode.trim() !== '') {
+		output += profile.endGcode + '\n';
+	}
+
 	return output;
 }
 
@@ -2844,6 +3052,16 @@ function parseGcodeForSimulation(gcode) {
 	var currentTool = null;
 	var lines = gcode.split('\n');
 	const zbacklash = getOption("zbacklash");
+
+	// Get the current profile to extract rapid and cut command patterns
+	var profile = currentGcodeProfile || {
+		rapidTemplate: 'G0 X Y Z F',
+		cutTemplate: 'G1 X Y Z F'
+	};
+
+	// Extract the G-code command from templates (e.g., "G0" from "G0 X Y Z F")
+	var rapidCommand = profile.rapidTemplate.split(' ')[0]; // e.g., "G0"
+	var cutCommand = profile.cutTemplate.split(' ')[0]; // e.g., "G1"
 
 	// Find current tool info from comments
 	var currentOperation = '';
@@ -2871,16 +3089,16 @@ function parseGcodeForSimulation(gcode) {
 
 		var newPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
 		var newFeed = currentFeed;
-		var moveType = 'rapid'; // G0
+		var moveType = 'rapid'; // Default to rapid
+		var lineCommand = null;
 
 		// Parse G-code commands
 		var parts = line.split(' ');
 		for (var j = 0; j < parts.length; j++) {
 			var part = parts[j];
 			if (part.startsWith('G')) {
-				var gcode = parseInt(part.substring(1));
-				if (gcode === 0) moveType = 'rapid';
-				else if (gcode === 1) moveType = 'feed';
+				// Store the G-code command found in this line
+				lineCommand = part;
 			} else if (part.startsWith('X')) {
 				newPos.x = parseFloat(part.substring(1));
 			} else if (part.startsWith('Y')) {
@@ -2890,6 +3108,16 @@ function parseGcodeForSimulation(gcode) {
 			} else if (part.startsWith('F')) {
 				newFeed = parseFloat(part.substring(1));
 			}
+		}
+
+		// Determine move type by comparing with profile templates
+		if (lineCommand) {
+			if (lineCommand === rapidCommand) {
+				moveType = 'rapid';
+			} else if (lineCommand === cutCommand) {
+				moveType = 'feed';
+			}
+			// If it doesn't match either, default to rapid (already set)
 		}
 
 		// Calculate move distance and time
@@ -2916,6 +3144,7 @@ function parseGcodeForSimulation(gcode) {
 				x: newPos.x,
 				y: newPos.y,
 				z: newPos.z,
+				feed: newFeed,
 				toolRadius: toolRadius,
 				operation: currentOperation,
 				time: moveTime,
@@ -3033,6 +3262,11 @@ function preComputeAllMaterialPoints(simulationData) {
 
 // Simulation control functions
 function startSimulation() {
+	// Auto-close tool properties when starting simulation
+	if (typeof autoCloseToolProperties === 'function') {
+		autoCloseToolProperties('simulation start');
+	}
+
 	if (toolpaths.length === 0) {
 		notify('No toolpaths to simulate');
 		return;
@@ -3180,6 +3414,20 @@ function setSimulationStep(step) {
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
 	document.getElementById('step-display').textContent = `${step}/${allMaterialPoints.length}`;
 
+	// Update feed rate display
+	let currentFeedRate = 0;
+	if (step > 0 && step <= allMaterialPoints.length) {
+		const currentPoint = allMaterialPoints[step - 1];
+		if (currentPoint.moveIndex < simulationData.moves.length) {
+			const currentMove = simulationData.moves[currentPoint.moveIndex];
+			currentFeedRate = currentMove.feed || 0;
+		}
+	}
+	const feedRateDisplay = document.getElementById('feed-rate-display');
+	if (feedRateDisplay) {
+		feedRateDisplay.textContent = Math.round(currentFeedRate);
+	}
+
 	// Redraw with current simulation state
 	redraw();
 }
@@ -3234,6 +3482,20 @@ function runSmoothSimulation() {
 	const stepSlider = document.getElementById('simulation-step');
 	stepSlider.value = simulationState.currentAnimationStep;
 	document.getElementById('step-display').textContent = `${simulationState.currentAnimationStep}/${allMaterialPoints.length}`;
+
+	// Update feed rate display
+	let currentFeedRate = 0;
+	if (simulationState.currentAnimationStep > 0 && simulationState.currentAnimationStep <= allMaterialPoints.length) {
+		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep - 1];
+		if (currentPoint.moveIndex < simulationData.moves.length) {
+			const currentMove = simulationData.moves[currentPoint.moveIndex];
+			currentFeedRate = currentMove.feed || 0;
+		}
+	}
+	const feedRateDisplay = document.getElementById('feed-rate-display');
+	if (feedRateDisplay) {
+		feedRateDisplay.textContent = Math.round(currentFeedRate);
+	}
 
 	// Redraw with simulation
 	redraw();

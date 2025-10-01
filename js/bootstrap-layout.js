@@ -8,6 +8,8 @@ var options = [];
 var tools = [];
 var currentTool = null;
 var currentFileName = "none";
+var gcodeProfiles = [];
+var currentGcodeProfile = null;
 
 // Wood species database with cutting parameters
 var woodSpeciesDatabase = {
@@ -73,6 +75,53 @@ var woodSpeciesDatabase = {
     }
 };
 
+// Load G-code profiles from localStorage
+function loadGcodeProfiles() {
+    var profileData = localStorage.getItem('gcodeProfiles');
+    if (profileData) {
+        gcodeProfiles = JSON.parse(profileData);
+    } else {
+        // Initialize with default profiles
+        gcodeProfiles = [
+            {
+                recid: 1,
+                name: 'GRBL',
+                startGcode: 'G0 G54 G17 G21 G90 G94',
+                endGcode: 'M5\nG0 Z5',
+                toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
+                rapidTemplate: 'G0 X Y Z F',
+                cutTemplate: 'G1 X Y Z F',
+                spindleOnGcode: 'M3 S12000',
+                spindleOffGcode: 'M5',
+                commentChar: '(',
+                commentsEnabled: true
+            },
+            {
+                recid: 2,
+                name: 'FluidNC',
+                startGcode: 'G0 G54 G17 G21 G90 G94',
+                endGcode: 'M5\nG0 Z5',
+                toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
+                rapidTemplate: 'G0 X Y Z F',
+                cutTemplate: 'G1 X Y Z F',
+                spindleOnGcode: 'M3 S12000',
+                spindleOffGcode: 'M5',
+                commentChar: '(',
+                commentsEnabled: true
+            }
+        ];
+    }
+
+    if (gcodeProfiles.length > 0) {
+        currentGcodeProfile = gcodeProfiles[0];
+    }
+}
+
+// Save G-code profiles to localStorage
+function saveGcodeProfiles() {
+    localStorage.setItem('gcodeProfiles', JSON.stringify(gcodeProfiles));
+}
+
 // Load options from localStorage
 function loadOptions() {
     var optionData = localStorage.getItem('options');
@@ -91,12 +140,14 @@ function loadOptions() {
             { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)' },
             { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
             { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
-            { recid: 12, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
-            { recid: 13, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
-            { recid: 14, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
-            { recid: 15, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
-            { recid: 16, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
-            { recid: 17, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+            { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)' },
+            { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)' },
+            { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
+            { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
+            { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
+            { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
+            { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
+            { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
 
         ];
     }
@@ -114,6 +165,8 @@ function loadTools() {
             name: "6mm End Mill",
             direction: 'Climb',
             diameter: 6,
+            flutes: 2,
+            rpm: 18000,
             feed: 600,
             zfeed: 200,
             angle: 0,
@@ -127,6 +180,8 @@ function loadTools() {
             name: "6mm VBit",
             direction: 'Climb',
             diameter: 6,
+            flutes: 1,
+            rpm: 16000,
             feed: 500,
             zfeed: 200,
             angle: 60,
@@ -140,6 +195,8 @@ function loadTools() {
             name: "6mm Drill",
             direction: 'Conventional',
             diameter: 6,
+            flutes: 2,
+            rpm: 12000,
             feed: 500,
             zfeed: 200,
             angle: 0,
@@ -148,6 +205,30 @@ function loadTools() {
             step: 3,
             stepover: 0,
         }];
+    }
+
+    // Migration: Add flutes and rpm to existing tools that don't have them
+    let needsSave = false;
+    tools.forEach(tool => {
+        if (tool.flutes === undefined) {
+            tool.flutes = 2; // Default to 2 flutes
+            needsSave = true;
+        }
+        if (tool.rpm === undefined) {
+            // Set RPM based on tool type
+            if (tool.bit === 'VBit') {
+                tool.rpm = 16000;
+            } else if (tool.bit === 'Drill') {
+                tool.rpm = 12000;
+            } else {
+                tool.rpm = 18000;
+            }
+            needsSave = true;
+        }
+    });
+
+    if (needsSave) {
+        localStorage.setItem('tools', JSON.stringify(tools));
     }
 
     if (tools.length > 0) {
@@ -159,6 +240,8 @@ function loadTools() {
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
 fileInput.addEventListener('change', function (e) {
+    autoCloseToolProperties('SVG import');
+
     var file = fileInput.files[0];
     currentFileName = file.name.split('.').shift();
 
@@ -175,6 +258,8 @@ fileInput.addEventListener('change', function (e) {
 var fileOpen = document.createElement('input');
 fileOpen.type = 'file';
 fileOpen.addEventListener('change', function (e) {
+    autoCloseToolProperties('project open');
+
     var file = fileOpen.files[0];
     currentFileName = file.name.split('.').shift();
 
@@ -189,6 +274,7 @@ fileOpen.addEventListener('change', function (e) {
 // Initialize layout
 function initializeLayout() {
     loadOptions();
+    loadGcodeProfiles();
     createToolbar();
     createSidebar();
     createToolPanel();
@@ -241,6 +327,10 @@ function createToolbar() {
         if (!button) return;
 
         const action = button.dataset.action;
+
+        // Auto-close tool properties on toolbar actions
+        autoCloseToolProperties('toolbar action: ' + action);
+
         switch (action) {
             case 'new':
                 newProject();
@@ -354,13 +444,13 @@ function createSidebar() {
             <div class="tab-pane fade h-100" id="operations" role="tabpanel">
                 <div id="operations-list" class="p-3">
                     <div class="sidebar-item" data-operation="Drill" data-bs-toggle="tooltip" data-bs-placement="right" title="Drill holes at selected points">
-                        <i data-lucide="circle"></i>Drill
+                        <i data-lucide="circle-plus"></i>Drill
                     </div>
                     <div class="sidebar-item" data-operation="Inside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut inside the selected path">
                         <i data-lucide="circle-dot"></i>Inside
                     </div>
                     <div class="sidebar-item" data-operation="Center" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut along the center line">
-                        <i data-lucide="circle"></i>Center
+                        <i data-lucide="circle-off"></i>Center
                     </div>
                     <div class="sidebar-item" data-operation="Outside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut outside the selected path">
                         <i data-lucide="circle"></i>Outside
@@ -380,6 +470,87 @@ function createSidebar() {
                         </div>
                         <div class="collapse show" id="tool-paths-section">
                             <!-- Tool paths will be added dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Gcodes Section -->
+                    <div class="sidebar-section mt-4">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#gcodes-section">
+                            <span id="gcode-section-title">G-code Post Processor</span>
+                            <i data-lucide="chevron-down"></i>
+                        </div>
+                        <div class="collapse" id="gcodes-section">
+                            <div class="p-2">
+                                <!-- Profile Selector -->
+                                <div class="mb-3">
+                                    <label for="gcode-profile-select" class="form-label small">Profile</label>
+                                    <div class="d-flex gap-1">
+                                        <select class="form-select form-select-sm" id="gcode-profile-select">
+                                            <!-- Profiles will be populated dynamically -->
+                                        </select>
+                                        <button type="button" class="btn btn-outline-primary btn-sm" id="new-gcode-profile" data-bs-toggle="tooltip" title="New Profile">
+                                            <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" id="delete-gcode-profile" data-bs-toggle="tooltip" title="Delete Profile">
+                                            <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- G-code Settings Form -->
+                                <form id="gcode-profile-form">
+                                    <div class="mb-2">
+                                        <label for="start-gcode" class="form-label small">Start G-code</label>
+                                        <textarea class="form-control form-control-sm" id="start-gcode" rows="2" placeholder="G0 G54 G17 G21 G90 G94"></textarea>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="spindle-on-gcode" class="form-label small">Spindle On</label>
+                                        <input type="text" class="form-control form-control-sm" id="spindle-on-gcode" placeholder="M3 S12000">
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="rapid-template" class="form-label small">Rapid Template</label>
+                                        <input type="text" class="form-control form-control-sm" id="rapid-template" placeholder="G0 X Y Z F">
+                                        <small class="text-muted">Use X Y Z F placeholders</small>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="cut-template" class="form-label small">Cut Template</label>
+                                        <input type="text" class="form-control form-control-sm" id="cut-template" placeholder="G1 X Y Z F">
+                                        <small class="text-muted">Use X Y Z F placeholders</small>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="tool-change-gcode" class="form-label small">Tool Change</label>
+                                        <textarea class="form-control form-control-sm" id="tool-change-gcode" rows="2" placeholder="M5\nG0 Z5\n(Tool Change)\nM0"></textarea>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="spindle-off-gcode" class="form-label small">Spindle Off</label>
+                                        <input type="text" class="form-control form-control-sm" id="spindle-off-gcode" placeholder="M5">
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="end-gcode" class="form-label small">End G-code</label>
+                                        <textarea class="form-control form-control-sm" id="end-gcode" rows="2" placeholder="M5\nG0 Z5"></textarea>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label for="comment-char" class="form-label small">Comment Character</label>
+                                        <input type="text" class="form-control form-control-sm" id="comment-char" placeholder="(" maxlength="1">
+                                    </div>
+
+                                    <div class="mb-2 form-check">
+                                        <input type="checkbox" class="form-check-input" id="comments-enabled">
+                                        <label class="form-check-label small" for="comments-enabled">Enable Comments</label>
+                                    </div>
+
+                                    <button type="button" class="btn btn-primary btn-sm w-100" id="save-gcode-profile">
+                                        <i data-lucide="save"></i> Save Profile
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -462,10 +633,12 @@ function createSidebar() {
     const operationsTab = document.getElementById('operations-tab');
 
     drawToolsTab.addEventListener('shown.bs.tab', function () {
+        autoCloseToolProperties('tab switch to Draw Tools');
         hideBottomPanel();
     });
 
     operationsTab.addEventListener('shown.bs.tab', function () {
+        autoCloseToolProperties('tab switch to Operations');
         showBottomPanel();
     });
 
@@ -476,6 +649,229 @@ function createSidebar() {
     } else {
         hideBottomPanel();
     }
+
+    // Initialize G-code profiles UI
+    initializeGcodeProfilesUI();
+}
+
+// Initialize G-code profiles UI
+function initializeGcodeProfilesUI() {
+    populateGcodeProfileSelector();
+
+    // Add event listeners
+    document.getElementById('gcode-profile-select').addEventListener('change', loadSelectedGcodeProfile);
+    document.getElementById('new-gcode-profile').addEventListener('click', createNewGcodeProfile);
+    document.getElementById('delete-gcode-profile').addEventListener('click', deleteCurrentGcodeProfile);
+    document.getElementById('save-gcode-profile').addEventListener('click', saveCurrentGcodeProfile);
+}
+
+// Populate the G-code profile selector dropdown
+function populateGcodeProfileSelector() {
+    const select = document.getElementById('gcode-profile-select');
+    select.innerHTML = '';
+
+    gcodeProfiles.forEach((profile, index) => {
+        const option = document.createElement('option');
+        option.value = profile.recid;
+        option.textContent = profile.name;
+        if (currentGcodeProfile && profile.recid === currentGcodeProfile.recid) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
+
+    // Load the current profile into the form
+    if (currentGcodeProfile) {
+        loadGcodeProfileToForm(currentGcodeProfile);
+        updateGcodeSectionTitle(currentGcodeProfile.name);
+    }
+}
+
+// Update the G-code section title with the current profile name
+function updateGcodeSectionTitle(profileName) {
+    const titleElement = document.getElementById('gcode-section-title');
+    if (titleElement) {
+        titleElement.textContent = profileName || 'G-code Post Processor';
+    }
+}
+
+// Load selected profile from dropdown
+function loadSelectedGcodeProfile() {
+    const select = document.getElementById('gcode-profile-select');
+    const profileId = parseInt(select.value);
+    const profile = gcodeProfiles.find(p => p.recid === profileId);
+
+    if (profile) {
+        currentGcodeProfile = profile;
+        loadGcodeProfileToForm(profile);
+        updateGcodeSectionTitle(profile.name);
+    }
+}
+
+// Load profile data into the form
+function loadGcodeProfileToForm(profile) {
+    document.getElementById('start-gcode').value = profile.startGcode || '';
+    document.getElementById('spindle-on-gcode').value = profile.spindleOnGcode || '';
+    document.getElementById('rapid-template').value = profile.rapidTemplate || 'G0 X Y Z F';
+    document.getElementById('cut-template').value = profile.cutTemplate || 'G1 X Y Z F';
+    document.getElementById('tool-change-gcode').value = profile.toolChangeGcode || '';
+    document.getElementById('spindle-off-gcode').value = profile.spindleOffGcode || '';
+    document.getElementById('end-gcode').value = profile.endGcode || '';
+    document.getElementById('comment-char').value = profile.commentChar || '(';
+    document.getElementById('comments-enabled').checked = profile.commentsEnabled !== false;
+}
+
+// Create a new G-code profile
+function createNewGcodeProfile() {
+    // Show the modal
+    const modalElement = document.getElementById('profileNameModal');
+    const modal = new bootstrap.Modal(modalElement);
+    const input = document.getElementById('profile-name-input');
+    const confirmBtn = document.getElementById('confirm-profile-name');
+
+    // Reset input state
+    input.value = 'New Profile';
+    input.classList.remove('is-invalid');
+
+    // Focus input when modal is shown
+    modalElement.addEventListener('shown.bs.modal', function() {
+        input.select();
+    }, { once: true });
+
+    // Handle Enter key in input
+    const handleEnter = function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleConfirm();
+        }
+    };
+
+    // Handle confirm button click
+    const handleConfirm = function() {
+        const name = input.value.trim();
+
+        if (!name) {
+            input.classList.add('is-invalid');
+            document.getElementById('profile-name-error').textContent = 'Profile name is required';
+            return;
+        }
+
+        // Check if name already exists
+        if (gcodeProfiles.some(p => p.name === name)) {
+            input.classList.add('is-invalid');
+            document.getElementById('profile-name-error').textContent = 'A profile with this name already exists';
+            return;
+        }
+
+        // Create new profile based on current one or defaults
+        const newProfile = {
+            recid: freeGcodeProfileId(),
+            name: name,
+            startGcode: currentGcodeProfile ? currentGcodeProfile.startGcode : 'G0 G54 G17 G21 G90 G94',
+            endGcode: currentGcodeProfile ? currentGcodeProfile.endGcode : 'M5\nG0 Z5',
+            toolChangeGcode: currentGcodeProfile ? currentGcodeProfile.toolChangeGcode : 'M5\nG0 Z5\n(Tool Change)\nM0',
+            rapidTemplate: currentGcodeProfile ? currentGcodeProfile.rapidTemplate : 'G0 X Y Z F',
+            cutTemplate: currentGcodeProfile ? currentGcodeProfile.cutTemplate : 'G1 X Y Z F',
+            spindleOnGcode: currentGcodeProfile ? currentGcodeProfile.spindleOnGcode : 'M3 S12000',
+            spindleOffGcode: currentGcodeProfile ? currentGcodeProfile.spindleOffGcode : 'M5',
+            commentChar: currentGcodeProfile ? currentGcodeProfile.commentChar : '(',
+            commentsEnabled: currentGcodeProfile ? currentGcodeProfile.commentsEnabled : true
+        };
+
+        gcodeProfiles.push(newProfile);
+        currentGcodeProfile = newProfile;
+        saveGcodeProfiles();
+        populateGcodeProfileSelector();
+        updateGcodeSectionTitle(newProfile.name);
+        notify('Profile created successfully', 'success');
+
+        // Clean up event listeners
+        input.removeEventListener('keypress', handleEnter);
+        confirmBtn.removeEventListener('click', handleConfirm);
+
+        modal.hide();
+    };
+
+    // Add event listeners - removed from any previous modal invocation
+    input.removeEventListener('keypress', handleEnter);
+    confirmBtn.removeEventListener('click', handleConfirm);
+
+    input.addEventListener('keypress', handleEnter);
+    confirmBtn.addEventListener('click', handleConfirm);
+
+    // Clean up when modal is hidden
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        input.removeEventListener('keypress', handleEnter);
+        confirmBtn.removeEventListener('click', handleConfirm);
+    }, { once: true });
+
+    modal.show();
+}
+
+// Delete the current G-code profile
+function deleteCurrentGcodeProfile() {
+    if (gcodeProfiles.length <= 1) {
+        notify('Cannot delete the last profile', 'error');
+        return;
+    }
+
+    // Show the confirmation modal
+    const modal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+    const profileNameSpan = document.getElementById('delete-profile-name');
+    const confirmBtn = document.getElementById('confirm-delete-profile');
+
+    // Set the profile name in the modal
+    profileNameSpan.textContent = currentGcodeProfile.name;
+
+    // Handle confirm button click
+    const handleConfirm = function() {
+        const index = gcodeProfiles.findIndex(p => p.recid === currentGcodeProfile.recid);
+        if (index >= 0) {
+            gcodeProfiles.splice(index, 1);
+            currentGcodeProfile = gcodeProfiles[0];
+            saveGcodeProfiles();
+            populateGcodeProfileSelector();
+            updateGcodeSectionTitle(currentGcodeProfile.name);
+            notify('Profile deleted successfully', 'success');
+        }
+
+        // Clean up event listener
+        confirmBtn.removeEventListener('click', handleConfirm);
+
+        modal.hide();
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm, { once: true });
+
+    modal.show();
+}
+
+// Save the current profile
+function saveCurrentGcodeProfile() {
+    if (!currentGcodeProfile) return;
+
+    // Update profile with form values
+    currentGcodeProfile.startGcode = document.getElementById('start-gcode').value;
+    currentGcodeProfile.spindleOnGcode = document.getElementById('spindle-on-gcode').value;
+    currentGcodeProfile.rapidTemplate = document.getElementById('rapid-template').value;
+    currentGcodeProfile.cutTemplate = document.getElementById('cut-template').value;
+    currentGcodeProfile.toolChangeGcode = document.getElementById('tool-change-gcode').value;
+    currentGcodeProfile.spindleOffGcode = document.getElementById('spindle-off-gcode').value;
+    currentGcodeProfile.endGcode = document.getElementById('end-gcode').value;
+    currentGcodeProfile.commentChar = document.getElementById('comment-char').value;
+    currentGcodeProfile.commentsEnabled = document.getElementById('comments-enabled').checked;
+
+    saveGcodeProfiles();
+    notify('Profile saved successfully', 'success');
+}
+
+// Get a free profile ID
+function freeGcodeProfileId() {
+    let id = 1;
+    while (gcodeProfiles.find(p => p.recid === id)) {
+        id++;
+    }
+    return id;
 }
 
 // Properties Editor Control Functions
@@ -601,6 +997,20 @@ function showOperationPropertiesEditor(operationName) {
     }
 
     lucide.createIcons();
+}
+
+// Auto-close tool properties when context switches
+function autoCloseToolProperties(reason) {
+    const toolPropertiesEditor = document.getElementById('tool-properties-editor');
+    const operationPropertiesEditor = document.getElementById('operation-properties-editor');
+
+    const isToolEditorOpen = toolPropertiesEditor && toolPropertiesEditor.style.display !== 'none' && toolPropertiesEditor.style.display !== '';
+    const isOperationEditorOpen = operationPropertiesEditor && operationPropertiesEditor.style.display !== 'none' && operationPropertiesEditor.style.display !== '';
+
+    if (isToolEditorOpen || isOperationEditorOpen) {
+        console.log('Auto-closing tool properties: ' + reason);
+        showToolsList();
+    }
 }
 
 function showToolsList() {
@@ -1168,6 +1578,9 @@ function createToolPanel() {
                     <div class="small text-muted">
                         <span id="simulation-time">0:00</span>/<span id="total-time">0:00</span>
                     </div>
+                    <div class="small text-muted">
+                        Feed: <span id="feed-rate-display">0</span> mm/min
+                    </div>
                 </div>
             </div>
         </div>
@@ -1181,6 +1594,8 @@ function createToolPanel() {
                         <th><i data-lucide="wrench" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool"></i> Tool</th>
                         <th><i data-lucide="rotate-cw" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Direction"></i> Direction</th>
                         <th><i data-lucide="diameter" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Diameter (mm)"></i>Diameter (mm)</th>
+                        <th><i data-lucide="hash" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of cutting edges"></i> Flutes</th>
+                        <th><i data-lucide="gauge" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Spindle speed (RPM)"></i> RPM</th>
                         <th><i data-lucide="move" data-bs-toggle="tooltip" data-bs-placement="bottom" title="XY Feed"></i> XY Feed</th>
                         <th><i data-lucide="arrow-down" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Z Feed"></i> Z Feed</th>
                         <th><i data-lucide="triangle" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Angle"></i> Angle</th>
@@ -1265,6 +1680,8 @@ function createToolRow(tool, index) {
             </select>
         </td>
         <td><input type="number" value="${tool.diameter}" data-field="diameter" min="1" max="25" step="0.1"></td>
+        <td><input type="number" value="${tool.flutes || 2}" data-field="flutes" min="1" max="6" step="1" data-bs-toggle="tooltip" title="Number of cutting edges"></td>
+        <td><input type="number" value="${tool.rpm || 18000}" data-field="rpm" min="1000" max="30000" step="100" data-bs-toggle="tooltip" title="Spindle speed (RPM)"></td>
         <td><input type="number" value="${tool.feed}" data-field="feed" min="10" max="1000" step="10"></td>
         <td><input type="number" value="${tool.zfeed}" data-field="zfeed" min="10" max="1000" step="10"></td>
         <td><input type="number" value="${tool.angle}" data-field="angle" min="0" max="90" step="5"></td>
@@ -1349,7 +1766,30 @@ function addTool() {
 
 function deleteTool() {
     const selectedIndex = getCurrentToolIndex();
-    if (selectedIndex >= 0 && tools.length > 1) {
+
+    if (selectedIndex < 0) {
+        notify('Please select a tool to delete', 'error');
+        return;
+    }
+
+    if (tools.length <= 1) {
+        notify('Cannot delete the last tool', 'error');
+        return;
+    }
+
+    const toolToDelete = tools[selectedIndex];
+
+    // Show the confirmation modal
+    const modalElement = document.getElementById('deleteToolModal');
+    const modal = new bootstrap.Modal(modalElement);
+    const toolNameSpan = document.getElementById('delete-tool-name');
+    const confirmBtn = document.getElementById('confirm-delete-tool');
+
+    // Set the tool name in the modal
+    toolNameSpan.textContent = toolToDelete.name;
+
+    // Handle confirm button click
+    const handleConfirm = function() {
         tools.splice(selectedIndex, 1);
         localStorage.setItem('tools', JSON.stringify(tools));
         renderToolsTable();
@@ -1360,7 +1800,18 @@ function deleteTool() {
         } else {
             selectTool(selectedIndex);
         }
-    }
+
+        notify('Tool deleted successfully', 'success');
+
+        // Clean up event listener
+        confirmBtn.removeEventListener('click', handleConfirm);
+
+        modal.hide();
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm, { once: true });
+
+    modal.show();
 }
 
 
@@ -1456,6 +1907,92 @@ function createModals() {
         </div>
     `;
     body.appendChild(helpModal);
+
+    // Profile Name Input Modal
+    const profileNameModal = document.createElement('div');
+    profileNameModal.innerHTML = `
+        <div class="modal fade" id="profileNameModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i data-lucide="file-plus"></i>
+                            New G-code Profile
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="profile-name-input" class="form-label">Profile Name</label>
+                            <input type="text" class="form-control" id="profile-name-input" placeholder="Enter profile name" autofocus>
+                            <div class="invalid-feedback" id="profile-name-error">
+                                A profile with this name already exists
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="confirm-profile-name">Create</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(profileNameModal);
+
+    // Delete Profile Confirmation Modal
+    const deleteConfirmModal = document.createElement('div');
+    deleteConfirmModal.innerHTML = `
+        <div class="modal fade" id="deleteConfirmModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">
+                            <i data-lucide="alert-triangle"></i>
+                            Delete Profile
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete the profile "<strong id="delete-profile-name"></strong>"?</p>
+                        <p class="text-muted mb-0">This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirm-delete-profile">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(deleteConfirmModal);
+
+    // Delete Tool Confirmation Modal
+    const deleteToolModal = document.createElement('div');
+    deleteToolModal.innerHTML = `
+        <div class="modal fade" id="deleteToolModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">
+                            <i data-lucide="alert-triangle"></i>
+                            Delete Tool
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete the tool "<strong id="delete-tool-name"></strong>"?</p>
+                        <p class="text-muted mb-0">This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirm-delete-tool">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(deleteToolModal);
 
     // Add options modal event handlers
     document.getElementById('save-options').addEventListener('click', saveOptions);
@@ -1719,13 +2256,54 @@ function addSvgPath(id, name) {
     lucide.createIcons();
 }
 
-function addToolPath(id, name, operation, toolName) {
-    const section = document.getElementById('tool-paths-section');
+// Get operation priority for sorting (same as cnc.js)
+function getOperationPriority(operation) {
+    if (operation === 'Drill') return 1;
+    if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
+    if (operation === 'Pocket') return 3;
+    // All profile operations (Inside, Outside, Center) come last
+    return 4;
+}
 
-    // Find or create tool group
-    let toolGroup = section.querySelector(`[data-tool-name="${toolName}"]`);
-    if (!toolGroup) {
-        toolGroup = document.createElement('div');
+function addToolPath(id, name, operation, toolName) {
+    // Instead of adding directly, we'll refresh the entire display in sorted order
+    refreshToolPathsDisplay();
+}
+
+// Refresh the toolpaths display in sorted order
+function refreshToolPathsDisplay() {
+    const section = document.getElementById('tool-paths-section');
+    if (!section) return;
+
+    // Clear existing display
+    section.innerHTML = '';
+
+    // Check if toolpaths exist in global scope
+    if (typeof toolpaths === 'undefined' || !toolpaths || toolpaths.length === 0) {
+        return;
+    }
+
+    // Create a sorted copy of toolpaths
+    var sortedToolpaths = toolpaths.slice().sort(function(a, b) {
+        var priorityA = getOperationPriority(a.operation);
+        var priorityB = getOperationPriority(b.operation);
+        if (priorityA === priorityB) return 0;
+        return priorityA - priorityB;
+    });
+
+    // Group by tool name
+    var toolGroups = {};
+    sortedToolpaths.forEach(function(toolpath) {
+        var toolName = toolpath.tool.name;
+        if (!toolGroups[toolName]) {
+            toolGroups[toolName] = [];
+        }
+        toolGroups[toolName].push(toolpath);
+    });
+
+    // Render each tool group
+    Object.keys(toolGroups).forEach(function(toolName) {
+        var toolGroup = document.createElement('div');
         toolGroup.className = 'ms-3';
         toolGroup.dataset.toolName = toolName;
         toolGroup.innerHTML = `
@@ -1733,17 +2311,21 @@ function addToolPath(id, name, operation, toolName) {
                 <i data-lucide="folder"></i>${toolName}
             </div>
         `;
-        section.appendChild(toolGroup);
-    }
 
-    // Add tool path item
-    const item = document.createElement('div');
-    item.className = 'sidebar-item ms-4';
-    item.dataset.pathId = id;
-    item.innerHTML = `
-        <i data-lucide="${getOperationIcon(operation)}"></i>${name}
-    `;
-    toolGroup.appendChild(item);
+        // Add toolpaths for this tool
+        toolGroups[toolName].forEach(function(toolpath) {
+            var item = document.createElement('div');
+            item.className = 'sidebar-item ms-4';
+            item.dataset.pathId = toolpath.id;
+            item.innerHTML = `
+                <i data-lucide="${getOperationIcon(toolpath.operation)}"></i>${toolpath.operation} ${toolpath.id.replace('T', '')}
+            `;
+            toolGroup.appendChild(item);
+        });
+
+        section.appendChild(toolGroup);
+    });
+
     lucide.createIcons();
 }
 
@@ -1813,11 +2395,11 @@ function getOperationIcon(operation) {
     switch (operation) {
         case 'Outside': return 'circle';
         case 'Inside': return 'circle-dot';
-        case 'Center': return 'circle';
+        case 'Center': return 'circle-off';
         case 'Pocket': return 'target';
         case 'VCarve In': return 'star';
         case 'VCarve Out': return 'star';
-        case 'Drill': return 'circle';
+        case 'Drill': return 'circle-plus';
         default: return 'circle';
     }
 }
@@ -1873,16 +2455,30 @@ function notify(message, type = 'error') {
         document.body.appendChild(toastContainer);
     }
 
+    // Map type to Bootstrap class and icon
+    var bgClass = 'primary';
+    var icon = 'info';
+    if (type === 'error') {
+        bgClass = 'danger';
+        icon = 'alert-circle';
+    } else if (type === 'success') {
+        bgClass = 'success';
+        icon = 'check-circle';
+    } else if (type === 'warning') {
+        bgClass = 'warning';
+        icon = 'alert-triangle';
+    }
+
     // Create toast element
     const toastId = 'toast-' + Date.now();
     const toast = document.createElement('div');
     toast.id = toastId;
-    toast.className = `toast align-items-center text-bg-${type === 'error' ? 'danger' : 'primary'} border-0`;
+    toast.className = `toast align-items-center text-bg-${bgClass} border-0`;
     toast.setAttribute('role', 'alert');
     toast.innerHTML = `
         <div class="d-flex">
             <div class="toast-body">
-                <i data-lucide="${type === 'error' ? 'alert-circle' : 'info'}"></i>
+                <i data-lucide="${icon}"></i>
                 ${message}
             </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
