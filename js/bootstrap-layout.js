@@ -141,7 +141,7 @@ function loadOptions() {
             { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
             { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
             { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)' },
-            { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)' },
+            { recid: 13, option: 'maxFeedRate', value: 1000, desc: 'Maximum Feed Rate (mm/min)' },
             { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
             { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
             { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
@@ -1871,8 +1871,11 @@ function createModals() {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-primary" id="save-options">Save</button>
+                        <button type="button" class="btn btn-danger" id="reset-options">Reset to Defaults</button>
+                        <div class="ms-auto">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <button type="button" class="btn btn-primary" id="save-options">Save</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1994,8 +1997,37 @@ function createModals() {
     `;
     body.appendChild(deleteToolModal);
 
+    // Reset Options Confirmation Modal
+    const resetOptionsModal = document.createElement('div');
+    resetOptionsModal.innerHTML = `
+        <div class="modal fade" id="resetOptionsModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title">
+                            <i data-lucide="alert-triangle"></i>
+                            Reset Options
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to reset all options to their default values?</p>
+                        <p class="text-muted mb-0">This will also reset the workpiece properties.</p>
+                        <p class="text-muted mb-0">This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirm-reset-options">Reset</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(resetOptionsModal);
+
     // Add options modal event handlers
     document.getElementById('save-options').addEventListener('click', saveOptions);
+    document.getElementById('reset-options').addEventListener('click', showResetOptionsConfirmation);
 }
 
 function showOptionsModal() {
@@ -2037,8 +2069,10 @@ function renderOptionsTable() {
                            ${speciesOptions}
                          </select>`;
         } else {
+            // Use step 0.1 for tolerance and zbacklash, step 1 for other numeric fields
+            const step = (option.option === 'tolerance' || option.option === 'zbacklash') ? '0.1' : '1';
             inputHtml = `<input type="number" class="form-control" value="${option.value}"
-                              data-option-index="${originalIndex}" step="0.1">`;
+                              data-option-index="${originalIndex}" step="${step}">`;
         }
         
         row.innerHTML = `
@@ -2073,6 +2107,78 @@ function saveOptions() {
     const modal = bootstrap.Modal.getInstance(document.getElementById('optionsModal'));
     modal.hide();
     redraw();
+}
+
+function showResetOptionsConfirmation() {
+    // Show the confirmation modal
+    const modalElement = document.getElementById('resetOptionsModal');
+    const modal = new bootstrap.Modal(modalElement);
+    const confirmBtn = document.getElementById('confirm-reset-options');
+
+    // Handle confirm button click
+    const handleConfirm = function() {
+        performOptionsReset();
+        modal.hide();
+
+        // Clean up event listener
+        confirmBtn.removeEventListener('click', handleConfirm);
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm);
+    modal.show();
+}
+
+function performOptionsReset() {
+    // Clear localStorage options
+    localStorage.removeItem('options');
+
+    // Load default options
+    options = [
+        { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid' },
+        { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin' },
+        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches' },
+        { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
+        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
+        { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm' },
+        { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)' },
+        { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)' },
+        { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)' },
+        { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
+        { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
+        { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)' },
+        { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)' },
+        { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
+        { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
+        { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
+        { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
+        { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
+        { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+    ];
+
+    // Recalculate origin based on reset workpiece dimensions
+    if (typeof calculateOriginFromPosition === 'function' && typeof origin !== 'undefined' && typeof viewScale !== 'undefined') {
+        const width = getOption("workpieceWidth") * viewScale;
+        const length = getOption("workpieceLength") * viewScale;
+        const originPosition = getOption("originPosition") || 'middle-center';
+
+        const originCoords = calculateOriginFromPosition(originPosition, width, length);
+        origin.x = originCoords.x;
+        origin.y = originCoords.y;
+    }
+
+    // Re-center the workpiece in the viewport
+    if (typeof centerWorkpiece === 'function') {
+        centerWorkpiece();
+    }
+
+    // Re-render the options table to show default values
+    renderOptionsTable();
+
+    // Redraw the canvas to apply changes
+    redraw();
+
+    // Show success notification
+    notify('Options reset to defaults', 'success');
 }
 
 // Function to refresh options display when loaded from project
