@@ -1,5 +1,9 @@
 # toGcode
 
+<p align="center">
+  <img src="icons/svgtogcode.jpeg" alt="toGcode Logo" width="200">
+</p>
+
 **🌐 [Launch toGcode](https://rickmcconney.github.io/toGcode/)**
 
 A web-based CNC CAM (Computer-Aided Manufacturing) application that converts SVG files into G-code for CNC machines. Designed with a focus on woodworking and maker-friendly CNC operations.
