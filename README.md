@@ -8,7 +8,7 @@ A web-based CNC CAM (Computer-Aided Manufacturing) application that converts SVG
 
 This project is actively under development. Features and interfaces may change as the application evolves. While the core functionality is stable, new features and improvements are being added regularly.
 
-Auto feed rate calculations are current clipped at 1000 mm/min. Please adjust this value in the options panel to match your machines capabilities. You can also disable auto feed calculations in the options panel, in which case the feed rate set on the individual tool will be used.
+Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this value, go to the options panel and match it to your machine's capabilities. Alternatively, you can disable auto feed calculations, and the feed rate set on the individual tool will be used.
 
 ## Key Features
 
