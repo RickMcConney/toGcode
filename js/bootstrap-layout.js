@@ -242,6 +242,7 @@ function loadTools() {
 // File input handlers
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
+fileInput.accept = '.svg';
 fileInput.addEventListener('change', function (e) {
     autoCloseToolProperties('SVG import');
 
@@ -260,6 +261,7 @@ fileInput.addEventListener('change', function (e) {
 
 var fileOpen = document.createElement('input');
 fileOpen.type = 'file';
+fileOpen.accept = '.json';
 fileOpen.addEventListener('change', function (e) {
     autoCloseToolProperties('project open');
 
@@ -367,6 +369,11 @@ function createToolbar() {
 function createSidebar() {
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
+        <!-- Logo -->
+        <div class="text-center py-3 border-bottom">
+            <img src="icons/svgtogcode.jpeg" alt="toGcode Logo" style="width: 200px; max-width: 100%;">
+        </div>
+
         <!-- Tab Navigation -->
         <nav class="nav nav-tabs border-bottom" id="sidebar-tabs" role="tablist">
             <button class="nav-link active" id="draw-tools-tab" data-bs-toggle="tab" data-bs-target="#draw-tools" type="button" role="tab">
@@ -930,12 +937,8 @@ function showToolPropertiesEditor(operationName) {
         form.innerHTML = '<p class="text-muted">No properties available for this tool.</p>';
     }
 
-    // Update help content
-    if (operation && typeof operation.getHelpText === 'function') {
-        helpContent.innerHTML = operation.getHelpText();
-    } else {
-        helpContent.innerHTML = `Click and drag to use the ${operationName} tool.`;
-    }
+    // Help content is managed by StepWiseHelpSystem when operation.start() is called
+    // No need to set it here - it will be updated automatically
 
     lucide.createIcons();
 }
@@ -992,12 +995,8 @@ function showOperationPropertiesEditor(operationName) {
         form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
     }
 
-    // Update help content
-    if (operation && typeof operation.getHelpText === 'function') {
-        helpContent.innerHTML = operation.getHelpText();
-    } else {
-        helpContent.innerHTML = `Select paths and apply the ${operationName} operation.`;
-    }
+    // Help content is managed by StepWiseHelpSystem when operation.start() is called
+    // No need to set it here - it will be updated automatically
 
     lucide.createIcons();
 }

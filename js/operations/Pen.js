@@ -12,6 +12,7 @@ class Pen extends Operation {
 
     start() {
         this.drawingPoints = [];
+        super.start();
     }
 
     stop() {
@@ -32,6 +33,7 @@ class Pen extends Operation {
             if (distance <= this.closeDistance) {
                 // Close the current path
                 this.closePath();
+                this.resetHelpSteps(); // Reset to step 1 for next path
                 return;
             }
         }
@@ -39,6 +41,11 @@ class Pen extends Operation {
         // Continue with normal point addition
         this.drawingPoints.push({ x: mouse.x, y: mouse.y });
         this.lastPoint = { x: mouse.x, y: mouse.y };
+
+        // Advance help steps based on progress
+        if (this.drawingPoints.length === 1) {
+            this.nextHelpStep(); // Move to step 2: adding more points
+        }
     }
 
     onMouseMove(canvas, evt) {
@@ -53,6 +60,19 @@ class Pen extends Operation {
                 Math.pow(mouse.y - firstPoint.y, 2)
             );
             this.nearFirstPoint = distance <= this.closeDistance;
+
+            // Update help step based on position
+            if (this.nearFirstPoint) {
+                // Near first point - show step 3 (close path instruction)
+                if (this.currentHelpStep !== 2) {
+                    this.setHelpStep(2); // Step 3 (0-indexed as 2)
+                }
+            } else {
+                // Not near first point - show step 4 (escape instruction)
+                if (this.currentHelpStep !== 3) {
+                    this.setHelpStep(3); // Step 4 (0-indexed as 3)
+                }
+            }
         }
 
         if (this.lastPoint) {
@@ -202,9 +222,17 @@ class Pen extends Operation {
         this.drawingPoints = [];
         this.lastPoint = null;
         this.previewLine = null;
+        this.resetHelpSteps(); // Reset to step 1 for next path
 
     }
 
-
+    getHelpSteps() {
+        return [
+            'Click on the canvas to set the first point of the path',
+            'Click to add more points and create line segments',
+            'To close the path, click near the first point when the green circle appears',
+            'Press Escape to finish the path without closing'
+        ];
+    }
 
 }

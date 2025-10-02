@@ -205,9 +205,10 @@ class StepWiseHelpSystem {
                 'All selected paths will move/scale/rotate together'
             ],
             'Pen': [
-                'Click and drag to draw freehand lines',
-                'Release the mouse to finish the current stroke, ESC key to finish current path'
-                
+                'Click on the canvas to set the first point of the path',
+                'Click to add more points and create line segments',
+                'To close the path, click near the first point when the green circle appears',
+                'Press Escape to finish the path without closing'
             ],
             'Polygon': [
                 'Set the number of sides in the properties panel',
