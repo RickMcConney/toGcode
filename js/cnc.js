@@ -3534,7 +3534,7 @@ function formatTime(seconds) {
 
 function updateStatusWithSimulation(currentTime, totalTime) {
 	const statusText = `Simulation: ${formatTime(currentTime)} / ${formatTime(totalTime)} | Tool: ${currentTool ? currentTool.name : 'None'}`;
-	document.getElementById('status').innerHTML = `<span>${statusText}</span>`;
+	document.getElementById('status').innerHTML = `<span>${statusText}</span><span class="small">${typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''}</span>`;
 }
 
 

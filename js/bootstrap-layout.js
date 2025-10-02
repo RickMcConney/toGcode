@@ -3,6 +3,9 @@
  * Replaces w2ui components with Bootstrap equivalents
  */
 
+// Version number based on latest commit date
+var APP_VERSION = "Ver 2025-10-02";
+
 var mode = "Select";
 var options = [];
 var tools = [];
@@ -2534,14 +2537,16 @@ function freeToolId() {
 
 function setMode(m) {
     if (m != null) mode = m;
-    document.getElementById('status').textContent = `Tool: ${currentTool ? currentTool.name : 'None'} [${mode}]`;
+    const statusEl = document.getElementById('status');
+    statusEl.innerHTML = `<span>Tool: ${currentTool ? currentTool.name : 'None'} [${mode}]</span><span class="small">${APP_VERSION}</span>`;
 }
 
-// Compatibility object for grid operations  
+// Compatibility object for grid operations
 window.grid = {
     status: function (text) {
         // Update status bar with tool information
-        document.getElementById('status').textContent = `Tool: ${text} [${mode}]`;
+        const statusEl = document.getElementById('status');
+        statusEl.innerHTML = `<span>Tool: ${text} [${mode}]</span><span class="small">${APP_VERSION}</span>`;
     },
     get records() {
         return tools;
