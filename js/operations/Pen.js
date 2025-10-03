@@ -33,7 +33,7 @@ class Pen extends Operation {
             if (distance <= this.closeDistance) {
                 // Close the current path
                 this.closePath();
-                this.resetHelpSteps(); // Reset to step 1 for next path
+                window.stepWiseHelp?.reset(); // Reset to step 1 for next path
                 return;
             }
         }
@@ -44,7 +44,7 @@ class Pen extends Operation {
 
         // Advance help steps based on progress
         if (this.drawingPoints.length === 1) {
-            this.nextHelpStep(); // Move to step 2: adding more points
+            window.stepWiseHelp?.nextStep(); // Move to step 2: adding more points
         }
     }
 
@@ -64,13 +64,13 @@ class Pen extends Operation {
             // Update help step based on position
             if (this.nearFirstPoint) {
                 // Near first point - show step 3 (close path instruction)
-                if (this.currentHelpStep !== 2) {
-                    this.setHelpStep(2); // Step 3 (0-indexed as 2)
+                if (window.stepWiseHelp?.currentStep !== 2) {
+                    window.stepWiseHelp?.setStep(2); // Step 3 (0-indexed as 2)
                 }
             } else {
                 // Not near first point - show step 4 (escape instruction)
-                if (this.currentHelpStep !== 3) {
-                    this.setHelpStep(3); // Step 4 (0-indexed as 3)
+                if (window.stepWiseHelp?.currentStep !== 3) {
+                    window.stepWiseHelp?.setStep(3); // Step 4 (0-indexed as 3)
                 }
             }
         }
@@ -215,17 +215,8 @@ class Pen extends Operation {
         this.drawingPoints = [];
         this.lastPoint = null;
         this.previewLine = null;
-        this.resetHelpSteps(); // Reset to step 1 for next path
+        window.stepWiseHelp?.reset(); // Reset to step 1 for next path
 
-    }
-
-    getHelpSteps() {
-        return [
-            'Click on the canvas to set the first point of the path',
-            'Click to add more points and create line segments',
-            'To close the path, click near the first point when the green circle appears',
-            'Press Escape to finish the path without closing'
-        ];
     }
 
 }

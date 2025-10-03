@@ -98,7 +98,7 @@ class Polygon extends Operation {
             // First click sets center point
             this.centerPoint = { x: mouse.x, y: mouse.y };
             this.isDrawing = true;
-            this.nextHelpStep(); // Move to drag radius step
+            window.stepWiseHelp?.nextStep(); // Move to drag radius step
         }
     }
 
@@ -130,7 +130,7 @@ class Polygon extends Operation {
             this.createPolygon(this.centerPoint, currentProps.sides, this.properties.radius * viewScale);
             this.isDrawing = false;
             this.centerPoint = null;
-            this.nextHelpStep(); // Move to completion step
+            window.stepWiseHelp?.nextStep(); // Move to completion step
         }
     }
 
@@ -287,19 +287,9 @@ class Polygon extends Operation {
             const currentProps = this.getCurrentProperties();
             this.createPolygon(this.centerPoint, currentProps.sides, currentProps.radius * viewScale);
             this.centerPoint = null;
-            this.setHelpStep(3); // Show completion message
+            window.stepWiseHelp?.setStep(3); // Show completion message
         }
         super.onPropertiesChanged(data);
-    }
-
-    // Help System Interface
-    getHelpSteps() {
-        return [
-            'Set the number of sides in the properties panel above',
-            'Click on the canvas to set the center point of the polygon',
-            'Drag outward to set the radius, then release to create',
-            'Polygon created! Adjust properties or click Done to finish'
-        ];
     }
 
     // Drawing

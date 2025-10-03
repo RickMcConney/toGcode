@@ -21,6 +21,7 @@ class Transform extends Select {
     start() {
         super.start();
         this.activeHandle = null;
+        this.hoverHandle = null;
         this.startAngle = 0;
         this.currentAngle = 0;
         this.transformStartPos = { x: 0, y: 0 };
@@ -77,6 +78,7 @@ class Transform extends Select {
 
         // First check if we're clicking on a handle
         this.activeHandle = this.getHandleAtPoint(mouse);
+        this.hoverHandle = null;
 
         // If clicking on a handle, don't call parent (prevents deselection)
         if (this.activeHandle) {
@@ -99,7 +101,7 @@ class Transform extends Select {
             }
 
             this.transformStartPos = { x: mouse.x, y: mouse.y };
-           //canvas.style.cursor = "grabbing";
+            //canvas.style.cursor = "grabbing";
             addUndo(false, true, false);
 
             if (this.activeHandle.type === 'rotate') {
@@ -114,9 +116,9 @@ class Transform extends Select {
             }
 
             // Store the initial mouse position for scaling/rotation calculations
-            if (this.activeHandle.type === 'scale' || this.activeHandle.type === 'rotate') {
-                this.initialMousePos = { x: mouse.x, y: mouse.y };
-            }
+
+            this.initialMousePos = { x: mouse.x, y: mouse.y };
+
         } else {
             // If not clicking on a handle, allow normal selection behavior
             super.onMouseDown(canvas, evt);
@@ -156,15 +158,27 @@ class Transform extends Select {
     }
 
     onMouseMove(canvas, evt) {
-        super.onMouseMove(canvas, evt,this.activeHandle !== null);
+        super.onMouseMove(canvas, evt, this.activeHandle !== null);
         var mouse = this.normalizeEvent(canvas, evt);
-        if (!this.mouseDown)
-            this.activeHandle = this.getHandleAtPoint(mouse);
+        if (!this.mouseDown) {
+            this.hoverHandle = this.getHandleAtPoint(mouse);
+
+        }
 
         if (this.mouseDown && this.activeHandle) {
 
-            const dx = mouse.x - this.transformStartPos.x;
-            const dy = mouse.y - this.transformStartPos.y;
+            let dx = mouse.x - this.transformStartPos.x;
+            let dy = mouse.y - this.transformStartPos.y;
+
+            if (evt.shiftKey) {
+                // constrained - use the larger delta
+                if(Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y))
+                {
+                    dy = 0;
+                } else {
+                    dx = 0;
+                }
+            }
 
             if (this.activeHandle.type === 'translate') {
                 // Handle translation
@@ -314,8 +328,9 @@ class Transform extends Select {
             // Update center display in real-time during move operations
             this.updateCenterDisplay();
 
-            redraw();
+
         }
+        redraw();
     }
     onMouseUp(canvas, evt) {
         const hadSelectBox = this.selectBox; // Check if we were doing drag selection
@@ -345,7 +360,7 @@ class Transform extends Select {
                 this.refreshPropertiesPanel();
             }
         }
-        else{
+        else {
             this.transformBox = null;
         }
         if (this.activeHandle) {
@@ -409,15 +424,51 @@ class Transform extends Select {
         };
     }
 
-    drawRotationAngle() {
-        if (!this.transformBox || !this.activeHandle || this.activeHandle.type !== 'rotate') return;
+    drawText() {
+        if (!this.transformBox || !this.activeHandle) return;
 
-        const angle = Math.round((this.transformBox.rotation * 180 / Math.PI) % 360);
+        let text = '0'
+        if (this.activeHandle.type == 'rotate')
+            text = this.rotation.toFixed(1) + '°';
+        else if (this.activeHandle.type == 'scale') {
+            text = this.scaleX.toFixed(3) + ', ' + this.scaleY.toFixed(3);
+        }
+        else if (this.activeHandle.type == 'translate') {
+            text = (this.deltaX / viewScale).toFixed(2) + ' mm, ' + (-this.deltaY / viewScale).toFixed(2) + ' mm';
+        }
+        let handle = this.getTransformHandles()[this.activeHandle.id - 1];
+        let screenHandle = worldToScreen(handle.x, handle.y);
+        //const angle = Math.round((this.transformBox.rotation * 180 / Math.PI) % 360);
+        let angle = this.rotation.toFixed(1)
         ctx.save();
         ctx.fillStyle = '#000';
         ctx.font = '12px Arial';
-        ctx.fillText(`${angle}°`, this.transformBox.centerX + 10, this.transformBox.miny - 25);
+        ctx.fillText(text, screenHandle.x + 10, screenHandle.y - 25);
         ctx.restore();
+    }
+
+    drawHandle(x, y, size, isActive, isHovered) {
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+
+        // Color based on state
+        if (isActive) {
+            // Red for actively dragging
+            ctx.fillStyle = '#ff0000';
+            ctx.strokeStyle = '#ff0000';
+        } else if (isHovered) {
+            // Yellow highlight for hovered (deletable)
+            ctx.fillStyle = '#ffff00';
+            ctx.strokeStyle = '#ff8800';
+        } else {
+            // Blue for normal
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = '#0000ff';
+        }
+
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
     }
 
     drawTransformBox() {
@@ -450,20 +501,9 @@ class Transform extends Select {
         const handles = this.getTransformHandles();
         handles.forEach(handle => {
             let screenHandle = worldToScreen(handle.x, handle.y);
-            ctx.beginPath();
-            if (handle.type === 'rotate') {
-                ctx.arc(screenHandle.x, screenHandle.y, this.handleSize / 2, 0, Math.PI * 2);
-            } else {
-                ctx.rect(screenHandle.x - this.handleSize / 2, screenHandle.y - this.handleSize / 2,
-                    this.handleSize, this.handleSize);
-            }
-            ctx.fillStyle = 'blue';
-            if (this.activeHandle)
-                ctx.fillStyle = handle.id == this.activeHandle.id ? highlightColor : 'blue';
-            ctx.fill();
-            ctx.stroke();
+            this.drawHandle(screenHandle.x, screenHandle.y, this.handleSize, this.activeHandle?.id == handle.id, this.hoverHandle?.id == handle.id);
         });
-        this.drawRotationAngle();
+        this.drawText();
         ctx.restore();
     }
 
@@ -477,7 +517,7 @@ class Transform extends Select {
             { id: 2, x: maxx, y: miny, type: 'scale', corner: 'tr' },
             { id: 3, x: maxx, y: maxy, type: 'scale', corner: 'br' },
             { id: 4, x: minx, y: maxy, type: 'scale', corner: 'bl' },
-            { id: 5, x: centerX, y: miny - 20, type: 'rotate' },
+            { id: 5, x: centerX, y: miny - 100, type: 'rotate' },
             { id: 6, x: centerX, y: centerY, type: 'translate' }
         ];
     }
@@ -564,9 +604,9 @@ class Transform extends Select {
                 <i data-lucide="info"></i>
                 <small>
                     <strong>Move Tool:</strong> ${hasSelectedPaths ?
-                        'Drag the center handle to move, corner handles to scale, or the top handle to rotate. Changes in the canvas update these values, and changing these values applies to the selected objects.' :
-                        'Select objects first, then drag the center handle to move, corner handles to scale, or the top handle to rotate.'
-                    }
+                'Drag the center handle to move, corner handles to scale, or the top handle to rotate. Changes in the canvas update these values, and changing these values applies to the selected objects.' :
+                'Select objects first, then drag the center handle to move, corner handles to scale, or the top handle to rotate.'
+            }
                 </small>
             </div>
         `;
@@ -576,11 +616,11 @@ class Transform extends Select {
         this.properties = { ...this.properties, ...data };
 
         // Apply property changes to transform values
-        if (data.deltaX !== undefined) this.deltaX = parseFloat(data.deltaX) * viewScale;
-        if (data.deltaY !== undefined) this.deltaY = -parseFloat(data.deltaY) * viewScale;  // Flip Y for CNC coordinates
-        if (data.scaleX !== undefined) this.scaleX = parseFloat(data.scaleX);
-        if (data.scaleY !== undefined) this.scaleY = parseFloat(data.scaleY);
-        if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation);
+        if (data.deltaX !== undefined) this.deltaX = parseFloat(data.deltaX) * viewScale || 0;
+        if (data.deltaY !== undefined) this.deltaY = -parseFloat(data.deltaY) * viewScale || 0;  // Flip Y for CNC coordinates
+        if (data.scaleX !== undefined) this.scaleX = parseFloat(data.scaleX) || 0;
+        if (data.scaleY !== undefined) this.scaleY = parseFloat(data.scaleY) || 0;
+        if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) ||0;
 
         // Apply transformation to paths based on current property values
         if (this.hasSelectedPaths()) {

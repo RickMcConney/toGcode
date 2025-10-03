@@ -21,9 +21,9 @@ class Text extends Operation {
         // If we have text properties set, create text immediately
         if (this.properties.text && this.properties.text.trim() !== '') {
             this.addText(this.properties.text, mouse.x, mouse.y, this.properties.fontSize, this.properties.font);
-            this.nextHelpStep(); // Progress to completion step
+            window.stepWiseHelp?.nextStep(); // Progress to completion step
         } else {
-            this.setHelpStep(3); // Show completion message
+            window.stepWiseHelp?.setStep(3); // Show completion message
         }
     }
 
@@ -88,19 +88,9 @@ class Text extends Operation {
         if (this.pendingPosition && data.text && data.text.trim() !== '') {
             this.addText(data.text, this.pendingPosition.x, this.pendingPosition.y, parseFloat(data.fontSize), data.font);
             this.pendingPosition = null;
-            this.setHelpStep(3); // Show completion message
+            window.stepWiseHelp?.setStep(3); // Show completion message
         }
         super.onPropertiesChanged(data);
-    }
-
-    // Help System Interface
-    getHelpSteps() {
-        return [
-            'Enter your text in the properties panel above',
-            'Choose font and size settings',
-            'Click on the canvas to place the text',
-            'Text paths created! Edit properties or click Done'
-        ];
     }
 
     createTextDialog(x, y) {

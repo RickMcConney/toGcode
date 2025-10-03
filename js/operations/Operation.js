@@ -3,13 +3,11 @@ class Operation {
         this.name = name;
         this.icon = icon;
         this.properties = {};
-        this.currentHelpStep = 0;
         this.isInPropertiesMode = false;
     }
 
     // Lifecycle methods
     start() {
-        this.resetHelpSteps();
         if (window.stepWiseHelp) {
             window.stepWiseHelp.setActiveOperation(this.name);
         }
@@ -54,53 +52,26 @@ class Operation {
         redraw(); // Trigger redraw by default
     }
 
-    // Help System Interface
-    getHelpSteps() {
-        return [`Use the ${this.name} tool by clicking and dragging on the canvas.`];
-    }
-
-    getCurrentHelpStep() {
-        return this.currentHelpStep;
-    }
-
-    setHelpStep(stepIndex) {
-        const steps = this.getHelpSteps();
-        if (stepIndex >= 0 && stepIndex < steps.length) {
-            this.currentHelpStep = stepIndex;
-            this.updateHelpDisplay();
+    // Snap-to-grid functionality
+    snapToGrid(x, y) {
+        // Only snap if grid is visible
+        if (typeof getOption === 'function' && !getOption("showGrid")) {
+            return { x, y };
         }
+
+        // Get grid size (default 10mm)
+        const gridSize = (typeof getOption === 'function' && getOption("gridSize")) || 10;
+
+        // Calculate snap interval: 1/10 of grid size in world coordinates
+        // gridSize is in mm, viewScale converts to world units
+        const snapInterval = (gridSize * viewScale) / 10;
+
+        // Round to nearest snap interval
+        return {
+            x: Math.round(x / snapInterval) * snapInterval,
+            y: Math.round(y / snapInterval) * snapInterval
+        };
     }
-
-    nextHelpStep() {
-        const steps = this.getHelpSteps();
-        if (this.currentHelpStep < steps.length - 1) {
-            this.currentHelpStep++;
-            this.updateHelpDisplay();
-            return true;
-        }
-        return false;
-    }
-
-    resetHelpSteps() {
-        this.currentHelpStep = 0;
-        this.updateHelpDisplay();
-    }
-
-    getHelpText() {
-        const steps = this.getHelpSteps();
-        if (steps.length > 0 && this.currentHelpStep < steps.length) {
-            return steps[this.currentHelpStep];
-        }
-        return `Use the ${this.name} tool by clicking and dragging on the canvas.`;
-    }
-
-    updateHelpDisplay() {
-        if (window.stepWiseHelp && window.stepWiseHelp.activeOperation === this.name) {
-            window.stepWiseHelp.setStep(this.currentHelpStep);
-        }
-    }
-
-
 
     oldNormalizeEvent(target, e) {
         if (!e) { e = self.event; }
@@ -119,14 +90,22 @@ class Operation {
         var rect = canvas.getBoundingClientRect();
         x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
         y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
-        // Use worldToScreen from global scope
+
+        // Convert screen to world coordinates
+        var worldCoords;
         if (typeof worldToScreen === 'function' && typeof screenToWorld === 'function') {
             var screen = { x: x - target.offsetLeft, y: y - target.offsetTop };
-            return screenToWorld(screen.x, screen.y);
+            worldCoords = screenToWorld(screen.x, screen.y);
         } else {
             // fallback to old method if mapping not available
-            return { x: (x - target.offsetLeft - offsetX) / scaleFactor, y: (y - target.offsetTop - offsetY) / scaleFactor };
+            worldCoords = {
+                x: (x - target.offsetLeft - offsetX) / scaleFactor,
+                y: (y - target.offsetTop - offsetY) / scaleFactor
+            };
         }
+
+        // Apply snap-to-grid
+        return this.snapToGrid(worldCoords.x, worldCoords.y);
     }
 
         highlightPathsInRect(selectBox) {

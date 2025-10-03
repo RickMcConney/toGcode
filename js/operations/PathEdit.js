@@ -92,7 +92,7 @@ class PathEdit extends Select {
         var clickedPath = closestPath(mouse, false);
         if (clickedPath) {
             // Deselect all other paths
-            svgpaths.forEach(path => path.selected = false);
+            svgpaths.forEach(path => {path.selected = false; path.highlight = false; });
 
             // Select the clicked path
             clickedPath.selected = true;
@@ -102,7 +102,7 @@ class PathEdit extends Select {
             redraw();
         } else {
             // Clicked on empty space - deselect all
-            svgpaths.forEach(path => path.selected = false);
+            svgpaths.forEach(path => {path.selected = false; path.highlight = false; });
             this.selectedPath = null;
             this.originalPath = null;
             redraw();
@@ -157,6 +157,9 @@ class PathEdit extends Select {
             }
 
             redraw();
+        }
+        else {
+            closestPath(mouse, true);
         }
     }
 
@@ -395,15 +398,5 @@ class PathEdit extends Select {
                 </small>
             </div>
         `;
-    }
-
-    getHelpSteps() {
-        return [
-            'Click on a path to select it for editing',
-            'Drag the circular handles to move individual points',
-            'Hold Alt and click on a line segment to add a new point',
-            'Hover over a point and press Delete/Backspace to remove it',
-            'Click on a different path to edit it, or click empty space to deselect'
-        ];
     }
 }

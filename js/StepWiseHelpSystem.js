@@ -202,6 +202,7 @@ class StepWiseHelpSystem {
             'Move': [
                 'Click on a path to select it, or drag to select multiple paths',
                 'Use center handle to move the selection, Side handles to scale, top handle to rotate',
+                'Hold Shift while dragging to scale uniformly or constrain movement',
                 'All selected paths will move/scale/rotate together'
             ],
             'Edit Points': [
@@ -219,7 +220,7 @@ class StepWiseHelpSystem {
             ],
             'Polygon': [
                 'Set the number of sides in the properties panel',
-                'Click to place the center point of the polygon',
+                'Click to place the center point of the polygon and drag outwards to size it',
                 'Polygon created! Adjust properties or click Done to finish'
             ],
             'Text': [
@@ -229,32 +230,33 @@ class StepWiseHelpSystem {
                 'Text paths created! Edit properties or click Done'
             ],
             'Drill': [
-                'Select points or circular paths to drill',
-                'Set drill depth and tool parameters',
-                'Click to generate drill toolpaths',
-                'Drill operations created for selected points'
+                'Click to generate drill toolpaths'
             ],
             'Inside': [
                 'Select closed paths to cut inside',
-                'Tool will cut just inside the path boundary',
+                'Tool will cut inside the path boundary',
+                'Depth of cut is determined by tool depth setting',
                 'Check tool diameter and cutting parameters',
                 'Inside cutting toolpath generated'
             ],
             'Outside': [
                 'Select closed paths to cut outside',
-                'Tool will cut just outside the path boundary',
+                'Tool will cut outside the path boundary',
+                'Depth of cut is determined by tool depth setting',
                 'Useful for cutting parts out of stock material',
                 'Outside cutting toolpath generated'
             ],
             'Center': [
                 'Select paths to cut along the center line',
                 'Tool follows the exact path without offset',
+                'Depth of cut is determined by tool depth setting',
                 'Good for engraving or decorative cuts',
                 'Center line toolpath generated'
             ],
             'Pocket': [
                 'Select closed paths to pocket out material',
                 'Tool will remove all material inside the path',
+                'Depth of cut is determined by tool depth setting',
                 'Set cutting depth and stepover percentage',
                 'Pocket toolpath generated with multiple passes'
             ],

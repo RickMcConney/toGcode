@@ -64,26 +64,17 @@ function centerWorkpiece() {
 	panX = canvasCenter.x - (workpieceWidth / 2) * zoomLevel;
 	panY = canvasCenter.y - (workpieceLength / 2) * zoomLevel;
 
-
-
-	console.log(`Centering workpiece: canvas(${canvasCenter.x}, ${canvasCenter.y}), workpiece(${workpieceWidth}, ${workpieceLength}), zoom(${zoomLevel}), pan(${panX.toFixed(1)}, ${panY.toFixed(1)})`);
 }
 
 
 //todo tab support
-//pocket stops short of inner lines 
 //support feed rates and tool dimension in inches as well as mm
 //blocked paths need to be turned into travel moves
-// order gcode by tool
 // make norms for rect not good
 // undo does not remove sidebar folder
 // center of rick path generate 0 lenght tool paths
 // support delete key
 // make hole does not add svg path
-// add finish pass to pockets
-// close pen path if last point near first and smooth
-// add poly tool
-// allow edit pen path
 // revamp undo/redo system can't undo move or delete
 // first travel move missing
 
@@ -746,9 +737,6 @@ function clear() {
 	ctx.rect(0, 0, canvas.width, canvas.height);
 	ctx.fillStyle = 'white';
 	ctx.fill();
-	ctx.strokeStyle = '#888';
-	ctx.stroke();
-
 }
 
 
