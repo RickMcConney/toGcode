@@ -204,6 +204,13 @@ class StepWiseHelpSystem {
                 'Use center handle to move the selection, Side handles to scale, top handle to rotate',
                 'All selected paths will move/scale/rotate together'
             ],
+            'Edit Points': [
+                'Click on a path to select it for editing',
+                'Drag the circular handles to move individual points',
+                'Hold Alt and click on a line segment to add a new point',
+                'Hover over a point and press Delete/Backspace to remove it',
+                'Click on a different path to edit it, or click empty space to deselect'
+            ],
             'Pen': [
                 'Click on the canvas to set the first point of the path',
                 'Click to add more points and create line segments',

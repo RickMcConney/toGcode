@@ -156,14 +156,8 @@ class Pen extends Operation {
     }
 
     endDrawing() {
-        if (this.previewLine && this.previewLine.start.x == this.previewLine.end.x && this.previewLine.start.y == this.previewLine.end.y) {
-            return;
-        }
-
-        if (this.previewLine) {
-            this.drawingPoints.push({ x: this.previewLine.end.x, y: this.previewLine.end.y });
-            this.lastPoint = { x: this.previewLine.end.x, y: this.previewLine.end.y };
-        }
+        // Points are already added in onMouseDown, so we don't need to add them here
+        // This method is kept for compatibility but doesn't add duplicate points
     }
 
 
@@ -173,10 +167,9 @@ class Pen extends Operation {
             // Close the path by connecting back to the first point
             addUndo(false, true, false);
 
-            // Create a closed path by ensuring the last point connects to the first
+            // Create a closed path without duplicating the first point
+            // The drawing system will automatically connect the last point to the first
             const closedPath = this.drawingPoints.slice();
-            // Add the first point at the end to close the path
-            closedPath.push({ x: this.drawingPoints[0].x, y: this.drawingPoints[0].y });
 
             var svgPath = {
                 id: "Pen" + svgpathId,

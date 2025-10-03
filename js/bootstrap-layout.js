@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-02";
+var APP_VERSION = "Ver 2025-10-03";
 
 var mode = "Select";
 var options = [];
@@ -401,6 +401,9 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="right" title="Move selected objects">
                         <i data-lucide="move"></i>Move
                     </div>
+                    <div class="sidebar-item" data-operation="Edit Points" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit path points">
+                        <i data-lucide="edit"></i>Edit Points
+                    </div>
                     <hr class="my-3">
                     <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
                         <i data-lucide="pen-tool"></i>Pen
@@ -611,7 +614,7 @@ function createSidebar() {
 
         if (operation) {
             // Check if this is a draw tool or operation
-            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Pan', 'Move', 'Pen', 'Polygon', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Pan', 'Move', 'Edit Points', 'Pen', 'Polygon', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -2221,6 +2224,9 @@ function handleOperationClick(operation) {
             break;
         case 'Move':
             doMove();
+            break;
+        case 'Edit Points':
+            doEditPoints();
             break;
         case 'Pen':
             doPen();

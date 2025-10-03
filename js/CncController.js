@@ -12,6 +12,7 @@ class CncController {
     this.operationManager.registerOperation(new Origin());
     this.operationManager.registerOperation(new Pan());
     this.operationManager.registerOperation(new Transform());
+    this.operationManager.registerOperation(new PathEdit());
     this.operationManager.registerOperation(new Pen());
     this.operationManager.registerOperation(new Polygon());
     this.operationManager.registerOperation(new Text());

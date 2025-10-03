@@ -797,6 +797,10 @@ function drawSvgPath(svgpath, color, lineWidth) {
 			ctx.lineTo(pt.x, pt.y);
 		}
 	}
+	// Close the path if marked as closed
+	if (svgpath.closed) {
+		ctx.closePath();
+	}
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
 	ctx.stroke();
@@ -2314,6 +2318,10 @@ function doPan() {
 
 function doMove() {
 	cncController.setMode("Move");
+}
+
+function doEditPoints() {
+	cncController.setMode("Edit Points");
 }
 
 function doPen() {
