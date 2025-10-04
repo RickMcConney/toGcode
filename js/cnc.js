@@ -66,7 +66,9 @@ function centerWorkpiece() {
 
 }
 
-
+// add S spindle topost processor
+// addcut depth to tool properties panel
+// use right mouse to pan
 //todo tab support
 //support feed rates and tool dimension in inches as well as mm
 //blocked paths need to be turned into travel moves
@@ -2484,11 +2486,8 @@ function getSelectedPath() {
 }
 
 function medialAxis(name, path, holes, svgId) {
-	// todo need to find a way to traverse the medial axis.
-
 
 	let descritize_threshold = 1e-1;
-	//let descritize_method = 2;
 	let descritize_method = 2;
 	let filtering_angle = 3 * Math.PI / 4;
 	let pointpoint_segmentation_threshold = -1;
