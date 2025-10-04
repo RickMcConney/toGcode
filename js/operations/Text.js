@@ -1,9 +1,57 @@
+// Google Fonts available for dynamic loading
+const GOOGLE_FONTS = [
+    'Open Sans',
+    'Lato',
+    'Montserrat',
+    'Roboto Condensed',
+    'Oswald',
+    'Raleway',
+    'PT Sans',
+    'Poppins',
+    'Merriweather',
+    'Nunito'
+];
+
+// Available fonts for Text tool
+const AVAILABLE_FONTS = [
+    { value: 'fonts/Roboto-Regular.ttf', label: 'Roboto' },
+    { value: 'fonts/Apple Chancery.ttf', label: 'Apple Chancery' },
+    { value: 'fonts/BigCaslon.ttf', label: 'BigCaslon' },
+    { value: 'fonts/Courier New Bold.ttf', label: 'Courier' },
+    { value: 'fonts/Comic Sans MS.ttf', label: 'Comic Sans MS' },
+    { value: 'fonts/Times New Roman.ttf', label: 'Times New Roman' },
+    
+    { value: 'fonts/AVHersheySimplexLight.ttf', label: 'AV Hershey Simplex Light' },
+    { value: 'fonts/AVHersheyComplexHeavy.ttf', label: 'AV Hershey Complex Heavy' }
+];
+
+// Fetch font URL from Google Fonts CSS API
+async function getGoogleFontUrl(fontFamily) {
+    try {
+        // Fetch the CSS from Google Fonts (will return WOFF2 format by default)
+        const cssUrl = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(/ /g, '+')}`;
+        const response = await fetch(cssUrl);
+        const css = await response.text();
+
+        // Parse the CSS to extract the .woff2 URL (fontkit supports this format)
+        const urlMatch = css.match(/url\((https:\/\/[^)]+\.woff2)\)/);
+
+        if (urlMatch && urlMatch[1]) {
+            return urlMatch[1];
+        }
+        throw new Error('Could not find WOFF2 font URL in CSS');
+    } catch (error) {
+        console.error('Error fetching Google Font:', error);
+        return null;
+    }
+}
+
 class Text extends Operation {
     constructor() {
         super('Text', 'fa fa-font');
         this.properties = {
             text: 'Sample Text',
-            font: 'fonts/ReliefSingleLineCAD-Regular.ttf',
+            font: 'fonts/Roboto-Regular.ttf',
             fontSize: 20
         };
         this.pendingPosition = null;
@@ -50,11 +98,9 @@ class Text extends Operation {
             <div class="mb-3">
                 <label for="font-select" class="form-label">Font</label>
                 <select class="form-select" id="font-select" name="font">
-                    <option value="fonts/ReliefSingleLineCAD-Regular.ttf" ${this.properties.font === 'fonts/ReliefSingleLineCAD-Regular.ttf' ? 'selected' : ''}>Relief Single Line</option>
-                    <option value="fonts/Roboto-Regular.ttf" ${this.properties.font === 'fonts/Roboto-Regular.ttf' ? 'selected' : ''}>Roboto</option>
-                    <option value="fonts/EduNSWACTCursive-VariableFont_wght.ttf" ${this.properties.font === 'fonts/EduNSWACTCursive-VariableFont_wght.ttf' ? 'selected' : ''}>Edu Cursive</option>
-                    <option value="fonts/AVHersheySimplexLight.ttf" ${this.properties.font === 'fonts/AVHersheySimplexLight.ttf' ? 'selected' : ''}>AV Hershey Simplex Light</option>
-                    <option value="fonts/AVHersheyComplexHeavy.ttf" ${this.properties.font === 'fonts/AVHersheyComplexHeavy.ttf' ? 'selected' : ''}>AV Hershey Complex Heavy</option>
+                    ${AVAILABLE_FONTS.map(font =>
+                        `<option value="${font.value}" ${this.properties.font === font.value ? 'selected' : ''}>${font.label}</option>`
+                    ).join('\n                    ')}
                 </select>
             </div>
 
@@ -77,6 +123,46 @@ class Text extends Operation {
                 Position stored at (${this.pendingPosition.x.toFixed(1)}, ${this.pendingPosition.y.toFixed(1)})
             </div>
             ` : ''}
+        `;
+    }
+
+    getEditPropertiesHTML(path) {
+        return `
+            <div class="mb-3">
+                <label for="edit-text-input" class="form-label">Text</label>
+                <textarea class="form-control"
+                         id="edit-text-input"
+                         name="text"
+                         rows="3"
+                         placeholder="Enter your text here...">${path.creationProperties.text}</textarea>
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-font-select" class="form-label">Font</label>
+                <select class="form-select" id="edit-font-select" name="font">
+                    ${AVAILABLE_FONTS.map(font =>
+                        `<option value="${font.value}" ${path.creationProperties.font === font.value ? 'selected' : ''}>${font.label}</option>`
+                    ).join('\n                    ')}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-font-size" class="form-label">Font Size: <span id="edit-font-size-value">${path.creationProperties.fontSize}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="edit-font-size"
+                       name="fontSize"
+                       min="5"
+                       max="100"
+                       step="1"
+                       value="${path.creationProperties.fontSize}"
+                       oninput="document.getElementById('edit-font-size-value').textContent = this.value">
+            </div>
+
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Position: (${toMM(path.creationProperties.position.x, path.creationProperties.position.y).x.toFixed(2)}, ${toMM(path.creationProperties.position.x, path.creationProperties.position.y).y.toFixed(2)}) mm
+            </div>
         `;
     }
 
@@ -182,21 +268,43 @@ class Text extends Operation {
         document.body.removeChild(dialog);
     }
 
+    async addText(text, x, y, sizeInMM = 20, fontname) {
+        let fontUrl = fontname;
 
-    addText(text, x, y, sizeInMM = 20, fontname) {
-        // Try loading Roboto from Google Fonts CDN
-        opentype.load(fontname, (err, font) => {
-            if (err) {
-                console.error('Could not load font:', err);
+        // Check if this is a Google Font
+        if (fontname.startsWith('google:')) {
+            const fontFamily = fontname.substring(7);
+            fontUrl = await getGoogleFontUrl(fontFamily);
+
+            if (!fontUrl) {
+                console.error('Could not load Google Font:', fontFamily);
                 return;
             }
-            else {
 
-                this.createTextPath(font, text, x, y, sizeInMM, fontname);
+            // Try using opentype.js with ArrayBuffer for WOFF2
+            try {
+                const response = await fetch(fontUrl);
+                const buffer = await response.arrayBuffer();
+                const font = opentype.parse(buffer);
+                this.createTextPath(font, text, x, y, sizeInMM, fontname, false); // false = using opentype
                 redraw();
+            } catch (err) {
+                console.error('Could not load Google Font with opentype.js ArrayBuffer:', err);
+                console.error('WOFF2 format may not be supported. Google Fonts only provide WOFF2.');
             }
-        });
-
+        } else {
+            // Use opentype.js for local TTF fonts
+            opentype.load(fontUrl, (err, font) => {
+                if (err) {
+                    console.error('Could not load font:', err);
+                    return;
+                }
+                else {
+                    this.createTextPath(font, text, x, y, sizeInMM, fontname, false); // false = using opentype
+                    redraw();
+                }
+            });
+        }
     }
 
     createTextPath(font, text, x, y, sizeInMM, fontname) {
@@ -204,7 +312,6 @@ class Text extends Operation {
         let currentX = x;
 
         // Calculate proper font size based on capital letter height
-        // Use a reference character (capital 'H') to determine actual scaling needed
         const referenceChar = font.charToGlyph('H');
         const referenceBBox = referenceChar.getBoundingBox();
         const referenceHeight = referenceBBox.y2 - referenceBBox.y1;
@@ -238,14 +345,15 @@ class Text extends Operation {
                         currentPathData = [];
 
                         firstPoint = { x: cmd.x, y: cmd.y };
-                        if (fontname.indexOf("SingleLine") == -1) {
-                            currentPathData.push({ x: cmd.x, y: cmd.y });
-                        }
+
+                        currentPathData.push({ x: cmd.x, y: cmd.y });
+
                         lastX = cmd.x;
                         lastY = cmd.y;
                         break;
 
                     case 'L': // Line
+
                         currentPathData.push({ x: cmd.x, y: cmd.y });
                         lastX = cmd.x;
                         lastY = cmd.y;
@@ -253,8 +361,9 @@ class Text extends Operation {
 
                     case 'C': // Curve
                         // Convert bezier curve to line segments
+                        var startIndex = (currentPathData.length === 0) ? 0 : 1;
                         var steps = 10;
-                        for (var i = 0; i <= steps; i++) {
+                        for (var i = startIndex; i <= steps; i++) {
                             var t = i / steps;
                             var tx = Math.pow(1 - t, 3) * lastX +
                                 3 * Math.pow(1 - t, 2) * t * cmd.x1 +
@@ -271,8 +380,9 @@ class Text extends Operation {
                         break;
 
                     case 'Q': // Quadratic curve
+                        var startIndex = (currentPathData.length === 0) ? 0 : 1;
                         var steps = 10;
-                        for (var i = 0; i <= steps; i++) {
+                        for (var i = startIndex; i <= steps; i++) {
                             var t = i / steps;
                             var tx = Math.pow(1 - t, 2) * lastX +
                                 2 * (1 - t) * t * cmd.x1 +
@@ -287,9 +397,9 @@ class Text extends Operation {
                         break;
 
                     case 'Z': // Close path
-                        if (firstPoint && currentPathData.length > 0) {
-                            currentPathData.push({x: firstPoint.x, y: firstPoint.y});
 
+                        if (firstPoint && currentPathData.length > 0) {
+                            currentPathData.push({ x: firstPoint.x, y: firstPoint.y });
                         }
                         break;
                 }

@@ -1149,79 +1149,14 @@ function showPathPropertiesEditor(path) {
     // Update title
     title.textContent = `Edit ${path.creationTool} - ${path.name}`;
 
-    // Create properties form based on the creation tool
+    // Get properties HTML from the operation's getEditPropertiesHTML method
     let propertiesHTML = '';
-    if (path.creationTool === 'Text') {
-        propertiesHTML = `
-            <div class="mb-3">
-                <label for="edit-text-input" class="form-label">Text</label>
-                <textarea class="form-control"
-                         id="edit-text-input"
-                         name="text"
-                         rows="3"
-                         placeholder="Enter your text here...">${path.creationProperties.text}</textarea>
-            </div>
-
-            <div class="mb-3">
-                <label for="edit-font-select" class="form-label">Font</label>
-                <select class="form-select" id="edit-font-select" name="font">
-                    <option value="fonts/ReliefSingleLineCAD-Regular.ttf" ${path.creationProperties.font === 'fonts/ReliefSingleLineCAD-Regular.ttf' ? 'selected' : ''}>Relief Single Line</option>
-                    <option value="fonts/Roboto-Regular.ttf" ${path.creationProperties.font === 'fonts/Roboto-Regular.ttf' ? 'selected' : ''}>Roboto</option>
-                    <option value="fonts/EduNSWACTCursive-VariableFont_wght.ttf" ${path.creationProperties.font === 'fonts/EduNSWACTCursive-VariableFont_wght.ttf' ? 'selected' : ''}>Edu Cursive</option>
-                    <option value="fonts/AVHersheySimplexLight.ttf" ${path.creationProperties.font === 'fonts/AVHersheySimplexLight.ttf' ? 'selected' : ''}>AV Hershey Simplex Light</option>
-                    <option value="fonts/AVHersheyComplexHeavy.ttf" ${path.creationProperties.font === 'fonts/AVHersheyComplexHeavy.ttf' ? 'selected' : ''}>AV Hershey Complex Heavy</option>
-                </select>
-            </div>
-
-            <div class="mb-3">
-                <label for="edit-font-size" class="form-label">Font Size: <span id="edit-font-size-value">${path.creationProperties.fontSize}</span>mm</label>
-                <input type="range"
-                       class="form-range"
-                       id="edit-font-size"
-                       name="fontSize"
-                       min="5"
-                       max="100"
-                       step="1"
-                       value="${path.creationProperties.fontSize}"
-                       oninput="document.getElementById('edit-font-size-value').textContent = this.value">
-            </div>
-
-            <div class="alert alert-info">
-                <i data-lucide="info"></i>
-                Position: (${toMM(path.creationProperties.position.x, path.creationProperties.position.y).x.toFixed(2)}, ${toMM(path.creationProperties.position.x, path.creationProperties.position.y).y.toFixed(2)}) mm
-            </div>
-        `;
-    } else if (path.creationTool === 'Polygon') {
-        propertiesHTML = `
-            <div class="mb-3">
-                <label for="edit-polygon-sides" class="form-label">Number of Sides</label>
-                <input type="number"
-                       class="form-control"
-                       id="edit-polygon-sides"
-                       name="sides"
-                       min="3"
-                       max="20"
-                       value="${path.creationProperties.sides}">
-            </div>
-
-            <div class="mb-3">
-                <label for="edit-polygon-radius" class="form-label">Radius: <span id="edit-polygon-radius-value">${path.creationProperties.radius.toFixed(1)}</span>mm</label>
-                <input type="range"
-                       class="form-range"
-                       id="edit-polygon-radius"
-                       name="radius"
-                       min="1"
-                       max="50"
-                       step="0.1"
-                       value="${path.creationProperties.radius}"
-                       oninput="document.getElementById('edit-polygon-radius-value').textContent = this.value">
-            </div>
-
-            <div class="alert alert-info">
-                <i data-lucide="info"></i>
-                Center: (${toMM(path.creationProperties.center.x, path.creationProperties.center.y).x.toFixed(2)}, ${toMM(path.creationProperties.center.x, path.creationProperties.center.y).y.toFixed(2)}) mm
-            </div>
-        `;
+    const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
+    if (operation && typeof operation.getEditPropertiesHTML === 'function') {
+        propertiesHTML = operation.getEditPropertiesHTML(path);
+    } else {
+        // Fallback for operations without edit properties
+        propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
     }
 
     form.innerHTML = propertiesHTML;

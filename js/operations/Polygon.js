@@ -265,6 +265,39 @@ class Polygon extends Operation {
         `;
     }
 
+    getEditPropertiesHTML(path) {
+        return `
+            <div class="mb-3">
+                <label for="edit-polygon-sides" class="form-label">Number of Sides</label>
+                <input type="number"
+                       class="form-control"
+                       id="edit-polygon-sides"
+                       name="sides"
+                       min="3"
+                       max="20"
+                       value="${path.creationProperties.sides}">
+            </div>
+
+            <div class="mb-3">
+                <label for="edit-polygon-radius" class="form-label">Radius: <span id="edit-polygon-radius-value">${path.creationProperties.radius.toFixed(1)}</span>mm</label>
+                <input type="range"
+                       class="form-range"
+                       id="edit-polygon-radius"
+                       name="radius"
+                       min="1"
+                       max="50"
+                       step="0.1"
+                       value="${path.creationProperties.radius}"
+                       oninput="document.getElementById('edit-polygon-radius-value').textContent = this.value">
+            </div>
+
+            <div class="alert alert-info">
+                <i data-lucide="info"></i>
+                Center: (${toMM(path.creationProperties.center.x, path.creationProperties.center.y).x.toFixed(2)}, ${toMM(path.creationProperties.center.x, path.creationProperties.center.y).y.toFixed(2)}) mm
+            </div>
+        `;
+    }
+
     onPropertiesChanged(data) {
         // Update our properties with the new values
         this.properties = { ...this.properties, ...data };
