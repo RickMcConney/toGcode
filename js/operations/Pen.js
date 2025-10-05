@@ -2,8 +2,9 @@ class Pen extends Operation {
     constructor() {
         super('Pen', 'fa fa-pencil');
         this.closeDistance = 15; // Distance threshold for auto-closing paths
+        this.active = false;
         document.addEventListener('keydown', (evt) => {
-            if (evt.key === 'Escape') {
+            if (evt.key === 'Escape' && this.active) {
                 this.finishDrawing();
             }
 
@@ -11,11 +12,13 @@ class Pen extends Operation {
     }
 
     start() {
+        this.active = true;
         this.drawingPoints = [];
         super.start();
     }
 
     stop() {
+        this.active = false;
         this.finishDrawing();
     }
 
@@ -107,7 +110,7 @@ class Pen extends Operation {
                 let pi = worldToScreen(this.drawingPoints[i].x, this.drawingPoints[i].y);
                 ctx.lineTo(pi.x, pi.y);
             }
-            ctx.strokeStyle = '#000000';
+            ctx.strokeStyle = penLineColor;
             ctx.lineWidth = 1;
             ctx.stroke();
         }
@@ -122,11 +125,11 @@ class Pen extends Operation {
 
             // Use different color/style for closing preview
             if (this.previewLine.closing) {
-                ctx.strokeStyle = '#00AA00'; // Green for closing
+                ctx.strokeStyle = penCloseLineColor; // Green for closing
                 ctx.lineWidth = 2;
                 ctx.setLineDash([5, 5]); // Dashed line
             } else {
-                ctx.strokeStyle = '#000000';
+                ctx.strokeStyle = penLineColor;
                 ctx.lineWidth = 1;
                 ctx.setLineDash([]); // Solid line
             }
@@ -139,7 +142,7 @@ class Pen extends Operation {
             let pFirst = worldToScreen(firstPoint.x, firstPoint.y);
             ctx.beginPath();
             ctx.arc(pFirst.x, pFirst.y, this.closeDistance, 0, 2 * Math.PI);
-            ctx.strokeStyle = '#00AA00';
+            ctx.strokeStyle = penFirstPointColor;
             ctx.lineWidth = 2;
             ctx.setLineDash([3, 3]);
             ctx.stroke();
@@ -147,7 +150,7 @@ class Pen extends Operation {
             // Draw a filled circle at the first point
             ctx.beginPath();
             ctx.arc(pFirst.x, pFirst.y, 4, 0, 2 * Math.PI);
-            ctx.fillStyle = '#00AA00';
+            ctx.fillStyle = penFirstPointColor;
             ctx.fill();
         }
 
@@ -193,6 +196,10 @@ class Pen extends Operation {
     }
 
     finishDrawing() {
+        // Guard check - only finish if we have drawing points
+        if (!this.drawingPoints || this.drawingPoints.length === 0) {
+            return;
+        }
 
         if (this.drawingPoints.length > 1) {
             addUndo(false, true, false);

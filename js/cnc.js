@@ -114,14 +114,243 @@ var debug = [];
 var vlocal = [];
 var currentNorm = null;
 var undoList = [];
+var redoList = [];
 var MAX_UNDO = 50;
 
 
-var lineColor = '#000000';
-var selectColor = '#ff0000';
-var highlightColor = '#00ff00';
-var toolColor = '#0000ff';
-var circleColor = '#0000ff';
+// ============================================================================
+// COLOR PALETTE - All colors used throughout the application
+// ============================================================================
+
+
+
+// Canvas Drawing Colors
+var lineColor = '#000000';              // SVG path stroke color (black)
+var selectColor = '#ff0000';            // Selected path color (red)
+var highlightColor = '#00ff00';         // Highlighted elements (green)
+var toolColor = '#0000ff';              // Toolpath color (blue)
+var circleColor = '#0000ff';            // Circle/drill point color (blue)
+var canvasBackgroundColor = '#eee';    // Canvas background color
+var pointFillColor = 'black';           // Point/marker fill color
+var pointStrokeColor = '#888';          // Point/marker stroke color
+var originMarkerColor = '#ff0000'         // Origin (0,0) marker color
+var axisColor = '#666';           // Axis number labels color
+
+// Grid and Workpiece Colors
+var gridColor = '#888';                 // Grid lines (gray)
+var gridLabelColorFill = 'black';       // Grid label text fill
+var gridLabelColorStroke = 'white';     // Grid label text outline
+var workpieceColor = '#F5DEB3';         // Workpiece surface color (wheat)
+var workpieceBorderColor = '#888888';   // Workpiece border (gray)
+
+// Debug and Visualization Colors
+var normLineColor = '#0000ff';          // Normal line visualization (blue)
+var debugCyanColor = '#00ffff';         // Debug cyan highlight
+
+// Simulation Colors
+var simulationStrokeColor = 'rgba(255, 0, 0, 0.7)';          // Simulation path stroke (red)
+var simulationFillRapid = 'rgba(255, 0, 0, 0.4)';            // Rapid move visualization (red)
+var simulationFillRapid2 = 'rgba(255, 100, 0, 0.4)';         // Rapid move alt (orange-red)
+var simulationFillRapid3 = 'rgba(255, 0, 100, 0.4)';         // Rapid move alt (pink-red)
+var simulationFillCut = 'rgba(139, 69, 19, 0.2)';            // Cutting move (brown)
+var simulationFillCut2 = 'rgba(160, 82, 45, 0.2)';           // Cutting move alt (sienna)
+var simulationFillCut3 = 'rgba(101, 67, 33, 0.2)';           // Cutting move alt (dark brown)
+
+// Material/Wood Colors (used in bootstrap-layout.js)
+var materialWheat = '#F5DEB3';          // Pine, Birch
+var materialBurlywood = '#DEB887';      // Cedar
+var materialKhaki = '#F0E68C';          // Poplar
+var materialLightPink = '#FFB6C1';      // Cherry
+var materialTan = '#D2B48C';            // Walnut
+var materialCornsilk = '#FFF8DC';       // Maple
+var materialPaleGreen = '#e6f7c1';      // Ash
+var materialPeach = '#f8d091';          // Mahogany
+var materialLemonChiffon = '#FFFACD';   // Spruce
+var materialPaleOrange = '#f5c373';     // Oak
+
+// Operation Tool Colors (used in PathEdit, Transform, Polygon, etc.)
+var handleActiveColor = '#ff0000';      // Active/dragged handle (red)
+var handleActiveStroke = '#ff0000';     // Active handle stroke (red)
+var handleHoverColor = '#ffff00';       // Hovered handle (yellow)
+var handleHoverStroke = '#ff8800';      // Hovered handle stroke (orange)
+var handleNormalColor = 'white';        // Normal handle (white)
+var handleNormalStroke = '#0000ff';     // Normal handle stroke (blue)
+var insertPreviewColor = 'rgba(0, 255, 0, 0.5)';     // Insert point preview fill (green)
+var insertPreviewStroke = '#00aa00';    // Insert point preview stroke (green)
+var selectionBoxColor = 'blue';         // Selection box color
+var penLineColor = '#000000';           // Pen tool line color
+var penCloseLineColor = '#00AA00';      // Pen tool closing line (green)
+var penFirstPointColor = '#00AA00';     // Pen tool first point (green)
+
+// ============================================================================
+// UNIT CONVERSION CONSTANTS & FUNCTIONS
+// ============================================================================
+
+var MM_PER_INCH = 25.4;
+
+// Convert decimal inches to nearest fraction
+// Returns {whole, numerator, denominator} or null if should show decimal
+function decimalToFraction(decimal, maxDenominator) {
+	maxDenominator = maxDenominator || 64;
+
+	// Extract whole number part
+	var whole = Math.floor(Math.abs(decimal));
+	var fractional = Math.abs(decimal) - whole;
+
+	// If very close to whole number, return it
+	if (fractional < 0.001) {
+		return { whole: whole * Math.sign(decimal || 1), numerator: 0, denominator: 1 };
+	}
+
+	// Try common woodworking denominators: 2, 4, 8, 16, 32, 64
+	var denominators = [2, 4, 8, 16, 32, 64].filter(d => d <= maxDenominator);
+	var bestDenom = 1;
+	var bestNumer = 0;
+	var bestError = 1;
+
+	for (var i = 0; i < denominators.length; i++) {
+		var denom = denominators[i];
+		var numer = Math.round(fractional * denom);
+		var error = Math.abs(fractional - numer / denom);
+
+		if (error < bestError) {
+			bestError = error;
+			bestDenom = denom;
+			bestNumer = numer;
+		}
+	}
+
+	// If error is too large, return null to indicate decimal display
+	if (bestError > 0.01) {
+		return null;
+	}
+
+	// Simplify fraction
+	var gcd = function(a, b) { return b ? gcd(b, a % b) : a; };
+	var divisor = gcd(bestNumer, bestDenom);
+	bestNumer /= divisor;
+	bestDenom /= divisor;
+
+	// If fraction equals 1 (numerator == denominator), add to whole number
+	if (bestNumer === bestDenom) {
+		return {
+			whole: (whole + 1) * Math.sign(decimal || 1),
+			numerator: 0,
+			denominator: 1
+		};
+	}
+
+	return {
+		whole: whole * Math.sign(decimal || 1),
+		numerator: bestNumer,
+		denominator: bestDenom
+	};
+}
+
+// Format a dimension in mm to display string (mm or inches with fractions)
+function formatDimension(mm, showFractions) {
+
+	var useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+	if (!useInches) {
+		// Metric display
+		return mm.toFixed(1);
+	}
+
+	// Convert to inches
+	var inches = mm / MM_PER_INCH;
+
+	// For very small values, show decimal
+	if (Math.abs(inches) < 0.01) {
+		return inches.toFixed(3);
+	}
+
+	if (!showFractions) {
+		// Decimal inches
+		return inches.toFixed(3);
+	}
+
+	// Try to convert to fraction
+	var frac = decimalToFraction(inches, 64);
+
+	if (!frac) {
+		// Couldn't convert to clean fraction, use decimal
+		return inches.toFixed(3);
+	}
+
+	// Build fraction string
+	var result = '';
+	var sign = frac.whole < 0 || inches < 0 ? '-' : '';
+	var absWhole = Math.abs(frac.whole);
+
+	if (absWhole > 0) {
+		result += sign + absWhole;
+		if (frac.numerator > 0) {
+			result += ' ';
+		}
+	} else if (frac.numerator > 0) {
+		// No whole part, just fraction - include sign
+		result = sign;
+	}
+
+	if (frac.numerator > 0) {
+		result += frac.numerator + '/' + frac.denominator;
+	}
+
+	return result || '0';
+}
+
+// Parse user input dimension back to mm
+function parseDimension(value, isInches) {
+	if (!value) return 0;
+
+	// Convert to string and trim
+	value = String(value).trim();
+
+	if (!isInches) {
+		// Parse as mm
+		return parseFloat(value) || 0;
+	}
+
+	// Parse inches - could be decimal or fraction
+	// Support formats: "3.5", "3 1/2", "1/4", "3-1/2"
+
+	var whole = 0;
+	var numerator = 0;
+	var denominator = 1;
+
+	// Check for fraction
+	var fractionMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
+	if (fractionMatch) {
+		numerator = parseInt(fractionMatch[1]);
+		denominator = parseInt(fractionMatch[2]);
+
+		// Check for whole number before fraction
+		var wholeMatch = value.match(/^(-?\d+)\s+\d+\/\d+/);
+		if (wholeMatch) {
+			whole = parseInt(wholeMatch[1]);
+		}
+	} else {
+		// Just a decimal or whole number
+		whole = parseFloat(value) || 0;
+	}
+
+	// Combine and convert to mm
+	var totalInches = Math.abs(whole) + (numerator / denominator);
+	if (whole < 0 || value.trim().startsWith('-')) {
+		totalInches = -totalInches;
+	}
+
+	return totalInches * MM_PER_INCH;
+}
+
+// Simple conversions
+function mmToInches(mm) {
+	return mm / MM_PER_INCH;
+}
+
+function inchesToMm(inches) {
+	return inches * MM_PER_INCH;
+}
 
 var clipper = ClipperLib;
 var scaleFactor = 4;
@@ -153,6 +382,69 @@ window.addEventListener('resize', function() {
 		centerWorkpiece();
 		redraw();
 	}, 150);
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(evt) {
+	// Check if we're in an input field - if so, don't trigger shortcuts
+	const tagName = evt.target.tagName.toLowerCase();
+	if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+		return;
+	}
+
+	const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+	const cmdOrCtrl = isMac ? evt.metaKey : evt.ctrlKey;
+
+	// Ctrl/Cmd + Z: Undo
+	if (cmdOrCtrl && evt.key === 'z' && !evt.shiftKey) {
+		evt.preventDefault();
+		doUndo();
+		return;
+	}
+
+	// Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z: Redo
+	if (cmdOrCtrl && (evt.key === 'y' || (evt.key === 'z' && evt.shiftKey))) {
+		evt.preventDefault();
+		doRedo();
+		return;
+	}
+
+	// Ctrl/Cmd + S: Save project
+	if (cmdOrCtrl && evt.key === 's') {
+		evt.preventDefault();
+		saveProject();
+		return;
+	}
+
+	// Ctrl/Cmd + O: Open SVG (import)
+	if (cmdOrCtrl && evt.key === 'o') {
+		evt.preventDefault();
+		// Trigger the import SVG action
+		if (typeof fileInput !== 'undefined') {
+			fileInput.click();
+		}
+		return;
+	}
+
+	// Delete key: Delete selected (but not when PathEdit tool is active)
+	if (evt.key === 'Delete' || evt.key === 'Backspace') {
+		// Check if PathEdit tool is active - if so, let it handle the delete
+		if (typeof cncController !== 'undefined' &&
+			cncController.operationManager &&
+			cncController.operationManager.currentOperation &&
+			cncController.operationManager.currentOperation.name === 'Edit Points') {
+			// Let PathEdit handle the delete key for deleting points
+			return;
+		}
+
+		// Check if there are selected paths
+		const selectedPaths = svgpaths.filter(p => p.selected);
+		if (selectedPaths.length > 0) {
+			evt.preventDefault();
+			deleteSelected();
+			return;
+		}
+	}
 });
 
 function handleScroll(evt) {
@@ -727,9 +1019,9 @@ function drawMarker(x, y) {
 	ctx.beginPath();
 	var pt = worldToScreen(x, y);
 	ctx.rect(pt.x - 2, pt.y - 2, 4, 4);
-	ctx.fillStyle = 'black';
+	ctx.fillStyle = pointFillColor;
 	ctx.fill();
-	ctx.strokeStyle = '#888';
+	ctx.strokeStyle = pointStrokeColor;
 	ctx.stroke();
 }
 
@@ -737,7 +1029,7 @@ function clear() {
 	ctx.globalAlpha = 1;
 	ctx.beginPath();
 	ctx.rect(0, 0, canvas.width, canvas.height);
-	ctx.fillStyle = 'white';
+	ctx.fillStyle = canvasBackgroundColor;
 	ctx.fill();
 }
 
@@ -758,7 +1050,7 @@ function drawLine(norm, color) {
 function drawNorms(norms) {
 	for (var i = 0; i < norms.length; i++) {
 		var norm = norms[i];
-		drawLine(norm, '#0000ff');
+		drawLine(norm, normLineColor);
 	}
 }
 
@@ -831,7 +1123,7 @@ function drawDebug() {
 		ctx.moveTo(p.x, p.y);
 		var e = worldToScreen(debug[i].e.x, debug[i].e.y);
 		ctx.lineTo(e.x, e.y);
-		ctx.strokeStyle = '#00ffff';
+		ctx.strokeStyle = debugCyanColor;
 		ctx.lineWidth = 1;
 		ctx.stroke();
 	}
@@ -911,28 +1203,47 @@ function drawOrigin() {
 	ctx.lineTo(offsetx+o.x,offsety+bottomRight.y);
 
 	ctx.lineWidth = 1;
-	ctx.strokeStyle = "#0000ff";
+	ctx.strokeStyle = axisColor;
 	ctx.stroke();
 
-	// Draw axis numbers - use 10mm intervals if grid size is less than 10mm, otherwise use grid size
-	ctx.fillStyle = "blue";
+	// Draw axis numbers - determine interval based on units
+	ctx.fillStyle = axisColor;
 	ctx.font = "12px Arial";
 
-	let numberInterval = gridSize < 10 ? 10 : gridSize;
-	let numberGrid = numberInterval * viewScale * zoomLevel;
+	var useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+	var numberInterval, numberGrid;
+
+	if (useInches) {
+		// Use 1 inch intervals, or fractions for small grids
+		var inchSize = MM_PER_INCH * viewScale * zoomLevel;
+		if (inchSize >= 30) {
+			numberInterval = MM_PER_INCH; // 1 inch
+		} else if (inchSize >= 15) {
+			numberInterval = MM_PER_INCH / 2; // 1/2 inch
+		} else {
+			numberInterval = MM_PER_INCH / 4; // 1/4 inch
+		}
+		numberGrid = numberInterval * viewScale * zoomLevel;
+	} else {
+		// Metric - use 10mm intervals if grid size is less than 10mm, otherwise use grid size
+		numberInterval = gridSize < 10 ? 10 : gridSize;
+		numberGrid = numberInterval * viewScale * zoomLevel;
+	}
 
 	// Draw Y axis labels (vertical positions)
-	let label = 0;
+	var label = 0;
 	for (var y = o.y; y <= bottomRight.y; y += numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			ctx.fillText(-label, o.x + 2, y - 2);
+			var labelText = useInches ? formatDimension(-label,  true): -label;
+			ctx.fillText(labelText, o.x + 2, y - 2);
 		}
 		label += numberInterval;
 	}
 	label = 0;
 	for (var y = o.y; y >= topLeft.y; y -= numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			ctx.fillText(-label, o.x + 2, y - 2);
+			var labelText = useInches ? formatDimension(-label,  true): -label;
+			ctx.fillText(labelText, o.x + 2, y - 2);
 		}
 		label -= numberInterval;
 	}
@@ -941,20 +1252,22 @@ function drawOrigin() {
 	label = 0;
 	for (var x = o.x; x <= bottomRight.x; x += numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			ctx.fillText(label, x + 2, o.y - 2);
+			var labelText = useInches ? formatDimension(label, true): label;
+			ctx.fillText(labelText, x + 2, o.y - 2);
 		}
 		label += numberInterval;
 	}
 	label = 0;
 	for (var x = o.x; x >= topLeft.x; x -= numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			ctx.fillText(label, x + 2, o.y - 2);
+			var labelText = useInches ? formatDimension(label, true): label;
+			ctx.fillText(labelText, x + 2, o.y - 2);
 		}
 		label -= numberInterval;
 	}
 
 	// Draw origin marker (0,0)
-	ctx.fillStyle = "red";
+	ctx.fillStyle = originMarkerColor;
 	ctx.fillText("0", o.x + 2, o.y - 2);
 }
 
@@ -998,7 +1311,7 @@ function drawWorkpiece() {
 	var width = getOption("workpieceWidth") * viewScale;
 	var length = getOption("workpieceLength") * viewScale;
 	var woodSpecies = getOption("woodSpecies");
-	var woodColor = '#F5DEB3';
+	var woodColor = workpieceColor;
 	if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
 		woodColor = woodSpeciesDatabase[woodSpecies].color;
 	}
@@ -1010,7 +1323,7 @@ function drawWorkpiece() {
 	ctx.rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
 	ctx.fillStyle = woodColor;
 	ctx.fill();
-	ctx.strokeStyle = "#888888";
+	ctx.strokeStyle = workpieceBorderColor;
 	ctx.lineWidth = 0.5;
 	ctx.stroke();
 }
@@ -1758,6 +2071,22 @@ function doRemoveToolPath(id) {
 	redraw();
 }
 
+function deleteSelected() {
+	// Get all selected paths and delete them
+	const selectedPaths = svgpaths.filter(p => p.selected);
+	if (selectedPaths.length === 0) return;
+
+	// Add undo point before deleting
+	addUndo(false, true, false);
+
+	// Delete each selected path
+	selectedPaths.forEach(path => {
+		doRemoveToolPath(path.id);
+	});
+
+	redraw();
+}
+
 function center() {
 
 	//var w = $('#canvas').parent()[0].clientWidth;
@@ -1807,13 +2136,70 @@ function addUndo(toolPathschanged = false, svgPathsChanged = false, originChange
 			undoList.shift();
 			undoList.push(JSON.stringify(project));
 		}
+		// Clear redo list when a new action is performed
+		redoList = [];
 	}
 
 }
 
 function doUndo() {
 	if (undoList.length == 0) return;
+
+	// Save current state to redo list before undoing
+	var currentProject = {
+		toolpaths: toolpaths,
+		svgpaths: svgpaths,
+		origin: origin
+	};
+	if (redoList.length < MAX_UNDO) {
+		redoList.push(JSON.stringify(currentProject));
+	} else {
+		redoList.shift();
+		redoList.push(JSON.stringify(currentProject));
+	}
+
 	var project = JSON.parse(undoList.pop());
+
+	if (project.origin) origin = project.origin;
+	if (project.toolpaths) {
+		clearToolPaths();
+		toolpaths = project.toolpaths;
+		toolpathId = 1;
+		for (var i in toolpaths) {
+			toolpaths[i].id = 'T' + toolpathId;
+			addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+			toolpathId++;
+		}
+	}
+	if (project.svgpaths) {
+		clearSvgPaths();
+		svgpaths = project.svgpaths;
+		svgpathId = 1;
+		for (var i in svgpaths) {
+			addSvgPath(svgpaths[i].id, svgpaths[i].name);
+			svgpathId++;
+		}
+	}
+	redraw();
+}
+
+function doRedo() {
+	if (redoList.length == 0) return;
+
+	// Save current state to undo list before redoing
+	var currentProject = {
+		toolpaths: toolpaths,
+		svgpaths: svgpaths,
+		origin: origin
+	};
+	if (undoList.length < MAX_UNDO) {
+		undoList.push(JSON.stringify(currentProject));
+	} else {
+		undoList.shift();
+		undoList.push(JSON.stringify(currentProject));
+	}
+
+	var project = JSON.parse(redoList.pop());
 
 	if (project.origin) origin = project.origin;
 	if (project.toolpaths) {
@@ -2703,6 +3089,29 @@ function toMMZ(z) {
 	return Math.round((cz + 0.00001) * 100) / 100;
 }
 
+// Convert coordinates to G-code units (mm or inches based on profile setting)
+function toGcodeUnits(x, y, useInches) {
+	var mm = toMM(x, y);
+	if (!useInches) {
+		return mm;
+	}
+	// Convert to inches and round to 4 decimal places
+	return {
+		x: Math.round(mm.x / MM_PER_INCH * 10000) / 10000,
+		y: Math.round(mm.y / MM_PER_INCH * 10000) / 10000
+	};
+}
+
+// Convert Z coordinate to G-code units (mm or inches based on profile setting)
+function toGcodeUnitsZ(z, useInches) {
+	var mm = toMMZ(z);
+	if (!useInches) {
+		return mm;
+	}
+	// Convert to inches and round to 4 decimal places
+	return Math.round(mm / MM_PER_INCH * 10000) / 10000;
+}
+
 // Global simulation variables
 var simulationData = null;
 var simulationState = {
@@ -2725,38 +3134,108 @@ var allTravelMoves = []; // Pre-computed all travel moves
 // Template example: "G0 X Y Z F"
 // Params: { x: 10.5, y: 20.3, f: 600 }
 // Output: "G0 X10.5 Y20.3 F600" (Z omitted since not provided)
+//
+// Supported placeholders: X, Y, Z, F, S
+// - X, Y, Z are coordinate placeholders (replaced with params.x, params.y, params.z)
+// - F is the feedrate placeholder (replaced with params.f)
+// - S is the spindle speed placeholder (replaced with params.s)
+//
+// Enhanced template features:
+// - Axis inversion: "G0 -X Y -Z" negates X and Z values
+// - Axis swapping: "G0 Y X Z" swaps X and Y coordinates
+// - Spindle speed: "M3 S" outputs spindle speed when params.s is provided
 function applyGcodeTemplate(template, params) {
 	if (!template) return '';
 
 	var output = template;
 
-	// Process each parameter
-	if (params.x !== undefined && params.x !== null) {
-		output = output.replace(/\bX\b/g, 'X' + params.x);
-	} else {
-		// Remove X if not provided
-		output = output.replace(/\bX\b/g, '').trim();
+	// Parse template to detect axis inversions and swapping
+	var axisMap = {};
+	var inversions = {};
+
+	// Detect negation and axis mapping
+	// Match patterns like "-X", "X", "-Y", "Y", "-Z", "Z"
+	var xMatch = template.match(/(-?)X\b/);
+	var yMatch = template.match(/(-?)Y\b/);
+	var zMatch = template.match(/(-?)Z\b/);
+
+	// Determine if axes are swapped by their positions in the template
+	var axisPositions = [];
+	if (xMatch) {
+		axisPositions.push({ axis: 'X', pos: xMatch.index, inverted: xMatch[1] === '-' });
+	}
+	if (yMatch) {
+		axisPositions.push({ axis: 'Y', pos: yMatch.index, inverted: yMatch[1] === '-' });
+	}
+	if (zMatch) {
+		axisPositions.push({ axis: 'Z', pos: zMatch.index, inverted: zMatch[1] === '-' });
 	}
 
-	if (params.y !== undefined && params.y !== null) {
-		output = output.replace(/\bY\b/g, 'Y' + params.y);
-	} else {
-		// Remove Y if not provided
-		output = output.replace(/\bY\b/g, '').trim();
+	// Sort by position to determine the mapping
+	axisPositions.sort((a, b) => a.pos - b.pos);
+
+	// Create mapping: template axis -> value to use
+	// For example, if template is "G0 Y X Z", then:
+	// - First position is Y, should get X value (params.x)
+	// - Second position is X, should get Y value (params.y)
+	var valueOrder = ['x', 'y', 'z'];
+	axisPositions.forEach((item, idx) => {
+		if (idx < valueOrder.length) {
+			axisMap[item.axis] = valueOrder[idx];
+			inversions[item.axis] = item.inverted;
+		}
+	});
+
+	// Process X parameter with potential swapping and inversion
+	if (xMatch) {
+		var xValue = params[axisMap['X'] || 'x'];
+		if (xValue !== undefined && xValue !== null) {
+			if (inversions['X']) xValue = -xValue;
+			output = output.replace(/-?X\b/, 'X' + xValue);
+		} else {
+			// Remove X if not provided
+			output = output.replace(/-?X\b/, '').trim();
+		}
 	}
 
-	if (params.z !== undefined && params.z !== null) {
-		output = output.replace(/\bZ\b/g, 'Z' + params.z);
-	} else {
-		// Remove Z if not provided
-		output = output.replace(/\bZ\b/g, '').trim();
+	// Process Y parameter with potential swapping and inversion
+	if (yMatch) {
+		var yValue = params[axisMap['Y'] || 'y'];
+		if (yValue !== undefined && yValue !== null) {
+			if (inversions['Y']) yValue = -yValue;
+			output = output.replace(/-?Y\b/, 'Y' + yValue);
+		} else {
+			// Remove Y if not provided
+			output = output.replace(/-?Y\b/, '').trim();
+		}
 	}
 
+	// Process Z parameter with potential swapping and inversion
+	if (zMatch) {
+		var zValue = params[axisMap['Z'] || 'z'];
+		if (zValue !== undefined && zValue !== null) {
+			if (inversions['Z']) zValue = -zValue;
+			output = output.replace(/-?Z\b/, 'Z' + zValue);
+		} else {
+			// Remove Z if not provided
+			output = output.replace(/-?Z\b/, '').trim();
+		}
+	}
+
+	// Process F parameter
 	if (params.f !== undefined && params.f !== null) {
 		output = output.replace(/\bF\b/g, 'F' + params.f);
 	} else {
 		// Remove F if not provided
 		output = output.replace(/\bF\b/g, '').trim();
+	}
+
+	// Process S parameter (spindle speed)
+	if (params.s !== undefined && params.s !== null) {
+		output = output.replace(/\bS\b/g, 'S' + params.s);
+	} else {
+		// Remove S if not provided
+		output = output.replace(/\bS\b/g, '').trim();
 	}
 
 	// Clean up multiple spaces
@@ -2783,6 +3262,125 @@ function getOperationPriority(operation) {
 	if (operation === 'Pocket') return 3;
 	// All profile operations (Inside, Outside, Center) come last
 	return 4;
+}
+
+// Helper function: Calculate distance between two points
+function distance(p1, p2) {
+	return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+}
+
+// Helper function: Get start point of a path
+function getPathStartPoint(pathObj) {
+	// Handle different path structures
+	if (pathObj.paths && pathObj.paths.length > 0) {
+		var first = pathObj.paths[0].tpath[0];
+		return { x: first.x, y: first.y };
+	}
+
+	return { x: 0, y: 0 };
+}
+
+// Helper function: Get end point of a path
+function getPathEndPoint(pathObj) {
+	// Get last point of path
+
+	if (pathObj.paths && pathObj.paths.length > 0) {
+		let len = pathObj.paths[0].tpath.length;
+		len = len > 1 ? len-1:0;
+		var last = pathObj.paths[0].tpath[len];
+		return { x: last.x, y: last.y };
+	}
+	return { x: 0, y: 0 };
+}
+
+// Helper function: Check if path is a straight line (only 2 points)
+function isStraightLine(pathObj) {
+	// A straight line has exactly 2 points (start and end)
+	var pathData = pathObj.path || pathObj.tpath;
+
+	if (!pathData) return false;
+
+	// Check if path has exactly 2 points
+	return pathData.length === 2;
+}
+
+// Helper function: Reverse path data
+function reversePathData(pathObj) {
+	// Create a copy and reverse the path points
+	var reversed = JSON.parse(JSON.stringify(pathObj));
+
+	if (reversed.path && reversed.path.length > 0) {
+		reversed.path = reversed.path.slice().reverse();
+	}
+	if (reversed.tpath && reversed.tpath.length > 0) {
+		reversed.tpath = reversed.tpath.slice().reverse();
+	}
+
+	return reversed;
+}
+
+// Optimize path order using nearest neighbor algorithm with bidirectional consideration
+// Only reverses straight lines (2 points) to preserve clockwise/counter-clockwise direction
+function optimizePathOrder(paths) {
+
+	if ( paths.length <= 1) {
+		return paths; // Return original order for Pocket or single path
+	}
+
+	var optimized = [];
+	var remaining = paths.slice();
+
+	// Start with first path
+	var current = remaining.shift();
+	optimized.push(current);
+
+	// Track current end point
+	var currentEnd = getPathEndPoint(current);
+
+	// Nearest neighbor with bidirectional consideration for straight lines only
+	while (remaining.length > 0) {
+		var nearestIdx = 0;
+		var nearestDist = Infinity;
+		var shouldReverse = false;
+
+		// Find nearest path
+		for (var i = 0; i < remaining.length; i++) {
+			var pathStart = getPathStartPoint(remaining[i]);
+			var distToStart = distance(currentEnd, pathStart);
+
+			if (distToStart < nearestDist) {
+				nearestDist = distToStart;
+				nearestIdx = i;
+				shouldReverse = false;
+			}
+
+			// Check if this is a straight line (only 2 points)
+			// Straight lines can be cut in either direction
+			if (isStraightLine(remaining[i])) {
+				var pathEnd = getPathEndPoint(remaining[i]);
+				var distToEnd = distance(currentEnd, pathEnd);
+
+				if (distToEnd < nearestDist) {
+					nearestDist = distToEnd;
+					nearestIdx = i;
+					shouldReverse = true;
+				}
+			}
+		}
+
+		// Get the nearest path
+		current = remaining.splice(nearestIdx, 1)[0];
+
+		// Reverse path if it's a straight line and that's optimal
+		if (shouldReverse) {
+			current = reversePathData(current);
+		}
+
+		optimized.push(current);
+		currentEnd = getPathEndPoint(current);
+	}
+
+	return optimized;
 }
 
 // Sort toolpaths by operation priority to ensure safe machining order
@@ -2813,11 +3411,15 @@ function toGcode() {
 		toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
 		rapidTemplate: 'G0 X Y Z F',
 		cutTemplate: 'G1 X Y Z F',
-		spindleOnGcode: 'M3 S12000',
+		spindleOnGcode: 'M3 S',
 		spindleOffGcode: 'M5',
 		commentChar: '(',
-		commentsEnabled: true
+		commentsEnabled: true,
+		gcodeUnits: 'mm'
 	};
+
+	// Check if G-code should be output in inches
+	var useInches = profile.gcodeUnits === 'inches';
 
 	var output = "";
 
@@ -2826,14 +3428,46 @@ function toGcode() {
 		output += profile.startGcode + '\n';
 	}
 
-	// Add spindle on command if provided
-	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
-		output += profile.spindleOnGcode + '\n';
-	}
-
 	// Sort toolpaths by operation priority for safe machining order
 	// Order: Drill -> VCarve -> Pocket -> Profiles
-	var sortedToolpaths = getSortedToolpaths(toolpaths);
+	var sortedByOperation = getSortedToolpaths(toolpaths);
+
+	var drillPaths = [];
+	for (var i = 0; i < sortedByOperation.length; i++) {
+		
+		var operation = sortedByOperation[i].operation;
+		if(operation == 'Drill')
+			drillPaths.push(sortedByOperation[i])
+	}
+	drillPaths = optimizePathOrder(drillPaths);
+
+    //todo finish optimization for profile paths with same tool
+	var sortedToolpaths = [];
+
+	for(path of drillPaths)
+	{
+		sortedToolpaths.push(path);
+	}
+	for (var i = 0; i < sortedByOperation.length; i++) {
+		
+		var operation = sortedByOperation[i].operation;
+		if(operation != 'Drill')
+			sortedToolpaths.push(sortedByOperation[i])
+	}
+
+	// Get spindle speed from first visible toolpath, or use default
+	var spindleSpeed = 18000; // Default RPM
+	for (var i = 0; i < sortedToolpaths.length; i++) {
+		if (sortedToolpaths[i].visible && sortedToolpaths[i].tool && sortedToolpaths[i].tool.rpm) {
+			spindleSpeed = sortedToolpaths[i].tool.rpm;
+			break;
+		}
+	}
+
+	// Add spindle on command if provided
+	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
+		output += applyGcodeTemplate(profile.spindleOnGcode, { s: spindleSpeed }) + '\n';
+	}
 
 	var lastToolId = null;
 
@@ -2852,6 +3486,10 @@ function toGcode() {
 			var angle = sortedToolpaths[i].tool.angle;
 
 			var paths = sortedToolpaths[i].paths;
+			// Optimize path order for this operation to minimize travel time
+		
+		
+
 			var zbacklash = getOption("zbacklash");
 			var safeHeight = getOption("safeHeight") + zbacklash;
 
@@ -2861,6 +3499,11 @@ function toGcode() {
 				// Insert tool change G-code
 				if (profile.toolChangeGcode && profile.toolChangeGcode.trim() !== '') {
 					output += profile.toolChangeGcode + '\n';
+				}
+				// Add spindle on command with new tool's RPM
+				var toolRpm = sortedToolpaths[i].tool.rpm || 18000;
+				if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
+					output += applyGcodeTemplate(profile.spindleOnGcode, { s: toolRpm }) + '\n';
 				}
 			}
 			lastToolId = currentToolId;
@@ -2895,25 +3538,30 @@ function toGcode() {
 						var path = paths[k].tpath;
 
 						if (path.length > 0) {
+							// Convert coordinates and feed rates based on profile units
+							var zCoord = toGcodeUnitsZ(z, useInches);
+							var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+							var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+
 							// Check if this is a plunge point
 							if (paths[k].isPlunge && paths[k].plungePoint) {
-								// Simple plunge - just move to center point, no retract
-								var p = toMM(paths[k].plungePoint.x, paths[k].plungePoint.y);
-								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
-								output += applyGcodeTemplate(profile.cutTemplate, { z: z, f: zfeed }) + '\n';
+								// Simple plunge - just move to center point, no retract (material is being cleared)
+								var p = toGcodeUnits(paths[k].plungePoint.x, paths[k].plungePoint.y, useInches);
+								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
 								// No retract - continue to next path
 							}
 							else {
-								// Normal path following
+								// Normal path following - no safe height retracts within pocket
 								for (var j = 0; j < path.length; j++) {
-									var p = toMM(path[j].x, path[j].y);
+									var p = toGcodeUnits(path[j].x, path[j].y, useInches);
 
 									if (j == 0) {
-										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
-										output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
+										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+										output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoord, f: feedZ }) + '\n';
 									}
 									else {
-										output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+										output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 									}
 								}
 							}
@@ -2933,7 +3581,12 @@ function toGcode() {
 					var lastZ = z;
 					var movingUp = false;
 
-					output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
+					// Convert units for this section
+					var zCoordSafe = toGcodeUnitsZ(z, useInches);
+					var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+					var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+
+					output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
 
 					if (operation == 'Drill') {
 						z = 0;
@@ -2941,16 +3594,27 @@ function toGcode() {
 						var pass = 0;
 						path = paths[k].path;
 						for (var j = 0; j < path.length; j++) {
-							var p = toMM(path[j].x, path[j].y);
-							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+							// Retract to safe height before moving to next hole
+							if (j > 0) {
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+							}
+
+							// Move to hole position at safe height
+							var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+
+							// Reset left for this hole
+							left = depth;
 
 							while (left > 0) {
 								left -= toolStep;
 								if (left < 0 || toolStep <= 0) left = 0;
 
 								z = left - depth;
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: z + toolStep + zbacklash, f: zfeed }) + '\n'; // pull up to clear chip
+								var zCoord = toGcodeUnitsZ(z, useInches);
+								var zCoordPullUp = toGcodeUnitsZ(z + toolStep + zbacklash, useInches);
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoord, f: feedZ }) + '\n';
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordPullUp, f: feedZ }) + '\n'; // pull up to clear chip
 							}
 						}
 					}
@@ -2959,9 +3623,9 @@ function toGcode() {
 
 						for (var j = 0; j < path.length; j++) {
 
-							var p = toMM(path[j].x, path[j].y);
+							var p = toGcodeUnits(path[j].x, path[j].y, useInches);
 							var cz = toolDepth(angle, path[j].r);
-							var cz = -toMMZ(cz);
+							var cz = -toGcodeUnitsZ(cz, useInches);
 
 							if (movingUp == false && lastZ < cz) movingUp = true;
 							else movingUp = false;
@@ -2969,20 +3633,23 @@ function toGcode() {
 							lastZ = cz;
 
 							if (movingUp) {
-								cz += zbacklash;
-								cz = Math.round((cz + 0.00001) * 100) / 100;
-								zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation) / 2;
+								cz += (useInches ? zbacklash / MM_PER_INCH : zbacklash);
+								cz = Math.round((cz + 0.00001) * 10000) / 10000;
+								var vcarveZFeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation) / 2;
+								feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
 							}
 							else {
-								zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
+								var vcarveZFeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
+								feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
 							}
 
 
 							if (j == 0) {
-								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+								// Move to first point at safe height, then plunge
+								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 							}
 
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: zfeed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: feedZ }) + '\n';
 						}
 
 					}
@@ -3007,6 +3674,11 @@ function toGcode() {
 									z = left - depth;
 									var passComment = formatComment('pass ' + pass, profile);
 									if (passComment) output += passComment + '\n';
+
+									// Retract to safe height before moving to start of next pass (except first pass)
+									if (pass > 1) {
+										output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+									}
 
 									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
 									output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
@@ -3538,7 +4210,7 @@ function updateStatusWithSimulation(currentTime, totalTime) {
 function drawTravelMoves() {
 	if (!simulationState.travelMoves || simulationState.travelMoves.length === 0) return;
 	ctx.save();
-	ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+	ctx.strokeStyle = simulationStrokeColor;
 	ctx.lineWidth = 1;
 	ctx.setLineDash([5, 5]);
 	for (let i = 0; i < simulationState.travelMoves.length; i++) {
@@ -3567,19 +4239,19 @@ function drawMaterialRemoval() {
 		ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
 		if (point.isActualGcodePoint) {
 			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+				ctx.fillStyle = simulationFillRapid;
 			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(255, 100, 0, 0.4)';
+				ctx.fillStyle = simulationFillRapid2;
 			} else {
-				ctx.fillStyle = 'rgba(255, 0, 100, 0.4)';
+				ctx.fillStyle = simulationFillRapid3;
 			}
 		} else {
 			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = 'rgba(139, 69, 19, 0.2)';
+				ctx.fillStyle = simulationFillCut;
 			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = 'rgba(160, 82, 45, 0.2)';
+				ctx.fillStyle = simulationFillCut2;
 			} else {
-				ctx.fillStyle = 'rgba(101, 67, 33, 0.2)';
+				ctx.fillStyle = simulationFillCut3;
 			}
 		}
 		ctx.fill();

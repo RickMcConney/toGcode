@@ -24,16 +24,27 @@ class Workpiece extends Operation {
 
     // Properties Editor Interface
     getPropertiesHTML() {
-        // Get current values from options
+        // Get current values from options (stored in mm)
         const currentWidth = getOption("workpieceWidth") || 300;
         const currentLength = getOption("workpieceLength") || 200;
         const currentThickness = getOption("workpieceThickness") || 19;
+        const currentGridSize = getOption("gridSize") || 10;
+
+        // Check if using inches for display
+        const useInches = getOption('Inches');
+        const unitLabel = useInches ? 'in' : 'mm';
+
+        // Convert values for display (with fractions in inch mode)
+        const displayWidth = formatDimension(currentWidth, useInches, true);
+        const displayLength = formatDimension(currentLength, useInches, true);
+        const displayThickness = formatDimension(currentThickness, useInches, true);
+        const displayGridSize = formatDimension(currentGridSize, useInches, true);
+
         const currentSpecies = getOption("woodSpecies") || 'Pine';
         const currentOriginPosition = getOption("originPosition") || 'middle-center';
         const currentShowGrid = getOption("showGrid") !== false;
         const currentShowOrigin = getOption("showOrigin") !== false;
         const currentShowWorkpiece = getOption("showWorkpiece") !== false;
-        const currentGridSize = getOption("gridSize") || 10;
 
         // Generate species dropdown options
         let speciesOptions = '';
@@ -88,22 +99,25 @@ class Workpiece extends Operation {
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceWidth" class="form-label">Width (mm)</label>
-                    <input type="number" class="form-control" id="workpieceWidth" name="workpieceWidth"
-                           value="${currentWidth}" step="1" min="1" max="2000">
+                    <label for="workpieceWidth" class="form-label">Width (${unitLabel})</label>
+                    <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth"
+                           value="${displayWidth}" data-unit-type="${useInches ? 'inches' : 'mm'}">
+                    <small class="text-muted">Enter value as ${useInches ? 'decimal or fraction (e.g., 11.75 or 11 3/4)' : 'millimeters'}</small>
                 </div>
                 <div class="col-md-6">
-                    <label for="workpieceLength" class="form-label">Length (mm)</label>
-                    <input type="number" class="form-control" id="workpieceLength" name="workpieceLength"
-                           value="${currentLength}" step="1" min="1" max="2000">
+                    <label for="workpieceLength" class="form-label">Length (${unitLabel})</label>
+                    <input type="text" class="form-control" id="workpieceLength" name="workpieceLength"
+                           value="${displayLength}" data-unit-type="${useInches ? 'inches' : 'mm'}">
+                    <small class="text-muted">Enter value as ${useInches ? 'decimal or fraction' : 'millimeters'}</small>
                 </div>
             </div>
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceThickness" class="form-label">Thickness (mm)</label>
-                    <input type="number" class="form-control" id="workpieceThickness" name="workpieceThickness"
-                           value="${currentThickness}" step="0.1" min="0.1" max="200">
+                    <label for="workpieceThickness" class="form-label">Thickness (${unitLabel})</label>
+                    <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness"
+                           value="${displayThickness}" data-unit-type="${useInches ? 'inches' : 'mm'}">
+                    <small class="text-muted">Common: ${useInches ? '3/4, 1/2, 1/4' : '19, 12, 6'}</small>
                 </div>
                 <div class="col-md-6">
                     <label for="woodSpecies" class="form-label">Wood Species</label>
@@ -115,11 +129,11 @@ class Workpiece extends Operation {
 
             <div class="row mb-3 align-items-center">
                 <div class="col-auto">
-                    <label for="gridSize" class="form-label mb-0">Grid Size (mm):</label>
+                    <label for="gridSize" class="form-label mb-0">Grid Size (${unitLabel}):</label>
                 </div>
                 <div class="col-auto">
-                    <input type="number" class="form-control" id="gridSize" name="gridSize"
-                           value="${currentGridSize}" step="1" min="1" max="100" style="width: 100px;">
+                    <input type="text" class="form-control" id="gridSize" name="gridSize"
+                           value="${displayGridSize}" data-unit-type="${useInches ? 'inches' : 'mm'}" style="width: 100px;">
                 </div>
             </div>
 
@@ -231,23 +245,39 @@ class Workpiece extends Operation {
 
         let dimensionChanged = false;
         let originChanged = false;
+        const useInches = getOption('Inches');
 
         // Update global options when properties change
+        // Parse inputs using parseDimension to handle both mm and inch inputs
         if ('workpieceWidth' in data) {
-            const newValue = parseFloat(data.workpieceWidth) || 300;
+            const newValue = parseDimension(data.workpieceWidth, useInches) || 300;
             setOption("workpieceWidth", newValue);
             dimensionChanged = true;
         }
 
         if ('workpieceLength' in data) {
-            const newValue = parseFloat(data.workpieceLength) || 200;
+            const newValue = parseDimension(data.workpieceLength, useInches) || 200;
             setOption("workpieceLength", newValue);
             dimensionChanged = true;
         }
 
         if ('workpieceThickness' in data) {
-            const newValue = parseFloat(data.workpieceThickness) || 19;
+            const newValue = parseDimension(data.workpieceThickness, useInches) || 19;
             setOption("workpieceThickness", newValue);
+
+            // Recalculate tool depths and steps that are percentage-based
+            if (typeof recalculateToolPercentages === 'function') {
+                recalculateToolPercentages();
+                // Refresh tool table to show updated values and warnings
+                if (typeof renderToolsTable === 'function') {
+                    renderToolsTable();
+                }
+            }
+        }
+
+        if ('gridSize' in data) {
+            const newValue = parseDimension(data.gridSize, useInches) || 10;
+            setOption("gridSize", newValue);
         }
 
         if ('woodSpecies' in data) {
@@ -272,17 +302,14 @@ class Workpiece extends Operation {
             setOption("showWorkpiece", data.showWorkpiece);
         }
 
-        if ('gridSize' in data) {
-            const newValue = parseFloat(data.gridSize) || 10;
-            setOption("gridSize", newValue);
-        }
+        // Note: gridSize is already handled above with parseDimension
 
         // Update origin position if dimensions or origin position changed
         if (dimensionChanged || originChanged) {
-            // Use the values directly from the data instead of getOption to ensure we get the latest values
-            const width = (data.workpieceWidth ? parseFloat(data.workpieceWidth) : getOption("workpieceWidth")) * (typeof viewScale !== 'undefined' ? viewScale : 10);
-            const length = (data.workpieceLength ? parseFloat(data.workpieceLength) : getOption("workpieceLength")) * (typeof viewScale !== 'undefined' ? viewScale : 10);
-            const position = data.originPosition || getOption("originPosition") || 'middle-center';
+            // Use the values from options (already parsed and saved above)
+            const width = getOption("workpieceWidth") * (typeof viewScale !== 'undefined' ? viewScale : 10);
+            const length = getOption("workpieceLength") * (typeof viewScale !== 'undefined' ? viewScale : 10);
+            const position = getOption("originPosition") || 'middle-center';
 
             const newOrigin = this.calculateOriginPosition(position, width, length);
             console.log('Updating origin from', typeof origin !== 'undefined' ? `${origin.x}, ${origin.y}` : 'undefined', 'to', `${newOrigin.x}, ${newOrigin.y}`, 'for position:', position);

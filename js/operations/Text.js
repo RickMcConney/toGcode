@@ -49,15 +49,41 @@ async function getGoogleFontUrl(fontFamily) {
 class Text extends Operation {
     constructor() {
         super('Text', 'fa fa-font');
+
+        // Load saved properties or use defaults
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        const defaultGridSize = (typeof getOption !== 'undefined' ? getOption("gridSize") : null) || 10;
+        const defaultFontSize = useInches ? (defaultGridSize) : (defaultGridSize * 2); // 2 inches or 2x grid
+        const savedFontSize = (typeof getOption !== 'undefined' ? getOption("textFontSize") : null);
+        const finalFontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
+        const savedFont = (typeof getOption !== 'undefined' ? getOption("textFont") : null) || 'fonts/Roboto-Regular.ttf';
+        const savedText = (typeof getOption !== 'undefined' ? getOption("textSample") : null) || 'Sample Text';
+
         this.properties = {
-            text: 'Sample Text',
-            font: 'fonts/Roboto-Regular.ttf',
-            fontSize: 20
+            text: savedText,
+            font: savedFont,
+            fontSize: finalFontSize
         };
         this.pendingPosition = null;
     }
 
+    // Lifecycle methods
+    start() {
+        // Refresh saved properties when tool is activated
+        const useInches = getOption('Inches');
+        const defaultGridSize = getOption("gridSize") || 10;
+        const defaultFontSize = useInches ? (defaultGridSize) : (defaultGridSize * 2); // 2 inches or 2x grid
+        const savedFontSize = getOption("textFontSize");
+        const finalFontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
+        const savedFont = getOption("textFont") || 'fonts/Roboto-Regular.ttf';
+        const savedText = getOption("textSample") || 'Sample Text';
 
+        this.properties.fontSize = finalFontSize;
+        this.properties.font = savedFont;
+        this.properties.text = savedText;
+
+        super.start();
+    }
 
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
@@ -105,16 +131,30 @@ class Text extends Operation {
             </div>
 
             <div class="mb-3">
-                <label for="font-size" class="form-label">Font Size: <span id="font-size-value">${this.properties.fontSize}</span>mm</label>
+                ${(() => {
+                    const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+                    const unitLabel = useInches ? 'in' : 'mm';
+                    const fontSize = this.properties.fontSize || (useInches ? (25.4) : 20); // Fallback to 2in or 20mm
+                    const displaySize = formatDimension(fontSize, true);
+                    // Dynamic max based on workpiece size
+                    const workpieceWidth = getOption("workpieceWidth") || 300;
+                    const workpieceLength = getOption("workpieceLength") || 200;
+                    const maxDimension = Math.max(workpieceWidth, workpieceLength);
+                    const maxSize = useInches ? Math.ceil(maxDimension / 25.4) : maxDimension;
+                    const minSize = useInches ? 0.125 : 5;
+                    const step = useInches ? 0.125 : 1;
+                    return `<label for="font-size" class="form-label">Font Size: <span id="font-size-value">${displaySize}</span>${unitLabel}</label>
                 <input type="range"
                        class="form-range"
                        id="font-size"
                        name="fontSize"
-                       min="5"
-                       max="100"
-                       step="1"
-                       value="${this.properties.fontSize}"
-                       oninput="document.getElementById('font-size-value').textContent = this.value">
+                       min="${minSize}"
+                       max="${maxSize}"
+                       step="${step}"
+                       value="${useInches ? Math.round((fontSize / 25.4) / step) * step : fontSize}"
+                       data-unit-type="${useInches ? 'inches' : 'mm'}"
+                       oninput="document.getElementById('font-size-value').textContent = formatDimension(parseFloat(this.value) * ${useInches ? 25.4 : 1}, ${useInches}, ${useInches})">`;
+                })()}
             </div>
 
             ${this.pendingPosition ? `
@@ -147,21 +187,42 @@ class Text extends Operation {
             </div>
 
             <div class="mb-3">
-                <label for="edit-font-size" class="form-label">Font Size: <span id="edit-font-size-value">${path.creationProperties.fontSize}</span>mm</label>
+                ${(() => {
+                    const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+                    const unitLabel = useInches ? 'in' : 'mm';
+                    const fontSize = path.creationProperties.fontSize || (useInches ? (25.4) : 20);
+                    const displaySize = formatDimension(fontSize, true);
+                    // Dynamic max based on workpiece size
+                    const workpieceWidth = getOption("workpieceWidth") || 300;
+                    const workpieceLength = getOption("workpieceLength") || 200;
+                    const maxDimension = Math.max(workpieceWidth, workpieceLength);
+                    const maxSize = useInches ? Math.ceil(maxDimension / 25.4) : maxDimension;
+                    const minSize = useInches ? 0.125 : 5;
+                    const step = useInches ? 0.125 : 1;
+                    return `<label for="edit-font-size" class="form-label">Font Size: <span id="edit-font-size-value">${displaySize}</span>${unitLabel}</label>
                 <input type="range"
                        class="form-range"
                        id="edit-font-size"
                        name="fontSize"
-                       min="5"
-                       max="100"
-                       step="1"
-                       value="${path.creationProperties.fontSize}"
-                       oninput="document.getElementById('edit-font-size-value').textContent = this.value">
+                       min="${minSize}"
+                       max="${maxSize}"
+                       step="${step}"
+                       value="${useInches ? Math.round((fontSize / 25.4) / step) * step : fontSize}"
+                       data-unit-type="${useInches ? 'inches' : 'mm'}"
+                       oninput="document.getElementById('edit-font-size-value').textContent = formatDimension(parseFloat(this.value) * ${useInches ? 25.4 : 1}, ${useInches}, ${useInches})">`;
+                })()}
             </div>
 
             <div class="alert alert-info">
                 <i data-lucide="info"></i>
-                Position: (${toMM(path.creationProperties.position.x, path.creationProperties.position.y).x.toFixed(2)}, ${toMM(path.creationProperties.position.x, path.creationProperties.position.y).y.toFixed(2)}) mm
+                ${(() => {
+                    const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+                    const unitLabel = useInches ? 'in' : 'mm';
+                    const pos = toMM(path.creationProperties.position.x, path.creationProperties.position.y);
+                    const displayX = formatDimension(pos.x, true);
+                    const displayY = formatDimension(pos.y, true);
+                    return `Position: (${displayX}, ${displayY}) ${unitLabel}`;
+                })()}
             </div>
         `;
     }
@@ -170,9 +231,27 @@ class Text extends Operation {
         // Update our properties with the new values
         this.properties = { ...this.properties, ...data };
 
+        // Parse fontSize - convert from inches to mm if needed (always store in mm)
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        const fontSize = useInches ? parseFloat(data.fontSize) * 25.4 : parseFloat(data.fontSize);
+
+        // Store the converted fontSize back to properties (always in mm)
+        this.properties.fontSize = fontSize;
+
+        // Save properties for future text instances
+        if (typeof setOption !== 'undefined') {
+            setOption("textFontSize", fontSize); // Always stored in mm
+            if (data.font) {
+                setOption("textFont", data.font);
+            }
+            if (data.text) {
+                setOption("textSample", data.text);
+            }
+        }
+
         // Create text immediately if we have a pending position and text
         if (this.pendingPosition && data.text && data.text.trim() !== '') {
-            this.addText(data.text, this.pendingPosition.x, this.pendingPosition.y, parseFloat(data.fontSize), data.font);
+            this.addText(data.text, this.pendingPosition.x, this.pendingPosition.y, fontSize, data.font);
             this.pendingPosition = null;
             window.stepWiseHelp?.setStep(3); // Show completion message
         }
@@ -269,6 +348,9 @@ class Text extends Operation {
     }
 
     async addText(text, x, y, sizeInMM = 20, fontname) {
+        // Generate a unique group ID for all paths in this text
+        const textGroupId = 'TextGroup' + Date.now();
+
         let fontUrl = fontname;
 
         // Check if this is a Google Font
@@ -286,7 +368,7 @@ class Text extends Operation {
                 const response = await fetch(fontUrl);
                 const buffer = await response.arrayBuffer();
                 const font = opentype.parse(buffer);
-                this.createTextPath(font, text, x, y, sizeInMM, fontname, false); // false = using opentype
+                this.createTextPath(font, text, x, y, sizeInMM, fontname, textGroupId);
                 redraw();
             } catch (err) {
                 console.error('Could not load Google Font with opentype.js ArrayBuffer:', err);
@@ -300,14 +382,14 @@ class Text extends Operation {
                     return;
                 }
                 else {
-                    this.createTextPath(font, text, x, y, sizeInMM, fontname, false); // false = using opentype
+                    this.createTextPath(font, text, x, y, sizeInMM, fontname, textGroupId);
                     redraw();
                 }
             });
         }
     }
 
-    createTextPath(font, text, x, y, sizeInMM, fontname) {
+    createTextPath(font, text, x, y, sizeInMM, fontname, textGroupId) {
         // Process each character separately
         let currentX = x;
 
@@ -425,6 +507,7 @@ class Text extends Operation {
                         bbox: boundingBox(pathData),
                         // Store creation properties for editing
                         creationTool: 'Text',
+                        textGroupId: textGroupId, // Group all characters together
                         creationProperties: {
                             text: text,
                             font: fontname,
@@ -436,12 +519,11 @@ class Text extends Operation {
                     };
 
                     svgpaths.push(svgPath);
-                    addSvgPath(svgPath.id, 'Text_' + char + '_' + pathType + '_' + svgpathId);
+                    // Don't add individual paths to sidebar - will add as group later
 
                     // Auto-select the first path created for this text
-                    if (pathIndex === 0) {
+                    if (pathIndex === 0 && char === text.charAt(0)) {
                         svgPath.selected = true;
-                        selectSidebarNode(svgPath.id);
                     }
 
                     svgpathId++;
@@ -451,6 +533,12 @@ class Text extends Operation {
             // Move to next character position
             currentX += font.getAdvanceWidth(char, fontSize);
         });
+
+        // Add the text group to sidebar after all paths are created
+        const textPaths = svgpaths.filter(p => p.textGroupId === textGroupId);
+        if (typeof addTextGroup === 'function' && textPaths.length > 0) {
+            addTextGroup(textGroupId, text, textPaths);
+        }
 
         // After all text paths are created, show properties for the first one
         setTimeout(() => {

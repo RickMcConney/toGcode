@@ -431,17 +431,26 @@ class Transform extends Select {
         if (this.activeHandle.type == 'rotate')
             text = this.rotation.toFixed(1) + '°';
         else if (this.activeHandle.type == 'scale') {
-            text = this.scaleX.toFixed(3) + ', ' + this.scaleY.toFixed(3);
+            // Show current dimensions instead of scale factors
+            const currentWidth = this.transformBox.width / viewScale;
+            const currentHeight = this.transformBox.height / viewScale;
+            const useInches = typeof getOption === 'function' && getOption('Inches');
+            const unitLabel = useInches ? '"' : ' mm';
+            text = formatDimension(currentWidth, true) + unitLabel + ' × ' + formatDimension(currentHeight, true) + unitLabel;
         }
         else if (this.activeHandle.type == 'translate') {
-            text = (this.deltaX / viewScale).toFixed(2) + ' mm, ' + (-this.deltaY / viewScale).toFixed(2) + ' mm';
+            const deltaXmm = this.deltaX / viewScale;
+            const deltaYmm = -this.deltaY / viewScale;
+            const useInches = typeof getOption === 'function' && getOption('Inches');
+            const unitLabel = useInches ? '"' : ' mm';
+            text = formatDimension(deltaXmm, true) + unitLabel + ', ' + formatDimension(deltaYmm, true) + unitLabel;
         }
         let handle = this.getTransformHandles()[this.activeHandle.id - 1];
         let screenHandle = worldToScreen(handle.x, handle.y);
         //const angle = Math.round((this.transformBox.rotation * 180 / Math.PI) % 360);
         let angle = this.rotation.toFixed(1)
         ctx.save();
-        ctx.fillStyle = '#000';
+        ctx.fillStyle = pointFillColor;
         ctx.font = '12px Arial';
         ctx.fillText(text, screenHandle.x + 10, screenHandle.y - 25);
         ctx.restore();
@@ -454,16 +463,16 @@ class Transform extends Select {
         // Color based on state
         if (isActive) {
             // Red for actively dragging
-            ctx.fillStyle = '#ff0000';
-            ctx.strokeStyle = '#ff0000';
+            ctx.fillStyle = handleActiveColor;
+            ctx.strokeStyle = handleActiveStroke;
         } else if (isHovered) {
             // Yellow highlight for hovered (deletable)
-            ctx.fillStyle = '#ffff00';
-            ctx.strokeStyle = '#ff8800';
+            ctx.fillStyle = handleHoverColor;
+            ctx.strokeStyle = handleHoverStroke;
         } else {
             // Blue for normal
-            ctx.fillStyle = 'white';
-            ctx.strokeStyle = '#0000ff';
+            ctx.fillStyle = handleNormalColor;
+            ctx.strokeStyle = handleNormalStroke;
         }
 
         ctx.lineWidth = 2;
@@ -475,7 +484,7 @@ class Transform extends Select {
         if (!this.transformBox) return;
 
         ctx.save();
-        ctx.strokeStyle = 'blue';
+        ctx.strokeStyle = selectionBoxColor;
         ctx.lineWidth = 1;
 
         // Rotate context around center point (convert center to screen coordinates)
@@ -543,12 +552,16 @@ class Transform extends Select {
         let centerInfo = '';
         if (this.transformBox) {
             const centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
+            const useInches = typeof getOption === 'function' && getOption('Inches');
+            const unitLabel = useInches ? '"' : 'mm';
+            const centerXStr = formatDimension(centerMM.x, true);
+            const centerYStr = formatDimension(centerMM.y, true);
             centerInfo = `
                 <div class="alert alert-info mb-3">
                     <i data-lucide="move"></i>
                     <strong>Center Position</strong><br>
-                    X: <span id="move-center-x">${centerMM.x.toFixed(2)}</span> mm<br>
-                    Y: <span id="move-center-y">${centerMM.y.toFixed(2)}</span> mm
+                    X: <span id="move-center-x">${centerXStr}</span> ${unitLabel}<br>
+                    Y: <span id="move-center-y">${centerYStr}</span> ${unitLabel}
                 </div>
             `;
         } else {
@@ -561,35 +574,42 @@ class Transform extends Select {
             `;
         }
 
+        const useInches = typeof getOption === 'function' && getOption('Inches');
+        const unitLabel = useInches ? '"' : 'mm';
+        const deltaXmm = this.deltaX / viewScale;
+        const deltaYmm = -this.deltaY / viewScale;
+        const deltaXValue = useInches ? formatDimension(deltaXmm, true) : deltaXmm.toFixed(2);
+        const deltaYValue = useInches ? formatDimension(deltaYmm, true) : deltaYmm.toFixed(2);
+
         return centerInfo + `
             <div class="mb-3">
                 <label class="form-label"><strong>Translation</strong></label>
                 <div class="row">
                     <div class="col-6">
-                        <label for="move-delta-x" class="form-label">Delta X (mm)</label>
-                        <input type="number" class="form-control" id="move-delta-x" name="deltaX"
-                               value="${(this.deltaX / viewScale).toFixed(2)}" step="0.1" ${disabled}>
+                        <label for="move-delta-x" class="form-label">Delta X (${unitLabel})</label>
+                        <input type="text" class="form-control" id="move-delta-x" name="deltaX"
+                               value="${deltaXValue}" ${disabled}>
                     </div>
                     <div class="col-6">
-                        <label for="move-delta-y" class="form-label">Delta Y (mm)</label>
-                        <input type="number" class="form-control" id="move-delta-y" name="deltaY"
-                               value="${(-this.deltaY / viewScale).toFixed(2)}" step="0.1" ${disabled}>
+                        <label for="move-delta-y" class="form-label">Delta Y (${unitLabel})</label>
+                        <input type="text" class="form-control" id="move-delta-y" name="deltaY"
+                               value="${deltaYValue}" ${disabled}>
                     </div>
                 </div>
             </div>
 
             <div class="mb-3">
-                <label class="form-label"><strong>Scale</strong></label>
+                <label class="form-label"><strong>Dimensions</strong></label>
                 <div class="row">
                     <div class="col-6">
-                        <label for="move-scale-x" class="form-label">Scale X</label>
-                        <input type="number" class="form-control" id="move-scale-x" name="scaleX"
-                               value="${this.scaleX.toFixed(3)}" step="0.01" min="0.1" max="10" ${disabled}>
+                        <label for="move-width" class="form-label">Width (${unitLabel})</label>
+                        <input type="text" class="form-control" id="move-width" name="width"
+                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.width / viewScale, true) : (this.transformBox.width / viewScale).toFixed(2)) : '0'}" ${disabled}>
                     </div>
                     <div class="col-6">
-                        <label for="move-scale-y" class="form-label">Scale Y</label>
-                        <input type="number" class="form-control" id="move-scale-y" name="scaleY"
-                               value="${this.scaleY.toFixed(3)}" step="0.01" min="0.1" max="10" ${disabled}>
+                        <label for="move-height" class="form-label">Height (${unitLabel})</label>
+                        <input type="text" class="form-control" id="move-height" name="height"
+                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.height / viewScale, true) : (this.transformBox.height / viewScale).toFixed(2)) : '0'}" ${disabled}>
                     </div>
                 </div>
             </div>
@@ -604,8 +624,8 @@ class Transform extends Select {
                 <i data-lucide="info"></i>
                 <small>
                     <strong>Move Tool:</strong> ${hasSelectedPaths ?
-                'Drag the center handle to move, corner handles to scale, or the top handle to rotate. Changes in the canvas update these values, and changing these values applies to the selected objects.' :
-                'Select objects first, then drag the center handle to move, corner handles to scale, or the top handle to rotate.'
+                'Drag the center handle to move, corner handles to resize, or the top handle to rotate. Enter exact width/height to resize to specific dimensions.' :
+                'Select objects first, then drag the center handle to move, corner handles to resize, or the top handle to rotate.'
             }
                 </small>
             </div>
@@ -615,11 +635,32 @@ class Transform extends Select {
     updateFromProperties(data) {
         this.properties = { ...this.properties, ...data };
 
+        // Check if in inch mode for unit conversion
+        const useInches = typeof getOption === 'function' && getOption('Inches');
+
         // Apply property changes to transform values
-        if (data.deltaX !== undefined) this.deltaX = parseFloat(data.deltaX) * viewScale || 0;
-        if (data.deltaY !== undefined) this.deltaY = -parseFloat(data.deltaY) * viewScale || 0;  // Flip Y for CNC coordinates
-        if (data.scaleX !== undefined) this.scaleX = parseFloat(data.scaleX) || 0;
-        if (data.scaleY !== undefined) this.scaleY = parseFloat(data.scaleY) || 0;
+        // Use parseDimension to handle fractional inch input
+        if (data.deltaX !== undefined) {
+            const deltaXmm = parseDimension(data.deltaX, useInches);
+            this.deltaX = deltaXmm * viewScale || 0;
+        }
+        if (data.deltaY !== undefined) {
+            const deltaYmm = parseDimension(data.deltaY, useInches);
+            this.deltaY = -deltaYmm * viewScale || 0;  // Flip Y for CNC coordinates
+        }
+
+        // Handle width/height changes by calculating appropriate scale factors
+        if (data.width !== undefined && this.initialTransformBox) {
+            const widthMM = parseDimension(data.width, useInches);
+            const originalWidth = this.initialTransformBox.width / viewScale;
+            this.scaleX = originalWidth > 0 ? widthMM / originalWidth : 1;
+        }
+        if (data.height !== undefined && this.initialTransformBox) {
+            const heightMM = parseDimension(data.height, useInches);
+            const originalHeight = this.initialTransformBox.height / viewScale;
+            this.scaleY = originalHeight > 0 ? heightMM / originalHeight : 1;
+        }
+
         if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) ||0;
 
         // Apply transformation to paths based on current property values
@@ -634,6 +675,7 @@ class Transform extends Select {
 
         // Convert center coordinates from pixels to mm
         const centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
+        const useInches = typeof getOption === 'function' && getOption('Inches');
 
         // Update the display elements if they exist, but avoid updating the currently focused element
         const activeElement = document.activeElement;
@@ -642,29 +684,41 @@ class Transform extends Select {
         const centerYElement = document.getElementById('move-center-y');
         const deltaXElement = document.getElementById('move-delta-x');
         const deltaYElement = document.getElementById('move-delta-y');
-        const scaleXElement = document.getElementById('move-scale-x');
-        const scaleYElement = document.getElementById('move-scale-y');
+        const widthElement = document.getElementById('move-width');
+        const heightElement = document.getElementById('move-height');
         const rotationElement = document.getElementById('move-rotation');
 
         if (centerXElement) {
-            centerXElement.textContent = centerMM.x.toFixed(2);
+            centerXElement.textContent = formatDimension(centerMM.x, true);
         }
         if (centerYElement) {
-            centerYElement.textContent = centerMM.y.toFixed(2);
+            centerYElement.textContent = formatDimension(centerMM.y, true);
         }
 
         // Only update input fields if they're not currently being edited
+        const deltaXmm = this.deltaX / viewScale;
+        const deltaYmm = -this.deltaY / viewScale;
+        const deltaXValue = useInches ? formatDimension(deltaXmm, true) : deltaXmm.toFixed(2);
+        const deltaYValue = useInches ? formatDimension(deltaYmm, true) : deltaYmm.toFixed(2);
+
         if (deltaXElement && deltaXElement !== activeElement) {
-            deltaXElement.value = (this.deltaX / viewScale).toFixed(2);
+            deltaXElement.value = deltaXValue;
         }
         if (deltaYElement && deltaYElement !== activeElement) {
-            deltaYElement.value = (-this.deltaY / viewScale).toFixed(2);
+            deltaYElement.value = deltaYValue;
         }
-        if (scaleXElement && scaleXElement !== activeElement) {
-            scaleXElement.value = this.scaleX.toFixed(3);
+
+        // Update width and height fields to show current dimensions
+        const currentWidth = this.transformBox.width / viewScale;
+        const currentHeight = this.transformBox.height / viewScale;
+        const widthValue = useInches ? formatDimension(currentWidth, true) : currentWidth.toFixed(2);
+        const heightValue = useInches ? formatDimension(currentHeight, true) : currentHeight.toFixed(2);
+
+        if (widthElement && widthElement !== activeElement) {
+            widthElement.value = widthValue;
         }
-        if (scaleYElement && scaleYElement !== activeElement) {
-            scaleYElement.value = this.scaleY.toFixed(3);
+        if (heightElement && heightElement !== activeElement) {
+            heightElement.value = heightValue;
         }
         if (rotationElement && rotationElement !== activeElement) {
             rotationElement.value = this.rotation.toFixed(1);

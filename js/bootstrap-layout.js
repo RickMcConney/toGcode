@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-03";
+var APP_VERSION = "Ver 2025-10-05";
 
 var mode = "Select";
 var options = [];
@@ -16,61 +16,61 @@ var currentGcodeProfile = null;
 
 // Wood species database with cutting parameters
 var woodSpeciesDatabase = {
-    'Pine': { 
+    'Pine': {
         color: '#F5DEB3', // Wheat
         density: 0.5,
         feedMultiplier: 1.2,
         speedMultiplier: 1.0
     },
-    'Oak': { 
+    'Oak': {
         color: '#DEB887', // Burlywood
         density: 0.75,
         feedMultiplier: 0.8,
         speedMultiplier: 0.9
     },
-    'Maple': { 
+    'Maple': {
         color: '#F0E68C', // Khaki
         density: 0.7,
         feedMultiplier: 0.9,
         speedMultiplier: 0.95
     },
-    'Cherry': { 
+    'Cherry': {
         color: '#FFB6C1', // Light Pink
         density: 0.6,
         feedMultiplier: 1.0,
         speedMultiplier: 1.0
     },
-    'Walnut': { 
+    'Walnut': {
         color: '#D2B48C', // Tan
         density: 0.65,
         feedMultiplier: 0.95,
         speedMultiplier: 0.95
     },
-    'Birch': { 
+    'Birch': {
         color: '#FFF8DC', // Cornsilk
         density: 0.68,
         feedMultiplier: 0.9,
         speedMultiplier: 0.95
     },
-    'Poplar': { 
+    'Poplar': {
         color: '#e6f7c1', // patel green
         density: 0.45,
         feedMultiplier: 1.3,
         speedMultiplier: 1.1
     },
-    'Cedar': { 
+    'Cedar': {
         color: '#f8d091', // Lavender
         density: 0.35,
         feedMultiplier: 1.4,
         speedMultiplier: 1.2
     },
-    'Ash': { 
+    'Ash': {
         color: '#FFFACD', // Lemon Chiffon
         density: 0.72,
         feedMultiplier: 0.85,
         speedMultiplier: 0.9
     },
-    'Mahogany': { 
+    'Mahogany': {
         color: '#f5c373', // Misty Rose
         density: 0.55,
         feedMultiplier: 1.1,
@@ -94,10 +94,11 @@ function loadGcodeProfiles() {
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
-                spindleOnGcode: 'M3 S12000',
+                spindleOnGcode: 'M3 S',
                 spindleOffGcode: 'M5',
                 commentChar: '(',
-                commentsEnabled: true
+                commentsEnabled: true,
+                gcodeUnits: 'mm'  // 'mm' or 'inches'
             },
             {
                 recid: 2,
@@ -107,10 +108,11 @@ function loadGcodeProfiles() {
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
-                spindleOnGcode: 'M3 S12000',
+                spindleOnGcode: 'M3 S',
                 spindleOffGcode: 'M5',
                 commentChar: '(',
-                commentsEnabled: true
+                commentsEnabled: true,
+                gcodeUnits: 'mm'  // 'mm' or 'inches'
             }
         ];
     }
@@ -162,6 +164,13 @@ function loadTools() {
     if (toolData) {
         tools = JSON.parse(toolData);
     } else {
+        // Calculate default depth/step based on default workpiece thickness (19mm)
+        const defaultThickness = 19;
+        const endMillDepth = defaultThickness * 1.0; // 100%
+        const endMillStep = defaultThickness * 0.25; // 25%
+        const drillDepth = defaultThickness * 1.0; // 100%
+        const drillStep = defaultThickness * 0.25; // 25%
+
         tools = [{
             recid: 1,
             color: '9FC5E8',
@@ -174,9 +183,11 @@ function loadTools() {
             zfeed: 200,
             angle: 0,
             bit: 'End Mill',
-            depth: 1.5,
-            step: 1,
+            depth: endMillDepth,
+            step: endMillStep,
             stepover: 25,
+            depthPercent: 100,
+            stepPercent: 25,
         }, {
             recid: 2,
             color: '6FA8DC',
@@ -192,6 +203,8 @@ function loadTools() {
             depth: 6,
             step: 0,
             stepover: 25,
+            depthPercent: null,
+            stepPercent: null,
         }, {
             recid: 3,
             color: '3D85C6',
@@ -204,13 +217,15 @@ function loadTools() {
             zfeed: 200,
             angle: 0,
             bit: 'Drill',
-            depth: 6,
-            step: 3,
+            depth: drillDepth,
+            step: drillStep,
             stepover: 0,
+            depthPercent: 100,
+            stepPercent: 25,
         }];
     }
 
-    // Migration: Add flutes and rpm to existing tools that don't have them
+    // Migration: Add flutes, rpm, and percentage fields to existing tools that don't have them
     let needsSave = false;
     tools.forEach(tool => {
         if (tool.flutes === undefined) {
@@ -228,6 +243,15 @@ function loadTools() {
             }
             needsSave = true;
         }
+        // Add percentage fields if they don't exist (null means no percentage, use absolute value)
+        if (tool.depthPercent === undefined) {
+            tool.depthPercent = null;
+            needsSave = true;
+        }
+        if (tool.stepPercent === undefined) {
+            tool.stepPercent = null;
+            needsSave = true;
+        }
     });
 
     if (needsSave) {
@@ -243,6 +267,7 @@ function loadTools() {
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
 fileInput.accept = '.svg';
+fileInput.id = 'fileInput';
 fileInput.addEventListener('change', function (e) {
     autoCloseToolProperties('SVG import');
 
@@ -311,8 +336,11 @@ function createToolbar() {
             </div>
             <div class="toolbar-separator"></div>
             <div class="toolbar-section">
-                <button type="button" class="btn btn-outline-secondary btn-sm btn-toolbar" data-action="undo" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Undo last action">
+                <button type="button" class="btn btn-outline-secondary btn-sm btn-toolbar" data-action="undo" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Undo last action (Ctrl/Cmd+Z)">
                     <i data-lucide="undo-2"></i>Undo
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm btn-toolbar" data-action="redo" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Redo last action (Ctrl/Cmd+Y)">
+                    <i data-lucide="redo-2"></i>Redo
                 </button>
             </div>
             <div class="ms-auto toolbar-section">
@@ -355,6 +383,9 @@ function createToolbar() {
             case 'undo':
                 doUndo();
                 break;
+            case 'redo':
+                doRedo();
+                break;
             case 'options':
                 showOptionsModal();
                 break;
@@ -395,9 +426,6 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Origin" data-bs-toggle="tooltip" data-bs-placement="right" title="Set the origin point">
                         <i data-lucide="crosshair"></i>Origin
                     </div>
-                    <div class="sidebar-item" data-operation="Pan" data-bs-toggle="tooltip" data-bs-placement="right" title="Pan the view">
-                        <i data-lucide="hand"></i>Pan
-                    </div>
                     <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="right" title="Move selected objects">
                         <i data-lucide="move"></i>Move
                     </div>
@@ -417,11 +445,11 @@ function createSidebar() {
 
                     <!-- SVG Paths Section -->
                     <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section" aria-expanded="false">
                             <span>SVG Paths</span>
-                            <i data-lucide="chevron-down"></i>
+                            <i data-lucide="chevron-down" class="collapse-chevron"></i>
                         </div>
-                        <div class="collapse show" id="svg-paths-section">
+                        <div class="collapse" id="svg-paths-section">
                             <!-- SVG paths will be added dynamically -->
                         </div>
                     </div>
@@ -477,20 +505,20 @@ function createSidebar() {
 
                     <!-- Tool Paths Section -->
                     <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section" aria-expanded="false">
                             <span>Tool Paths</span>
-                            <i data-lucide="chevron-down"></i>
+                            <i data-lucide="chevron-down" class="collapse-chevron"></i>
                         </div>
-                        <div class="collapse show" id="tool-paths-section">
+                        <div class="collapse" id="tool-paths-section">
                             <!-- Tool paths will be added dynamically -->
                         </div>
                     </div>
 
                     <!-- Gcodes Section -->
                     <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#gcodes-section">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#gcodes-section" aria-expanded="false">
                             <span id="gcode-section-title">G-code Post Processor</span>
-                            <i data-lucide="chevron-down"></i>
+                            <i data-lucide="chevron-down" class="collapse-chevron"></i>
                         </div>
                         <div class="collapse" id="gcodes-section">
                             <div class="p-2">
@@ -518,8 +546,18 @@ function createSidebar() {
                                     </div>
 
                                     <div class="mb-2">
+                                        <label for="gcode-units" class="form-label small">G-code Units</label>
+                                        <select class="form-select form-select-sm" id="gcode-units">
+                                            <option value="mm">Millimeters (G21)</option>
+                                            <option value="inches">Inches (G20)</option>
+                                        </select>
+                                        <small class="text-muted">Units for coordinate output in G-code (independent of display units)</small>
+                                    </div>
+
+                                    <div class="mb-2">
                                         <label for="spindle-on-gcode" class="form-label small">Spindle On</label>
-                                        <input type="text" class="form-control form-control-sm" id="spindle-on-gcode" placeholder="M3 S12000">
+                                        <input type="text" class="form-control form-control-sm" id="spindle-on-gcode" placeholder="M3 S">
+                                        <small class="text-muted">Use S placeholder for spindle speed</small>
                                     </div>
 
                                     <div class="mb-2">
@@ -613,16 +651,17 @@ function createSidebar() {
         const pathId = item.dataset.pathId;
 
         if (operation) {
-            // Check if this is a draw tool or operation
-            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Pan', 'Move', 'Edit Points', 'Pen', 'Polygon', 'Text'].includes(operation);
+            // First activate the operation (calls start() which loads saved properties)
+            handleOperationClick(operation);
+
+            // Then show the properties editor (which calls getPropertiesHTML())
+            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Move', 'Edit Points', 'Pen', 'Polygon', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
             } else {
                 showOperationPropertiesEditor(operation);
             }
-
-            handleOperationClick(operation);
         } else if (pathId) {
             handlePathClick(pathId);
         }
@@ -662,6 +701,9 @@ function createSidebar() {
     } else {
         hideBottomPanel();
     }
+
+    // Bootstrap automatically handles aria-expanded, no JS needed for chevron rotation
+    // CSS handles the rotation based on [aria-expanded] attribute
 
     // Initialize G-code profiles UI
     initializeGcodeProfilesUI();
@@ -724,6 +766,7 @@ function loadSelectedGcodeProfile() {
 // Load profile data into the form
 function loadGcodeProfileToForm(profile) {
     document.getElementById('start-gcode').value = profile.startGcode || '';
+    document.getElementById('gcode-units').value = profile.gcodeUnits || 'mm';
     document.getElementById('spindle-on-gcode').value = profile.spindleOnGcode || '';
     document.getElementById('rapid-template').value = profile.rapidTemplate || 'G0 X Y Z F';
     document.getElementById('cut-template').value = profile.cutTemplate || 'G1 X Y Z F';
@@ -747,12 +790,12 @@ function createNewGcodeProfile() {
     input.classList.remove('is-invalid');
 
     // Focus input when modal is shown
-    modalElement.addEventListener('shown.bs.modal', function() {
+    modalElement.addEventListener('shown.bs.modal', function () {
         input.select();
     }, { once: true });
 
     // Handle Enter key in input
-    const handleEnter = function(e) {
+    const handleEnter = function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             handleConfirm();
@@ -760,7 +803,7 @@ function createNewGcodeProfile() {
     };
 
     // Handle confirm button click
-    const handleConfirm = function() {
+    const handleConfirm = function () {
         const name = input.value.trim();
 
         if (!name) {
@@ -781,11 +824,12 @@ function createNewGcodeProfile() {
             recid: freeGcodeProfileId(),
             name: name,
             startGcode: currentGcodeProfile ? currentGcodeProfile.startGcode : 'G0 G54 G17 G21 G90 G94',
+            gcodeUnits: currentGcodeProfile ? (currentGcodeProfile.gcodeUnits || 'mm') : 'mm',
             endGcode: currentGcodeProfile ? currentGcodeProfile.endGcode : 'M5\nG0 Z5',
             toolChangeGcode: currentGcodeProfile ? currentGcodeProfile.toolChangeGcode : 'M5\nG0 Z5\n(Tool Change)\nM0',
             rapidTemplate: currentGcodeProfile ? currentGcodeProfile.rapidTemplate : 'G0 X Y Z F',
             cutTemplate: currentGcodeProfile ? currentGcodeProfile.cutTemplate : 'G1 X Y Z F',
-            spindleOnGcode: currentGcodeProfile ? currentGcodeProfile.spindleOnGcode : 'M3 S12000',
+            spindleOnGcode: currentGcodeProfile ? currentGcodeProfile.spindleOnGcode : 'M3 S',
             spindleOffGcode: currentGcodeProfile ? currentGcodeProfile.spindleOffGcode : 'M5',
             commentChar: currentGcodeProfile ? currentGcodeProfile.commentChar : '(',
             commentsEnabled: currentGcodeProfile ? currentGcodeProfile.commentsEnabled : true
@@ -813,7 +857,7 @@ function createNewGcodeProfile() {
     confirmBtn.addEventListener('click', handleConfirm);
 
     // Clean up when modal is hidden
-    modalElement.addEventListener('hidden.bs.modal', function() {
+    modalElement.addEventListener('hidden.bs.modal', function () {
         input.removeEventListener('keypress', handleEnter);
         confirmBtn.removeEventListener('click', handleConfirm);
     }, { once: true });
@@ -837,7 +881,7 @@ function deleteCurrentGcodeProfile() {
     profileNameSpan.textContent = currentGcodeProfile.name;
 
     // Handle confirm button click
-    const handleConfirm = function() {
+    const handleConfirm = function () {
         const index = gcodeProfiles.findIndex(p => p.recid === currentGcodeProfile.recid);
         if (index >= 0) {
             gcodeProfiles.splice(index, 1);
@@ -865,6 +909,7 @@ function saveCurrentGcodeProfile() {
 
     // Update profile with form values
     currentGcodeProfile.startGcode = document.getElementById('start-gcode').value;
+    currentGcodeProfile.gcodeUnits = document.getElementById('gcode-units').value;
     currentGcodeProfile.spindleOnGcode = document.getElementById('spindle-on-gcode').value;
     currentGcodeProfile.rapidTemplate = document.getElementById('rapid-template').value;
     currentGcodeProfile.cutTemplate = document.getElementById('cut-template').value;
@@ -1212,10 +1257,16 @@ function updateExistingPath(path, form) {
 // Update polygon path in place without creating new paths
 function updatePolygonInPlace(path, data) {
     const newSides = parseInt(data.sides);
-    const newRadius = parseFloat(data.radius);
+    // Convert radius from current units to mm
+    const useInches = getOption('Inches');
+    const newRadius = useInches ? parseFloat(data.radius) * MM_PER_INCH : parseFloat(data.radius);
+
+    // Use ACTUAL current center (in case polygon was moved), not stored creation center
+    const actualCenterX = (path.bbox.minx + path.bbox.maxx) / 2;
+    const actualCenterY = (path.bbox.miny + path.bbox.maxy) / 2;
+    const center = { x: actualCenterX, y: actualCenterY };
 
     // Generate new points for the polygon using same logic as polygon creation
-    const center = path.creationProperties.center;
     const points = [];
     const radius = newRadius * viewScale;
 
@@ -1228,7 +1279,7 @@ function updatePolygonInPlace(path, data) {
             const angle = startAngle + (i * angleStep);
             const x = center.x + radius * Math.cos(angle);
             const y = center.y + radius * Math.sin(angle);
-            points.push({x: x, y: y});
+            points.push({ x: x, y: y });
         }
     } else {
         // Even-sided polygons: put an edge at the bottom
@@ -1239,7 +1290,7 @@ function updatePolygonInPlace(path, data) {
             const angle = startAngle + (i * angleStep);
             const x = center.x + radius * Math.cos(angle);
             const y = center.y + radius * Math.sin(angle);
-            points.push({x: x, y: y});
+            points.push({ x: x, y: y });
         }
     }
     points.push(points[0]); // Close the polygon
@@ -1249,6 +1300,7 @@ function updatePolygonInPlace(path, data) {
     path.bbox = boundingBox(points);
     path.creationProperties.sides = newSides;
     path.creationProperties.radius = newRadius;
+    path.creationProperties.center = center; // Update center to actual current location
 
     // Keep the same name and ID - don't create new paths
 }
@@ -1323,7 +1375,8 @@ function updateTextPathsInPlace(textPaths, font, data) {
     const x = position.x;
     const y = position.y;
 
-    // Store original path IDs and names to preserve them
+    // Store original path IDs, names, and textGroupId to preserve them
+    const textGroupId = textPaths[0].textGroupId || ('TextGroup' + Date.now());
     const originalPaths = textPaths.map(p => ({
         id: p.id,
         name: p.name,
@@ -1421,7 +1474,7 @@ function updateTextPathsInPlace(textPaths, font, data) {
 
                 case 'Z': // Close path
                     if (firstPoint && currentPathData.length > 0) {
-                        currentPathData.push({x: firstPoint.x, y: firstPoint.y});
+                        currentPathData.push({ x: firstPoint.x, y: firstPoint.y });
                     }
                     break;
             }
@@ -1462,6 +1515,7 @@ function updateTextPathsInPlace(textPaths, font, data) {
                     bbox: boundingBox(pathData),
                     // Store creation properties for editing
                     creationTool: 'Text',
+                    textGroupId: textGroupId, // Preserve group ID
                     creationProperties: {
                         text: text,
                         font: fontname,
@@ -1473,7 +1527,6 @@ function updateTextPathsInPlace(textPaths, font, data) {
                 };
 
                 svgpaths.push(svgPath);
-                addSvgPath(svgPath.id, svgPath.name);
                 pathIdCounter++;
             }
         });
@@ -1481,6 +1534,12 @@ function updateTextPathsInPlace(textPaths, font, data) {
         // Move to next character position
         currentX += font.getAdvanceWidth(char, fontSizeScaled);
     });
+
+    // Add the updated text group to sidebar
+    const updatedTextPaths = svgpaths.filter(p => p.textGroupId === textGroupId);
+    if (updatedTextPaths.length > 0) {
+        addTextGroup(textGroupId, text, updatedTextPaths);
+    }
 }
 
 // Tool panel creation
@@ -1533,14 +1592,14 @@ function createToolPanel() {
                         <th><i data-lucide="tag" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool name"></i> Name</th>
                         <th><i data-lucide="wrench" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool"></i> Tool</th>
                         <th><i data-lucide="rotate-cw" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Direction"></i> Direction</th>
-                        <th><i data-lucide="diameter" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Diameter (mm)"></i>Diameter (mm)</th>
+                        <th><i data-lucide="diameter" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Diameter"></i>Diameter (<span id="tool-table-unit">${getUnitLabel()}</span>)</th>
                         <th><i data-lucide="hash" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of cutting edges"></i> Flutes</th>
                         <th><i data-lucide="gauge" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Spindle speed (RPM)"></i> RPM</th>
-                        <th><i data-lucide="move" data-bs-toggle="tooltip" data-bs-placement="bottom" title="XY Feed"></i> XY Feed</th>
-                        <th><i data-lucide="arrow-down" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Z Feed"></i> Z Feed</th>
+                        <th><i data-lucide="move" data-bs-toggle="tooltip" data-bs-placement="bottom" title="XY Feed"></i> XY Feed (<span id="tool-table-feed-unit">${getUnitLabel()}/min</span>)</th>
+                        <th><i data-lucide="arrow-down" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Z Feed"></i> Z Feed (<span id="tool-table-zfeed-unit">${getUnitLabel()}/min</span>)</th>
                         <th><i data-lucide="triangle" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Angle"></i> Angle</th>
-                        <th><i data-lucide="arrow-down-to-line" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Depth"></i> Depth</th>
-                        <th><i data-lucide="layers" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Step"></i> Step</th>
+                        <th><i data-lucide="arrow-down-to-line" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Depth"></i> Depth (<span id="tool-table-depth-unit">${getUnitLabel()}</span>)</th>
+                        <th><i data-lucide="layers" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Step"></i> Step (<span id="tool-table-step-unit">${getUnitLabel()}</span>)</th>
                         <th><i data-lucide="percent" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Step %"></i> Step %</th>
                     </tr>
                 </thead>
@@ -1558,9 +1617,9 @@ function createToolPanel() {
     document.getElementById('start-simulation').addEventListener('click', startSimulation);
     document.getElementById('pause-simulation').addEventListener('click', pauseSimulation);
     document.getElementById('stop-simulation').addEventListener('click', stopSimulation);
-    
+
     // Simulation speed control
-    document.getElementById('simulation-speed').addEventListener('input', function(e) {
+    document.getElementById('simulation-speed').addEventListener('input', function (e) {
         const speed = parseFloat(e.target.value);
         document.getElementById('speed-display').textContent = speed + 'x';
         if (typeof updateSimulationSpeed === 'function') {
@@ -1569,7 +1628,7 @@ function createToolPanel() {
     });
 
     // Simulation step control
-    document.getElementById('simulation-step').addEventListener('input', function(e) {
+    document.getElementById('simulation-step').addEventListener('input', function (e) {
         const step = parseInt(e.target.value);
         if (typeof setSimulationStep === 'function') {
             setSimulationStep(step);
@@ -1600,9 +1659,57 @@ function createToolRow(tool, index) {
     row.dataset.toolIndex = index;
     row.dataset.recid = tool.recid;
 
+    // Get display units
+    const useInches = getOption('Inches');
+
+    // Convert dimensional values for display (stored in mm, display with fractions in inch mode)
+    const displayDiameter = formatDimension(tool.diameter, useInches, true);
+
+    // Display depth as percentage if set, otherwise as dimension
+    let displayDepth;
+    if (tool.depthPercent !== null && tool.depthPercent !== undefined) {
+        const calculatedDepth = formatDimension(tool.depth, useInches, true);
+        const unitLabel = getUnitLabel();
+        displayDepth = `${tool.depthPercent}% (${calculatedDepth} ${unitLabel})`;
+    } else {
+        displayDepth = formatDimension(tool.depth, useInches, true);
+    }
+
+    // Display step as percentage if set, otherwise as dimension
+    // Calculate number of passes (depth/step rounded up)
+    const numPasses = Math.ceil(tool.depth / tool.step);
+    let displayStep;
+    if (tool.stepPercent !== null && tool.stepPercent !== undefined) {
+        const calculatedStep = formatDimension(tool.step, useInches, true);
+        const unitLabel = getUnitLabel();
+        displayStep = `${tool.stepPercent}% (${calculatedStep} ${unitLabel}, ${numPasses} passes)`;
+    } else {
+        displayStep = formatDimension(tool.step, useInches, true);
+    }
+
+    // Check if step is too large (greater than diameter) - warning condition
+    const stepWarning = tool.step > tool.diameter;
+
+    // Feed rates - convert mm/min to in/min if needed
+    const displayFeed = useInches ? Math.round(tool.feed / 25.4) : tool.feed;
+    const displayZFeed = useInches ? Math.round(tool.zfeed / 25.4) : tool.zfeed;
+
+    // Ranges
+    const diameterMax = useInches ? 1 : 25;
+    const diameterMin = useInches ? 0.01 : 0.1;
+    const diameterStep = useInches ? 0.001 : 0.1;
+    const depthMax = useInches ? 1 : 25;
+    const depthStep = useInches ? 0.001 : 0.1;
+    const stepMax = useInches ? 0.2 : 5;
+    const stepMin = useInches ? 0.02 : 0.5;
+    const stepStep = useInches ? 0.01 : 0.1;
+    const feedMax = useInches ? 40 : 1000;
+    const feedMin = useInches ? 1 : 10;
+    const feedStep = useInches ? 1 : 10;
+
     row.innerHTML = `
         <td>
-            <div class="color-cell" style="background-color: #${tool.color};" 
+            <div class="color-cell" style="background-color: #${tool.color};"
                  data-field="color" data-bs-toggle="tooltip" title="Click to change color"></div>
         </td>
         <td><input type="text" value="${tool.name}" data-field="name" class="form-control-plaintext"></td>
@@ -1619,14 +1726,14 @@ function createToolRow(tool, index) {
                 <option value="Conventional" ${tool.direction === 'Conventional' ? 'selected' : ''}>Conventional</option>
             </select>
         </td>
-        <td><input type="number" value="${tool.diameter}" data-field="diameter" min="1" max="25" step="0.1"></td>
+        <td><input type="text" value="${displayDiameter}" data-field="diameter" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext" placeholder="${useInches ? '1/4' : '6'}"></td>
         <td><input type="number" value="${tool.flutes || 2}" data-field="flutes" min="1" max="6" step="1" data-bs-toggle="tooltip" title="Number of cutting edges"></td>
         <td><input type="number" value="${tool.rpm || 18000}" data-field="rpm" min="1000" max="30000" step="100" data-bs-toggle="tooltip" title="Spindle speed (RPM)"></td>
-        <td><input type="number" value="${tool.feed}" data-field="feed" min="10" max="1000" step="10"></td>
-        <td><input type="number" value="${tool.zfeed}" data-field="zfeed" min="10" max="1000" step="10"></td>
+        <td><input type="number" value="${displayFeed}" data-field="feed" min="${feedMin}" max="${feedMax}" step="${feedStep}" data-unit-type="${useInches ? 'inches' : 'mm'}"></td>
+        <td><input type="number" value="${displayZFeed}" data-field="zfeed" min="${feedMin}" max="${feedMax}" step="${feedStep}" data-unit-type="${useInches ? 'inches' : 'mm'}"></td>
         <td><input type="number" value="${tool.angle}" data-field="angle" min="0" max="90" step="5"></td>
-        <td><input type="number" value="${tool.depth}" data-field="depth" min="0" max="25" step="0.1"></td>
-        <td><input type="number" value="${tool.step}" data-field="step" min="0.5" max="5" step="0.1"></td>
+        <td><input type="text" value="${displayDepth}" data-field="depth" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext" placeholder="${useInches ? '1/2 or 50%' : '10 or 50%'}"></td>
+        <td><input type="text" value="${displayStep}" data-field="step" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext ${stepWarning ? 'text-danger' : ''}" placeholder="${useInches ? '1/8 or 25%' : '1 or 25%'}" data-bs-toggle="tooltip" title="${stepWarning ? 'Warning: Step is greater than diameter!' : ''}"></td>
         <td><input type="number" value="${tool.stepover}" data-field="stepover" min="5" max="100" step="5"></td>
     `;
 
@@ -1668,11 +1775,51 @@ function updateTool(index, field, value) {
     if (tools[index]) {
         // Convert numeric fields
         if (['diameter', 'feed', 'zfeed', 'angle', 'depth', 'step', 'stepover'].includes(field)) {
-            value = parseFloat(value);
+            // Check if we're in inch mode
+            const useInches = getOption('Inches');
+
+            // For depth and step, check if it's a percentage first
+            if (['depth', 'step'].includes(field)) {
+                const percent = parsePercentage(value);
+                if (percent !== null) {
+                    // Store percentage and calculate actual value
+                    tools[index][field + 'Percent'] = percent;
+                    value = calculateFromPercentage(percent);
+                } else {
+                    // Not a percentage, clear the percentage field
+                    tools[index][field + 'Percent'] = null;
+
+                    // Parse as dimension/fraction
+                    if (useInches) {
+                        value = parseDimension(value, true);
+                    } else {
+                        value = parseFloat(value);
+                    }
+                }
+            } else if (field === 'diameter') {
+                // Diameter doesn't support percentage
+                if (useInches) {
+                    value = parseDimension(value, true);
+                } else {
+                    value = parseFloat(value);
+                }
+            } else {
+                // For other numeric fields (feed, zfeed, angle, stepover)
+                value = parseFloat(value);
+
+                // Convert feed rates from in/min to mm/min if needed
+                if (useInches && ['feed', 'zfeed'].includes(field)) {
+                    value = value * 25.4;
+                }
+                // angle and stepover are not unit-dependent
+            }
         }
 
         tools[index][field] = value;
         localStorage.setItem('tools', JSON.stringify(tools));
+
+        // Refresh tool table to update warning colors
+        renderToolsTable();
 
         if (currentTool && currentTool.recid === tools[index].recid) {
             currentTool = tools[index];
@@ -1689,6 +1836,8 @@ function addTool() {
         name: (currentTool ? currentTool.name : "New Tool") + " copy",
         direction: currentTool ? currentTool.direction : 'Climb',
         diameter: currentTool ? currentTool.diameter : 6,
+        flutes: currentTool ? currentTool.flutes : 2,
+        rpm: currentTool ? currentTool.rpm : 18000,
         feed: currentTool ? currentTool.feed : 600,
         zfeed: currentTool ? currentTool.zfeed : 200,
         angle: currentTool ? currentTool.angle : 0,
@@ -1696,6 +1845,8 @@ function addTool() {
         depth: currentTool ? currentTool.depth : 1.5,
         step: currentTool ? currentTool.step : 1,
         stepover: currentTool ? currentTool.stepover : 25,
+        depthPercent: currentTool ? currentTool.depthPercent : null,
+        stepPercent: currentTool ? currentTool.stepPercent : null,
     };
 
     tools.push(newTool);
@@ -1729,7 +1880,7 @@ function deleteTool() {
     toolNameSpan.textContent = toolToDelete.name;
 
     // Handle confirm button click
-    const handleConfirm = function() {
+    const handleConfirm = function () {
         tools.splice(selectedIndex, 1);
         localStorage.setItem('tools', JSON.stringify(tools));
         renderToolsTable();
@@ -1827,23 +1978,156 @@ function createModals() {
     const helpModal = document.createElement('div');
     helpModal.innerHTML = `
         <div class="modal fade" id="helpModal" tabindex="-1">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-lg">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Help</h5>
+                    <div class="modal-header bg-info bg-opacity-10">
+                        <h5 class="modal-title text-info-emphasis">
+                            <i data-lucide="help-circle"></i>
+                            toGcode Help
+                        </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <p>Import an SVG file</p>
-                        <p>Select a tool</p>
-                        <p>Select a Path</p>
-                        <p>Perform an Operation</p>
-                        <p>Save the gcode</p>
+                        <!-- Getting Started -->
+                        <div class="mb-4">
+                            <h6 class="text-primary mb-3">
+                                <i data-lucide="play-circle"></i>
+                                Getting Started
+                            </h6>
+                            <ol class="small">
+                                <li class="mb-2"><strong>Import SVG:</strong> Click "Open SVG" to import your design file</li>
+                                <li class="mb-2"><strong>Configure Workpiece:</strong> Set material dimensions and origin point</li>
+                                <li class="mb-2"><strong>Select Paths:</strong> Choose which SVG paths to machine</li>
+                                <li class="mb-2"><strong>Select Tool:</strong> Note: Depth field of tool determines depth of cut, copy tool and change depth to cut different depths. Depth and Step can be given as a percentage of workpiece thickness. So for example 100% will cut all the way through the work piece.</li>
+                                <li class="mb-2"><strong>Warning:</strong> If workpiece thickness is chaged check the step size it will be colored red if the step size is too aggressive for the bit.</li>
+                                <li class="mb-2"><strong>Apply Operations:</strong> Use Inside, Outside, Pocket, or V-Carve operations</li>
+                                <li class="mb-2"><strong>Export G-code:</strong> Click "Save Gcode" to download your toolpaths</li>
+                            </ol>
+                        </div>
+
                         <hr>
-                        <p class="text-muted">&copy; 2025 Rick McConney</p>
+
+                        <!-- Mouse Controls -->
+                        <div class="mb-4">
+                            <h6 class="text-primary mb-3">
+                                <i data-lucide="mouse"></i>
+                                Mouse Controls
+                            </h6>
+                            <div class="row small">
+                                <div class="col-md-6">
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <span class="badge bg-secondary">Scroll Wheel</span>
+                                            Zoom in/out
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-secondary">Middle Click + Drag</span>
+                                            Pan view
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <span class="badge bg-secondary">Left Click</span>
+                                            Select/Draw
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-secondary">Left Click + Drag</span>
+                                            Select/Draw
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <!-- Keyboard Shortcuts -->
+                        <div class="mb-4">
+                            <h6 class="text-primary mb-3">
+                                <i data-lucide="keyboard"></i>
+                                Keyboard Shortcuts
+                            </h6>
+                            <div class="row small">
+                                <div class="col-md-6">
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <kbd>Ctrl/Cmd + Z</kbd> Undo
+                                        </li>
+                                        <li class="mb-2">
+                                            <kbd>Ctrl/Cmd + Y</kbd> Redo
+                                        </li>
+                                        <li class="mb-2">
+                                            <kbd>Delete</kbd> Delete selected
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <kbd>Ctrl/Cmd + S</kbd> Save project
+                                        </li>
+                                        <li class="mb-2">
+                                            <kbd>Ctrl/Cmd + O</kbd> Open SVG
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <!-- Tips & Tricks -->
+                        <div class="mb-4">
+                            <h6 class="text-primary mb-3">
+                                <i data-lucide="lightbulb"></i>
+                                Tips & Tricks
+                            </h6>
+                            <ul class="small">
+                                <li class="mb-2"><strong>Tool Library:</strong> Configure your tools in the bottom panel - set diameter, feed rates, and RPM</li>
+                                <li class="mb-2"><strong>Operation Order:</strong> Toolpaths are automatically sorted for safe machining: Drill → V-Carve → Pocket → Profiles</li>
+                                <li class="mb-2"><strong>Visibility:</strong> Toggle path visibility with the eye icon to control what gets exported</li>
+                                <li class="mb-2"><strong>G-code Profiles:</strong> Create custom post-processor profiles for different CNC machines</li>
+                                <li class="mb-2"><strong>Material Selection:</strong> Choose wood species in Workpiece settings for optimized feed rates</li>
+                                <li class="mb-2"><strong>Simulation:</strong> Use the simulation controls to preview toolpaths before exporting</li>
+                            </ul>
+                        </div>
+
+                        <hr>
+
+                        <!-- Advanced Features -->
+                        <div class="mb-4">
+                            <h6 class="text-primary mb-3">
+                                <i data-lucide="settings"></i>
+                                Advanced Features
+                            </h6>
+                            <div class="small">
+                                <p class="mb-2"><strong>Post Processor Templates:</strong></p>
+                                <ul>
+                                    <li>Use <code>X Y Z F S</code> placeholders in G-code templates</li>
+                                    <li>Axis inversion: <code>-X Y -Z</code> negates values</li>
+                                    <li>Axis swapping: <code>Y X Z</code> swaps coordinates</li>
+                                    <li><code>S</code> placeholder uses tool RPM for spindle speed</li>
+                                </ul>
+                                <p class="mb-2 mt-3"><strong>Path Editing:</strong></p>
+                                <ul>
+                                    <li>Use "Edit Points" tool to modify path vertices</li>
+                                    <li>Text objects can be re-edited after creation</li>
+                                    <li>Polygon properties can be changed after creation</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <div class="text-center">
+                            <p class="text-muted small mb-0">&copy; 2025 Rick McConney</p>
+                            <p class="text-muted small">Browser-based CNC CAM Application</p>
+                        </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Got it!</button>
                     </div>
                 </div>
             </div>
@@ -1979,6 +2263,8 @@ function showOptionsModal() {
 function showHelpModal() {
     const modal = new bootstrap.Modal(document.getElementById('helpModal'));
     modal.show();
+    // Initialize Lucide icons in the modal
+    lucide.createIcons();
 }
 
 function renderOptionsTable() {
@@ -1994,7 +2280,7 @@ function renderOptionsTable() {
         const originalIndex = options.findIndex(opt => opt.option === option.option);
         const row = document.createElement('tr');
         let inputHtml = '';
-        
+
         if (typeof option.value === 'boolean') {
             inputHtml = `<div class="form-check">
                          <input type="checkbox" class="form-check-input" ${option.value ? 'checked' : ''}
@@ -2014,7 +2300,7 @@ function renderOptionsTable() {
             inputHtml = `<input type="number" class="form-control" value="${option.value}"
                               data-option-index="${originalIndex}" step="${step}">`;
         }
-        
+
         row.innerHTML = `
             <td><strong>${option.option}</strong></td>
             <td>${option.desc}</td>
@@ -2035,11 +2321,123 @@ function renderOptionsTable() {
             } else {
                 value = parseFloat(input.value);
             }
+
+            const optionName = options[index].option;
+            const oldValue = options[index].value;
             options[index].value = value;
+
+            // If switching between mm and inches, round workpiece dimensions
+            if (optionName === 'Inches' && oldValue !== value) {
+                roundWorkpieceDimensions(value); // true = switching to inches, false = switching to mm
+            }
+
             toggleTooltips(getOption('showTooltips'));
             redraw();
         });
     });
+}
+
+// Parse percentage input (e.g., "50%", "100%", "110%") and return percentage value
+function parsePercentage(value) {
+    if (typeof value === 'string' && value.trim().endsWith('%')) {
+        const percent = parseFloat(value.replace('%', '').trim());
+        if (!isNaN(percent) && percent >= 0 && percent <= 110) {
+            return percent;
+        }
+    }
+    return null;
+}
+
+// Calculate depth or step value from percentage of workpiece thickness
+function calculateFromPercentage(percent) {
+    const thickness = getOption("workpieceThickness") || 19;
+    return (thickness * percent) / 100;
+}
+
+// Recalculate all tool depths and steps based on percentages when workpiece thickness changes
+function recalculateToolPercentages() {
+    let needsSave = false;
+    tools.forEach(tool => {
+        if (tool.depthPercent !== null && tool.depthPercent !== undefined) {
+            tool.depth = calculateFromPercentage(tool.depthPercent);
+            needsSave = true;
+        }
+        if (tool.stepPercent !== null && tool.stepPercent !== undefined) {
+            tool.step = calculateFromPercentage(tool.stepPercent);
+            needsSave = true;
+        }
+    });
+
+    if (needsSave) {
+        localStorage.setItem('tools', JSON.stringify(tools));
+    }
+}
+
+function updateToolTableHeaders() {
+    // Update unit labels in tool table headers
+    const unitLabel = getUnitLabel();
+    const unitElem = document.getElementById('tool-table-unit');
+    const feedUnitElem = document.getElementById('tool-table-feed-unit');
+    const zfeedUnitElem = document.getElementById('tool-table-zfeed-unit');
+    const depthUnitElem = document.getElementById('tool-table-depth-unit');
+    const stepUnitElem = document.getElementById('tool-table-step-unit');
+
+    if (unitElem) unitElem.textContent = unitLabel;
+    if (feedUnitElem) feedUnitElem.textContent = unitLabel + '/min';
+    if (zfeedUnitElem) zfeedUnitElem.textContent = unitLabel + '/min';
+    if (depthUnitElem) depthUnitElem.textContent = unitLabel;
+    if (stepUnitElem) stepUnitElem.textContent = unitLabel;
+}
+
+function roundWorkpieceDimensions(useInches) {
+    // Get current dimensions (always stored in mm)
+    const width = getOption("workpieceWidth") || 300;
+    const length = getOption("workpieceLength") || 200;
+    const thickness = getOption("workpieceThickness") || 19;
+    const gridSize = getOption("gridSize") || 10;
+
+    let roundedWidth, roundedLength, roundedThickness, roundedGridSize;
+
+    if (useInches) {
+        // Converting from mm to inches - round to nearest 0.5 inch
+        const widthInches = width / 25.4;
+        const lengthInches = length / 25.4;
+        const thicknessInches = thickness / 25.4;
+        const gridInches = gridSize / 25.4;
+
+        // Round to nearest 0.5 inch, then convert back to mm
+        roundedWidth = Math.round(widthInches * 2) / 2 * 25.4;
+        roundedLength = Math.round(lengthInches * 2) / 2 * 25.4;
+        roundedThickness = Math.round(thicknessInches * 2) / 2 * 25.4;
+        roundedGridSize = Math.round(gridInches * 2) / 2 * 25.4;
+    } else {
+        // Converting from inches to mm - round to nearest 10mm
+        roundedWidth = Math.round(width / 10) * 10;
+        roundedLength = Math.round(length / 10) * 10;
+        roundedThickness = Math.round(thickness / 10) * 10;
+        roundedGridSize = Math.round(gridSize / 10) * 10;
+    }
+
+    // Update the options
+    setOption("workpieceWidth", roundedWidth);
+    setOption("workpieceLength", roundedLength);
+    setOption("workpieceThickness", roundedThickness);
+    setOption("gridSize", roundedGridSize);
+
+    // Update origin if Workpiece tool is active
+    const width_scaled = roundedWidth * viewScale;
+    const length_scaled = roundedLength * viewScale;
+    const position = getOption("originPosition") || 'middle-center';
+    const newOrigin = calculateOriginFromPosition(position, width_scaled, length_scaled);
+
+    if (typeof origin !== 'undefined') {
+        origin.x = newOrigin.x;
+        origin.y = newOrigin.y;
+    }
+
+    // Update tool table headers and refresh table display
+    updateToolTableHeaders();
+    renderToolsTable();
 }
 
 function saveOptions() {
@@ -2056,7 +2454,7 @@ function showResetOptionsConfirmation() {
     const confirmBtn = document.getElementById('confirm-reset-options');
 
     // Handle confirm button click
-    const handleConfirm = function() {
+    const handleConfirm = function () {
         performOptionsReset();
         modal.hide();
 
@@ -2305,6 +2703,101 @@ function addSvgPath(id, name) {
     lucide.createIcons();
 }
 
+// Add text group to sidebar (groups all character paths together)
+function addTextGroup(groupId, text, paths) {
+    const section = document.getElementById('svg-paths-section');
+
+    // Remove any existing group with this ID
+    const existingGroup = section.querySelector(`[data-text-group-id="${groupId}"]`);
+    if (existingGroup) {
+        existingGroup.remove();
+    }
+
+    // Create collapsible group container
+    const groupContainer = document.createElement('div');
+    groupContainer.dataset.textGroupId = groupId;
+    groupContainer.className = 'text-group';
+
+    // Create group header with separate expand/collapse control
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'sidebar-item fw-bold d-flex align-items-center justify-content-between';
+    groupHeader.dataset.textGroupHeader = groupId;
+
+    // Create text/folder content
+    const folderContent = document.createElement('span');
+    folderContent.innerHTML = `<i data-lucide="folder"></i>"${text}"`;
+    folderContent.style.flex = '1';
+    folderContent.style.cursor = 'pointer';
+
+    // Create chevron for expand/collapse (positioned after text like SVG Paths section)
+    const chevronContainer = document.createElement('span');
+    chevronContainer.dataset.bsToggle = 'collapse';
+    chevronContainer.dataset.bsTarget = `#${groupId}`;
+    chevronContainer.setAttribute('aria-expanded', 'false');
+    chevronContainer.style.cursor = 'pointer';
+
+    const chevron = document.createElement('i');
+    chevron.className = 'collapse-chevron';
+    chevron.dataset.lucide = 'chevron-down';
+    chevron.style.minWidth = '16px';
+
+    chevronContainer.appendChild(chevron);
+
+    groupHeader.appendChild(folderContent);
+    groupHeader.appendChild(chevronContainer);
+
+    // Handle clicking on the chevron - just toggle, don't select
+    chevronContainer.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent the folder click handler from firing
+        // Bootstrap will handle the toggle and aria-expanded automatically
+    });
+
+    // Handle clicking on the folder content to select all text paths
+    folderContent.addEventListener('click', (e) => {
+        const textPaths = svgpaths.filter(p => p.textGroupId === groupId);
+        if (textPaths.length > 0) {
+            // Deselect all other paths
+            svgpaths.forEach(p => p.selected = false);
+            // Select all paths in this text group
+            textPaths.forEach(p => p.selected = true);
+            // Highlight the group header
+            document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+            groupHeader.classList.add('selected');
+
+            // Show properties for the first path in the group
+            if (textPaths[0].creationTool && textPaths[0].creationProperties) {
+                showPathPropertiesEditor(textPaths[0]);
+            }
+
+            redraw();
+        }
+    });
+
+    groupContainer.appendChild(groupHeader);
+
+    // Create collapsible container for individual paths
+    const collapseContainer = document.createElement('div');
+    collapseContainer.className = 'collapse'; // Start collapsed
+    collapseContainer.id = groupId;
+
+    // No event listeners needed - Bootstrap handles aria-expanded, CSS handles rotation
+
+    // Add individual character paths
+    paths.forEach(path => {
+        const item = document.createElement('div');
+        item.className = 'sidebar-item ms-4';
+        item.dataset.pathId = path.id;
+        item.innerHTML = `
+            <i data-lucide="type"></i>${path.name}
+        `;
+        collapseContainer.appendChild(item);
+    });
+
+    groupContainer.appendChild(collapseContainer);
+    section.appendChild(groupContainer);
+    lucide.createIcons();
+}
+
 // Get operation priority for sorting (same as cnc.js)
 function getOperationPriority(operation) {
     if (operation === 'Drill') return 1;
@@ -2333,7 +2826,7 @@ function refreshToolPathsDisplay() {
     }
 
     // Create a sorted copy of toolpaths
-    var sortedToolpaths = toolpaths.slice().sort(function(a, b) {
+    var sortedToolpaths = toolpaths.slice().sort(function (a, b) {
         var priorityA = getOperationPriority(a.operation);
         var priorityB = getOperationPriority(b.operation);
         if (priorityA === priorityB) return 0;
@@ -2342,7 +2835,7 @@ function refreshToolPathsDisplay() {
 
     // Group by tool name
     var toolGroups = {};
-    sortedToolpaths.forEach(function(toolpath) {
+    sortedToolpaths.forEach(function (toolpath) {
         var toolName = toolpath.tool.name;
         if (!toolGroups[toolName]) {
             toolGroups[toolName] = [];
@@ -2351,7 +2844,7 @@ function refreshToolPathsDisplay() {
     });
 
     // Render each tool group
-    Object.keys(toolGroups).forEach(function(toolName) {
+    Object.keys(toolGroups).forEach(function (toolName) {
         var toolGroup = document.createElement('div');
         toolGroup.className = 'ms-3';
         toolGroup.dataset.toolName = toolName;
@@ -2362,7 +2855,7 @@ function refreshToolPathsDisplay() {
         `;
 
         // Add toolpaths for this tool
-        toolGroups[toolName].forEach(function(toolpath) {
+        toolGroups[toolName].forEach(function (toolpath) {
             var item = document.createElement('div');
             item.className = 'sidebar-item ms-4';
             item.dataset.pathId = toolpath.id;
@@ -2380,7 +2873,21 @@ function refreshToolPathsDisplay() {
 
 function removeSvgPath(id) {
     const item = document.querySelector(`#svg-paths-section [data-path-id="${id}"]`);
-    if (item) item.remove();
+    if (item) {
+        item.remove();
+
+        // Check if this was part of a text group
+        const path = svgpaths.find(p => p.id === id);
+        if (path && path.textGroupId) {
+            // Check if there are any remaining paths in this group
+            const remainingPaths = svgpaths.filter(p => p.textGroupId === path.textGroupId && p.id !== id);
+            if (remainingPaths.length === 0) {
+                // Remove the entire group if no paths remain
+                const groupContainer = document.querySelector(`[data-text-group-id="${path.textGroupId}"]`);
+                if (groupContainer) groupContainer.remove();
+            }
+        }
+    }
 }
 
 function removeToolPath(id) {
@@ -2462,9 +2969,28 @@ function setOption(name, value) {
     const option = options.find(opt => opt.option === name);
     if (option) {
         option.value = value;
-        // Save to localStorage to persist the change
-        localStorage.setItem('options', JSON.stringify(options));
+    } else {
+        // Create new option if it doesn't exist (for tool defaults like polygonRadius, textFontSize)
+        const newRecid = options.length > 0 ? Math.max(...options.map(o => o.recid)) + 1 : 1;
+        options.push({
+            recid: newRecid,
+            option: name,
+            value: value,
+            desc: name // Use name as description for dynamically created options
+        });
     }
+    // Save to localStorage to persist the change
+    localStorage.setItem('options', JSON.stringify(options));
+}
+
+// Get display units ('mm' or 'inches')
+function getDisplayUnits() {
+    return getOption('Inches') ? 'inches' : 'mm';
+}
+
+// Get unit label for display
+function getUnitLabel() {
+    return getOption('Inches') ? 'in' : 'mm';
 }
 
 function freeToolId() {
@@ -2478,7 +3004,7 @@ function freeToolId() {
 function setMode(m) {
     if (m != null) mode = m;
     const statusEl = document.getElementById('status');
-    statusEl.innerHTML = `<span>Tool: ${currentTool ? currentTool.name : 'None'} [${mode}]</span><span class="small">${APP_VERSION}</span>`;
+    statusEl.innerHTML = `<span>Tool: ${currentTool ? currentTool.name : 'None'} [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
 }
 
 // Compatibility object for grid operations
@@ -2486,7 +3012,7 @@ window.grid = {
     status: function (text) {
         // Update status bar with tool information
         const statusEl = document.getElementById('status');
-        statusEl.innerHTML = `<span>Tool: ${text} [${mode}]</span><span class="small">${APP_VERSION}</span>`;
+        statusEl.innerHTML = `<span>Tool: ${text} [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
     },
     get records() {
         return tools;
@@ -2650,7 +3176,7 @@ function initializeResizeHandles() {
         let startX = 0;
         let startWidth = 0;
 
-        sidebarResize.addEventListener('mousedown', function(e) {
+        sidebarResize.addEventListener('mousedown', function (e) {
             isResizingSidebar = true;
             startX = e.clientX;
             startWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
@@ -2660,7 +3186,7 @@ function initializeResizeHandles() {
             e.preventDefault();
         });
 
-        document.addEventListener('mousemove', function(e) {
+        document.addEventListener('mousemove', function (e) {
             if (!isResizingSidebar) return;
 
             const newWidth = startWidth + (e.clientX - startX);
@@ -2672,7 +3198,7 @@ function initializeResizeHandles() {
             }
         });
 
-        document.addEventListener('mouseup', function() {
+        document.addEventListener('mouseup', function () {
             if (isResizingSidebar) {
                 isResizingSidebar = false;
                 sidebarResize.classList.remove('dragging');
@@ -2696,7 +3222,7 @@ function initializeResizeHandles() {
         let startY = 0;
         let startHeight = 0;
 
-        bottomResize.addEventListener('mousedown', function(e) {
+        bottomResize.addEventListener('mousedown', function (e) {
             isResizingBottom = true;
             startY = e.clientY;
             startHeight = parseInt(window.getComputedStyle(toolPanelContainer).height, 10);
@@ -2706,7 +3232,7 @@ function initializeResizeHandles() {
             e.preventDefault();
         });
 
-        document.addEventListener('mousemove', function(e) {
+        document.addEventListener('mousemove', function (e) {
             if (!isResizingBottom) return;
 
             const newHeight = startHeight - (e.clientY - startY);
@@ -2718,7 +3244,7 @@ function initializeResizeHandles() {
             }
         });
 
-        document.addEventListener('mouseup', function() {
+        document.addEventListener('mouseup', function () {
             if (isResizingBottom) {
                 isResizingBottom = false;
                 bottomResize.classList.remove('dragging');
@@ -2745,16 +3271,15 @@ document.addEventListener('DOMContentLoaded', function () {
     toggleTooltips(getOption('showTooltips'));
 });
 
-function toggleTooltips(on)
-{
+function toggleTooltips(on) {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-      if (on) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-      } else {
-        
-        bootstrap.Tooltip.getInstance(tooltipTriggerEl)?.dispose();
-        return null;
-      }
+        if (on) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        } else {
+
+            bootstrap.Tooltip.getInstance(tooltipTriggerEl)?.dispose();
+            return null;
+        }
     });
 }

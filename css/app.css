@@ -1,8 +1,59 @@
 @CHARSET "US-ASCII";
 
+/* ============================================================================
+   COLOR PALETTE - CSS Variables
+   ============================================================================
+   All colors used throughout the application's CSS styles
+*/
+
+:root {
+    /* Bootstrap-like Grays */
+    --color-gray-100d: #f8f9fa;      /* Lightest gray - backgrounds */
+    --color-gray-100: #eee;      /* Lightest gray - backgrounds */
+    --color-gray-200: #e9ecef;      /* Light gray - table headers, borders */
+    --color-gray-300: #dee2e6;      /* Medium-light gray - borders */
+    --color-gray-400: #ccc;         /* Medium gray - borders, inputs */
+    --color-gray-500: #6c757d;      /* Medium-dark gray - text muted */
+    --color-gray-600: #495057;      /* Dark gray - text */
+    --color-gray-700: #e0e0e0;      /* Button hover */
+    --color-gray-800: #f0f0f0;      /* Button background */
+
+    /* Primary/Accent Colors */
+    --color-primary: #0d6efd;       /* Bootstrap primary blue */
+    --color-primary-light: #e3f2fd; /* Light blue - selected backgrounds */
+    --color-primary-medium: #2196f3; /* Medium blue - selected borders */
+    --color-primary-dark: #1976d2;  /* Dark blue - selected text */
+    --color-icon-blue: #3D85C6;     /* Sidebar icon color */
+
+    /* SVG Path Colors */
+    --color-path-selected: #0080ff; /* Selected path stroke */
+    --color-path-tool: #ff80ff;     /* Toolpath stroke */
+
+    /* Focus/Input Colors */
+    --color-focus-border: #86b7fe;  /* Input focus border */
+    --color-focus-shadow: rgba(13, 110, 253, 0.25); /* Input focus shadow */
+}
+
+/* Bootstrap-style collapse chevron rotation */
+[data-bs-toggle="collapse"] .collapse-chevron {
+    transition: transform 0.2s ease-in-out;
+    transform: rotate(-90deg);
+}
+
+[data-bs-toggle="collapse"][aria-expanded="true"] .collapse-chevron {
+    transform: rotate(0deg);
+}
 
 html, body {
     height: 100%;
+    
+}
+
+.bg-light{
+    background-color: var(--color-gray-100) !important;
+}
+.navbar{
+    background-color: var(--color-gray-300) !important;
 }
 
 #layout {
@@ -11,33 +62,33 @@ html, body {
 
 
 .selectedPath {
-    stroke:#0080ff !important;
-    fill:none !important;
+    stroke: var(--color-path-selected) !important;
+    fill: none !important;
 }
 
 .toolPath {
-	fill:none !important;
-    stroke:#ff80ff !important;
+	fill: none !important;
+    stroke: var(--color-path-tool) !important;
 }
 
 
 #status {
     font-size: 16px;
-    color: #6c757d;
+    color: var(--color-gray-500);
 }
 
 
 .sidebar-section {
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 1px solid var(--color-gray-300);
     margin-bottom: 10px;
 }
 
 .sidebar-section-header {
-    background-color: #e9ecef;
+    background-color: var(--color-gray-200);
     padding: 8px 12px;
     font-weight: 600;
     font-size: 14px;
-    color: #495057;
+    color: var(--color-gray-600);
     border-radius: 4px;
     cursor: pointer;
     display: flex;
@@ -49,27 +100,27 @@ html, body {
     padding: 6px 12px;
     cursor: pointer;
     font-size: 13px;
-    color: #495057;
+    color: var(--color-gray-600);
     border-left: 3px solid transparent;
     display: flex;
     align-items: center;
 }
 
 .sidebar-item:hover {
-    background-color: #f8f9fa;
-    border-left-color: #6c757d;
+    background-color: var(--color-gray-100);
+    border-left-color: var(--color-gray-500);
 }
 
 .sidebar-item.selected {
-    background-color: #e3f2fd;
-    border-left-color: #2196f3;
-    color: #1976d2;
+    background-color: var(--color-primary-light);
+    border-left-color: var(--color-primary-medium);
+    color: var(--color-primary-dark);
 }
 
 .sidebar-item .lucide {
     margin-right: 8px;
 
-    color: #3D85C6;
+    color: var(--color-icon-blue);
 }
 
 
@@ -82,16 +133,16 @@ html, body {
 }
 
 .tool-table th {
-    background-color: #e9ecef;
+    background-color: var(--color-gray-200);
     font-weight: 600;
     padding: 8px 6px;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--color-gray-300);
     font-size: 14px;
 }
 
 .tool-table td {
     padding: 6px;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--color-gray-300);
     vertical-align: middle;
 }
 
@@ -115,14 +166,14 @@ html, body {
 .tool-table input[type="text"]:focus,
 .tool-table input[type="number"]:focus,
 .tool-table select:focus {
-    background-color: #fff;
-    border: 1px solid #86b7fe;
+    background-color: var(--color-gray-100);
+    border: 1px solid var(--color-focus-border);
     outline: none;
-    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    box-shadow: 0 0 0 0.25rem var(--color-focus-shadow);
 }
 
 .tool-table tr.selected {
-    background-color: #e3f2fd;
+    background-color: var(--color-primary-light);
 }
 
 
@@ -136,7 +187,7 @@ html, body {
 .toolbar-separator {
     height: 30px;
     width: 1px;
-    background-color: #dee2e6;
+    background-color: var(--color-gray-300);
     margin: 0 8px;
 }
 
@@ -155,13 +206,13 @@ html, body {
 
 
 .modal-header {
-    background-color: #f8f9fa;
-    border-bottom: 1px solid #dee2e6;
+    background-color: var(--color-gray-100);
+    border-bottom: 1px solid var(--color-gray-300);
 }
 
 
 .options-table th {
-    background-color: #e9ecef;
+    background-color: var(--color-gray-200);
     font-weight: 600;
     padding: 12px;
 }
@@ -185,18 +236,18 @@ html, body {
 #textDialog button {
     font-family: Arial, sans-serif;
     padding: 5px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-gray-400);
     border-radius: 3px;
 }
 
 #textDialog button {
-    background: #f0f0f0;
+    background: var(--color-gray-800);
     cursor: pointer;
     padding: 5px 15px;
 }
 
 #textDialog button:hover {
-    background: #e0e0e0;
+    background: var(--color-gray-700);
 }
 
 #textDialog label {
@@ -206,21 +257,21 @@ html, body {
 
 
 .text-muted-sm {
-    color: #6c757d;
+    color: var(--color-gray-500);
     font-size: 0.875rem;
 }
 
 /* Tabbed Sidebar Styles */
 #sidebar-tabs {
-    background-color: #f8f9fa;
-    border-bottom: 1px solid #dee2e6;
+    background-color: var(--color-gray-100);
+    border-bottom: 1px solid var(--color-gray-300);
     padding: 0;
 }
 
 #sidebar-tabs .nav-link {
     border: none;
     background: none;
-    color: #6c757d;
+    color: var(--color-gray-500);
     font-size: 13px;
     padding: 8px 12px;
     display: flex;
@@ -230,14 +281,14 @@ html, body {
 }
 
 #sidebar-tabs .nav-link:hover {
-    background-color: #e9ecef;
-    color: #495057;
+    background-color: var(--color-gray-200);
+    color: var(--color-gray-600);
 }
 
 #sidebar-tabs .nav-link.active {
-    background-color: #ffffff;
-    color: #495057;
-    border-bottom: 2px solid #0d6efd;
+    background-color: var(--color-gray-100);
+    color: var(--color-gray-600);
+    border-bottom: 2px solid var(--color-primary);
 }
 
 #sidebar-tabs .nav-link i {
@@ -248,24 +299,24 @@ html, body {
 /* Properties Editor Styles */
 #tool-properties-editor,
 #operation-properties-editor {
-    background-color: #ffffff;
+    background-color: var(--color-gray-100);
 }
 
 #tool-properties-editor .bg-light,
 #operation-properties-editor .bg-light {
-    background-color: #f8f9fa !important;
+    background-color: var(--color-gray-100) !important;
 }
 
 /* Help System Styles */
 .help-step {
-    background-color: #f8f9fa;
-    border: 1px solid #e9ecef;
+    background-color: var(--color-gray-100);
+    border: 1px solid var(--color-gray-200);
     border-radius: 6px;
     padding: 12px;
 }
 
 .help-text {
-    color: #495057;
+    color: var(--color-gray-600);
     line-height: 1.4;
 }
 
@@ -281,11 +332,11 @@ html, body {
 /* Step progress bar */
 .progress {
     height: 4px !important;
-    background-color: #e9ecef;
+    background-color: var(--color-gray-200);
 }
 
 .progress-bar {
-    background-color: #0d6efd;
+    background-color: var(--color-primary);
 }
 
 /* Alert styles for properties */
@@ -315,3 +366,6 @@ html, body {
     min-height: 400px;
 }
 
+.version{
+    padding-right:10px;
+}

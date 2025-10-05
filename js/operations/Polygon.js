@@ -7,13 +7,17 @@ class Polygon extends Operation {
     constructor() {
         super("Polygon", "fa fa-star-o");
 
-        // Try to load saved properties, fall back to defaults
+        // Try to load saved properties, fall back to defaults (2x grid size or 2 inches)
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        const defaultGridSize = (typeof getOption !== 'undefined' ? getOption("gridSize") : null) || 10;
+        const defaultRadius = useInches ? (defaultGridSize ) : (defaultGridSize * 2); // 2 inches or 2x grid
         const savedSides = getOption("polygonSides") || 6;
-        const savedRadius = getOption("polygonRadius") || 10;
+        const savedRadius = getOption("polygonRadius");
+        const finalRadius = (savedRadius !== null && savedRadius !== undefined) ? savedRadius : defaultRadius;
 
         this.properties = {
             sides: savedSides,
-            radius: savedRadius
+            radius: finalRadius
         };
         this.centerPoint = null;
         this.isDrawing = false;
@@ -110,14 +114,27 @@ class Polygon extends Operation {
             const dy = mouse.y - this.centerPoint.y;
             this.worldRadius = Math.sqrt(dx * dx + dy * dy);
 
-            // Convert to mm for properties display
+            // Convert to mm for properties storage (always stored in mm)
             this.properties.radius = this.worldRadius / viewScale;
 
             // Update the properties display if visible
             const radiusInput = document.getElementById('polygon-radius');
             const radiusValue = document.getElementById('polygon-radius-value');
-            if (radiusInput) radiusInput.value = this.properties.radius.toFixed(1);
-            if (radiusValue) radiusValue.textContent = this.properties.radius.toFixed(1);
+            if (radiusInput && radiusValue) {
+                const useInches = getOption('Inches');
+                const step = useInches ? 0.125 : 0.5;
+
+                if (useInches) {
+                    // Convert mm to inches and round to step
+                    const inches = this.properties.radius / 25.4;
+                    const roundedInches = Math.round(inches / step) * step;
+                    radiusInput.value = roundedInches;
+                    radiusValue.textContent = formatDimension(this.properties.radius, true);
+                } else {
+                    radiusInput.value = this.properties.radius.toFixed(1);
+                    radiusValue.textContent = this.properties.radius.toFixed(1);
+                }
+            }
 
             redraw();
         }
@@ -191,30 +208,43 @@ class Polygon extends Operation {
         redraw();
     }
 
-    // Helper method to get current property values from UI
+    // Helper method to get current property values from UI (always returns mm)
     getCurrentProperties() {
         const sidesInput = document.getElementById('polygon-sides');
         const radiusInput = document.getElementById('polygon-radius');
 
-        // If inputs exist, use their values
-        // Otherwise use current properties (which may have been updated from UI)
-        // Finally fall back to saved options
-        const sides = sidesInput ? parseInt(sidesInput.value) :
-                     (this.properties.sides || getOption("polygonSides") || 6);
-        const radius = radiusInput ? parseFloat(radiusInput.value) :
-                      (this.properties.radius || getOption("polygonRadius") || 10);
+        // Default radius = 2 inches or 2x grid size
+        const useInches = getOption('Inches');
+        const defaultGridSize = getOption("gridSize") || 10;
+        const defaultRadius = useInches ? (defaultGridSize) : (defaultGridSize * 2); // 2 inches or 2x grid
+
+        // If inputs exist, use their values (convert from inches to mm if needed)
+        // Otherwise use current properties (which are always in mm)
+        const sides = sidesInput ? parseInt(sidesInput.value) : (this.properties.sides || 6);
+        let radius;
+        if (radiusInput) {
+            // Slider value is in inches when useInches=true, convert back to mm
+            const sliderValue = parseFloat(radiusInput.value);
+            radius = useInches ? (sliderValue * 25.4) : sliderValue;
+        } else {
+            radius = this.properties.radius || defaultRadius;
+        }
 
         return { sides, radius };
     }
 
     // Lifecycle methods
     start() {
-        // Refresh saved properties when tool is activated
+        // Refresh saved properties when tool is activated (default = 2 inches or 2x grid size)
+        const useInches = getOption('Inches');
+        const defaultGridSize = getOption("gridSize") || 10;
+        const defaultRadius = useInches ? (defaultGridSize) : (defaultGridSize * 2); // 2 inches or 2x grid
         const savedSides = getOption("polygonSides") || 6;
-        const savedRadius = getOption("polygonRadius") || 10;
+        const savedRadius = getOption("polygonRadius");
+        const finalRadius = (savedRadius !== null && savedRadius !== undefined) ? savedRadius : defaultRadius;
 
         this.properties.sides = savedSides;
-        this.properties.radius = savedRadius;
+        this.properties.radius = finalRadius;
 
         super.start();
     }
@@ -223,6 +253,20 @@ class Polygon extends Operation {
     getPropertiesHTML() {
         // Get current values from UI if available, otherwise use properties
         const currentProps = this.getCurrentProperties();
+
+        // Get display units
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        const unitLabel = useInches ? 'in' : 'mm';
+        const displayRadius = formatDimension(currentProps.radius, true);
+
+        // Dynamic max based on workpiece size
+        const workpieceWidth = getOption("workpieceWidth") || 300;
+        const workpieceLength = getOption("workpieceLength") || 200;
+        const maxDimension = Math.max(workpieceWidth, workpieceLength) / 2;
+        const maxRadius = useInches ? Math.ceil(maxDimension / 25.4) : maxDimension;
+
+        // 1/8" increments in inch mode, 0.5mm in metric
+        const step = useInches ? 0.125 : 0.5;
 
         return `
             <div class="mb-3">
@@ -237,16 +281,17 @@ class Polygon extends Operation {
             </div>
 
             <div class="mb-3">
-                <label for="polygon-radius" class="form-label">Radius: <span id="polygon-radius-value">${currentProps.radius.toFixed(1)}</span>mm</label>
+                <label for="polygon-radius" class="form-label">Radius: <span id="polygon-radius-value">${displayRadius}</span>${unitLabel}</label>
                 <input type="range"
                        class="form-range"
                        id="polygon-radius"
                        name="radius"
-                       min="1"
-                       max="50"
-                       step="0.1"
-                       value="${currentProps.radius}"
-                       oninput="document.getElementById('polygon-radius-value').textContent = this.value">
+                       min="${useInches ? 0.125 : 1}"
+                       max="${maxRadius}"
+                       step="${step}"
+                       value="${useInches ? Math.round((currentProps.radius / 25.4) / step) * step : currentProps.radius}"
+                       data-unit-type="${useInches ? 'inches' : 'mm'}"
+                       oninput="document.getElementById('polygon-radius-value').textContent = formatDimension(parseFloat(this.value) * ${useInches ? 25.4 : 1}, true)">
             </div>
 
             ${this.centerPoint ? `
@@ -266,6 +311,35 @@ class Polygon extends Operation {
     }
 
     getEditPropertiesHTML(path) {
+        // Get display units
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        const unitLabel = useInches ? 'in' : 'mm';
+
+        // Calculate ACTUAL current center from bounding box
+        const actualCenterX = (path.bbox.minx + path.bbox.maxx) / 2;
+        const actualCenterY = (path.bbox.miny + path.bbox.maxy) / 2;
+        const actualCenterMM = toMM(actualCenterX, actualCenterY);
+
+        // Calculate ACTUAL current radius from path points
+        // Find the distance from center to first point (all should be same for regular polygon)
+        const dx = path.path[0].x - actualCenterX;
+        const dy = path.path[0].y - actualCenterY;
+        const actualRadiusWorld = Math.sqrt(dx * dx + dy * dy);
+        const actualRadiusMM = actualRadiusWorld / viewScale;
+
+        const displayRadius = formatDimension(actualRadiusMM, true);
+        const displayCenterX = formatDimension(actualCenterMM.x, true);
+        const displayCenterY = formatDimension(actualCenterMM.y, true);
+
+        // Dynamic max based on workpiece size
+        const workpieceWidth = getOption("workpieceWidth") || 300;
+        const workpieceLength = getOption("workpieceLength") || 200;
+        const maxDimension = Math.max(workpieceWidth, workpieceLength) / 2;
+        const maxRadius = useInches ? Math.ceil(maxDimension / 25.4) : maxDimension;
+
+        // 1/8" increments in inch mode, 0.5mm in metric
+        const step = useInches ? 0.125 : 0.5;
+
         return `
             <div class="mb-3">
                 <label for="edit-polygon-sides" class="form-label">Number of Sides</label>
@@ -279,21 +353,22 @@ class Polygon extends Operation {
             </div>
 
             <div class="mb-3">
-                <label for="edit-polygon-radius" class="form-label">Radius: <span id="edit-polygon-radius-value">${path.creationProperties.radius.toFixed(1)}</span>mm</label>
+                <label for="edit-polygon-radius" class="form-label">Radius: <span id="edit-polygon-radius-value">${displayRadius}</span> ${unitLabel}</label>
                 <input type="range"
                        class="form-range"
                        id="edit-polygon-radius"
                        name="radius"
-                       min="1"
-                       max="50"
-                       step="0.1"
-                       value="${path.creationProperties.radius}"
-                       oninput="document.getElementById('edit-polygon-radius-value').textContent = this.value">
+                       min="${useInches ? 0.125 : 1}"
+                       max="${maxRadius}"
+                       step="${step}"
+                       value="${useInches ? Math.round((actualRadiusMM / 25.4) / step) * step : actualRadiusMM}"
+                       data-unit-type="${useInches ? 'inches' : 'mm'}"
+                       oninput="document.getElementById('edit-polygon-radius-value').textContent = formatDimension(parseFloat(this.value) * ${useInches ? 25.4 : 1}, true)">
             </div>
 
             <div class="alert alert-info">
                 <i data-lucide="info"></i>
-                Center: (${toMM(path.creationProperties.center.x, path.creationProperties.center.y).x.toFixed(2)}, ${toMM(path.creationProperties.center.x, path.creationProperties.center.y).y.toFixed(2)}) mm
+                Center: (${displayCenterX}, ${displayCenterY}) ${unitLabel}
             </div>
         `;
     }
@@ -304,9 +379,12 @@ class Polygon extends Operation {
 
         // Convert string values to numbers
         this.properties.sides = parseInt(this.properties.sides);
-        this.properties.radius = parseFloat(this.properties.radius);
 
-        // Save properties for future polygon instances
+        // Parse radius - convert from inches to mm if needed
+        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        this.properties.radius = useInches ? parseFloat(this.properties.radius) * 25.4 : parseFloat(this.properties.radius);
+
+        // Save properties for future polygon instances (always stored in mm)
         setOption("polygonSides", this.properties.sides);
         setOption("polygonRadius", this.properties.radius);
 
@@ -365,7 +443,7 @@ class Polygon extends Operation {
 
             // Draw preview
             ctx.save();
-            ctx.strokeStyle = '#ff0000';
+            ctx.strokeStyle = selectColor;
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
@@ -383,7 +461,7 @@ class Polygon extends Operation {
             // Draw center point (convert from world coordinates to screen coordinates)
             const centerScreen = worldToScreen(this.centerPoint.x, this.centerPoint.y);
             ctx.save();
-            ctx.fillStyle = '#ff0000';
+            ctx.fillStyle = selectColor;
             ctx.beginPath();
             ctx.arc(centerScreen.x, centerScreen.y, 3, 0, 2 * Math.PI);
             ctx.fill();

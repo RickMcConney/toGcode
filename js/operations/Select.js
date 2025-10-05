@@ -224,7 +224,7 @@ class Select extends Operation {
 
     draw(ctx) {
         if (this.selectBox) {
-            ctx.strokeStyle = 'blue';
+            ctx.strokeStyle = selectionBoxColor;
             let topLeft = worldToScreen(this.selectBox.minx, this.selectBox.miny);
             let bottomRight = worldToScreen(this.selectBox.maxx, this.selectBox.maxy);
             ctx.strokeRect(

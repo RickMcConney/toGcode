@@ -13,13 +13,23 @@ class PathEdit extends Select {
         this.insertPreviewPoint = null; // {x, y, segmentIndex} for preview when Alt is held
         this.hoveredHandle = null; // Track which handle is hovered for delete feedback
 
-        // Add keydown listener for delete functionality
+        // Define keydown handler (will be added/removed in start/stop)
         this.keydownHandler = (evt) => {
+            // Don't handle keyboard shortcuts if user is typing in an input field
+            const activeElement = document.activeElement;
+            if (activeElement && (
+                activeElement.tagName === 'INPUT' ||
+                activeElement.tagName === 'TEXTAREA' ||
+                activeElement.tagName === 'SELECT'
+            )) {
+                return; // Let the input handle the key press
+            }
+
             if (evt.key === 'Delete' || evt.key === 'Backspace') {
+                evt.preventDefault(); // Prevent default browser behavior
                 this.deleteHoveredPoint();
             }
         };
-        document.addEventListener('keydown', this.keydownHandler);
     }
 
     start() {
@@ -33,6 +43,9 @@ class PathEdit extends Select {
         if (selected) {
             this.selectedPath = selected;
         }
+
+        // Add keydown listener when tool becomes active
+        document.addEventListener('keydown', this.keydownHandler);
     }
 
     stop() {
@@ -197,16 +210,16 @@ class PathEdit extends Select {
                 // Color based on state
                 if (this.activeHandle === i) {
                     // Red for actively dragging
-                    ctx.fillStyle = '#ff0000';
-                    ctx.strokeStyle = '#ff0000';
+                    ctx.fillStyle = handleActiveColor;
+                    ctx.strokeStyle = handleActiveStroke;
                 } else if (this.hoveredHandle === i) {
                     // Yellow highlight for hovered (deletable)
-                    ctx.fillStyle = '#ffff00';
-                    ctx.strokeStyle = '#ff8800';
+                    ctx.fillStyle = handleHoverColor;
+                    ctx.strokeStyle = handleHoverStroke;
                 } else {
                     // Blue for normal
-                    ctx.fillStyle = 'white';
-                    ctx.strokeStyle = '#0000ff';
+                    ctx.fillStyle = handleNormalColor;
+                    ctx.strokeStyle = handleNormalStroke;
                 }
 
                 ctx.lineWidth = 2;
@@ -224,8 +237,8 @@ class PathEdit extends Select {
                 ctx.arc(screenPt.x, screenPt.y, this.handleSize, 0, Math.PI * 2);
 
                 // Green semi-transparent for preview
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-                ctx.strokeStyle = '#00aa00';
+                ctx.fillStyle = insertPreviewColor;
+                ctx.strokeStyle = insertPreviewStroke;
                 ctx.lineWidth = 2;
                 ctx.fill();
                 ctx.stroke();
@@ -236,7 +249,7 @@ class PathEdit extends Select {
                 ctx.lineTo(screenPt.x + 3, screenPt.y);
                 ctx.moveTo(screenPt.x, screenPt.y - 3);
                 ctx.lineTo(screenPt.x, screenPt.y + 3);
-                ctx.strokeStyle = '#00aa00';
+                ctx.strokeStyle = insertPreviewStroke;
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
