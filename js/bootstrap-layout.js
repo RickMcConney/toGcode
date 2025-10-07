@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-05";
+var APP_VERSION = "Ver 2025-10-07";
 
 var mode = "Select";
 var options = [];
@@ -423,9 +423,6 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Workpiece" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure workpiece dimensions and material">
                         <i data-lucide="package"></i>Workpiece
                     </div>
-                    <div class="sidebar-item" data-operation="Origin" data-bs-toggle="tooltip" data-bs-placement="right" title="Set the origin point">
-                        <i data-lucide="crosshair"></i>Origin
-                    </div>
                     <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="right" title="Move selected objects">
                         <i data-lucide="move"></i>Move
                     </div>
@@ -436,8 +433,8 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
                         <i data-lucide="pen-tool"></i>Pen
                     </div>
-                    <div class="sidebar-item" data-operation="Polygon" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw regular polygons">
-                        <i data-lucide="pentagon"></i>Polygon
+                    <div class="sidebar-item" data-operation="Shape" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw Shapes">
+                        <i data-lucide="pentagon"></i>Shape
                     </div>
                     <div class="sidebar-item" data-operation="Text" data-bs-toggle="tooltip" data-bs-placement="right" title="Add text elements">
                         <i data-lucide="type"></i>Text
@@ -655,7 +652,7 @@ function createSidebar() {
             handleOperationClick(operation);
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece', 'Origin', 'Move', 'Edit Points', 'Pen', 'Polygon', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -1043,8 +1040,11 @@ function showOperationPropertiesEditor(operationName) {
         form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
     }
 
-    // Help content is managed by StepWiseHelpSystem when operation.start() is called
-    // No need to set it here - it will be updated automatically
+
+    if (window.stepWiseHelp) {
+            window.stepWiseHelp.setActiveOperation(operationName);
+    }
+
 
     lucide.createIcons();
 }
@@ -2567,6 +2567,9 @@ function handleOperationClick(operation) {
         case 'Polygon':
             doPolygon();
             break;
+        case 'Shape':
+            doShape();
+            break;
         case 'Text':
             doText();
             break;
@@ -2940,10 +2943,14 @@ function addSidebarOperations() {
 // Helper functions
 function getPathIcon(name) {
     if (name.includes('Circle')) return 'circle';
-    if (name.includes('Rect')) return 'square';
+      if (name.includes('RoundRect')) return 'square';
+    if (name.includes('Rect')) return 'rectangle-horizontal';
     if (name.includes('Line')) return 'minus';
     if (name.includes('Text')) return 'type';
     if (name.includes('Poly')) return 'pentagon';
+    if (name.includes('Star')) return 'star';
+    if (name.includes('Belt')) return 'egg';
+    if (name.includes('Heart')) return 'heart';
     return 'route';
 }
 

@@ -43,8 +43,9 @@ class Operation {
     }
 
     updateFromProperties(data) {
-        this.properties = { ...this.properties, ...data };
+        
         this.onPropertiesChanged(data);
+        this.properties = { ...this.properties, ...data };
     }
 
     onPropertiesChanged(data) {

@@ -92,14 +92,14 @@ class StepWiseHelpSystem {
     updateDisplay() {
         if (!this.isEnabled) return;
 
-        const helpContent = document.getElementById('tool-help-content') ||
-                           document.getElementById('operation-help-content');
+        const helpContent1 = document.getElementById('tool-help-content');
+        const helpContent2 = document.getElementById('operation-help-content');
 
-        if (helpContent) {
+        if (helpContent1 || helpContent2) {
             const progress = this.getProgress();
             const helpText = this.getCurrentHelp();
 
-            helpContent.innerHTML = `
+            const html = `
                 <div class="help-step">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <small class="text-muted">Step ${progress.current} of ${progress.total}</small>
@@ -115,6 +115,9 @@ class StepWiseHelpSystem {
                     ${this.createNavigationButtons()}
                 </div>
             `;
+
+            if(helpContent1) helpContent1.innerHTML = html;
+            if(helpContent2) helpContent2.innerHTML = html;
 
             lucide.createIcons();
         }
@@ -222,6 +225,11 @@ class StepWiseHelpSystem {
                 'Set the number of sides in the properties panel',
                 'Click to place the center point of the polygon and drag outwards to size it',
                 'Polygon created! Adjust properties or click Done to finish'
+            ],
+            'Shape': [
+                'Set the shape properties',
+                'Click to place the center point of the shape',
+                'Shape created! Adjust properties or click Done to finish'
             ],
             'Text': [
                 'Enter your text in the properties panel',

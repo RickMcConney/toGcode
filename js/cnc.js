@@ -66,19 +66,15 @@ function centerWorkpiece() {
 
 }
 
-// add S spindle topost processor
+// pocket with multiple paths
+// text group context menu missing
 // addcut depth to tool properties panel
-// use right mouse to pan
 //todo tab support
-//support feed rates and tool dimension in inches as well as mm
 //blocked paths need to be turned into travel moves
 // make norms for rect not good
 // undo does not remove sidebar folder
 // center of rick path generate 0 lenght tool paths
-// support delete key
 // make hole does not add svg path
-// revamp undo/redo system can't undo move or delete
-// first travel move missing
 
 
 
@@ -2707,6 +2703,11 @@ function doPen() {
 
 function doPolygon() {
 	cncController.setMode("Polygon");
+	unselectAll();
+}
+
+function doShape() {
+	cncController.setMode("Shape");
 	unselectAll();
 }
 
