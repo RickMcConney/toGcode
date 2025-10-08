@@ -296,9 +296,9 @@ function formatDimension(mm, showFractions) {
 }
 
 // Parse user input dimension back to mm
-function parseDimension(value, isInches) {
+function parseDimension(value) {
 	if (!value) return 0;
-
+	var isInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
 	// Convert to string and trim
 	value = String(value).trim();
 

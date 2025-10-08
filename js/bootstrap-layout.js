@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-07";
+var APP_VERSION = "Ver 2025-10-08";
 
 var mode = "Select";
 var options = [];
@@ -1250,8 +1250,18 @@ function updateExistingPath(path, form) {
         // For text, we need to recreate all character paths
         updateTextInPlace(path, data);
     }
+    else if (path.creationTool === 'Shape') {
+        // For text, we need to recreate all character paths
+        updateShapeInPlace(path, data);
+    }
 
     redraw();
+}
+
+function updateShapeInPlace(path, data)
+{
+    const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
+    operation.updateInPlace(path,data);
 }
 
 // Update polygon path in place without creating new paths
@@ -2608,7 +2618,7 @@ function handlePathClick(pathId) {
     const path = svgpaths.find(p => p.id === pathId);
     if (path && path.creationTool && path.creationProperties) {
         // Only show properties editor if this is a draw tool that supports editing
-        if (path.creationTool === 'Text' || path.creationTool === 'Polygon') {
+        if (path.creationTool === 'Text' || path.creationTool === 'Shape') {
             // Always switch to Draw Tools tab when editing from paths list
             const drawToolsTab = document.getElementById('draw-tools-tab');
             const drawToolsPane = document.getElementById('draw-tools');

@@ -21,11 +21,11 @@ function Heart(r, a2) {
     var z = makerjs.solvers.solveTriangleASA(90, 2 * r, 90 - a);
 
     let paths = {
-        arc1: new makerjs.paths.Arc([x , 0], r, -a, 180 - a),
+        arc1: new makerjs.paths.Arc([x, 0], r, -a, 180 - a),
         line1: new makerjs.paths.Line([x * 2, -y], [0, -z + y])
     };
 
-        
+
     paths.arc1 = makerjs.path.mirror(paths.arc1, false, true);
     paths.line1 = makerjs.path.mirror(paths.line1, false, true);
     paths.arc2 = makerjs.path.mirror(paths.arc1, true, false);
@@ -34,8 +34,8 @@ function Heart(r, a2) {
 
 
     var model = { paths: paths };
- 
-     return model;
+
+    return model;
 }
 
 
@@ -44,20 +44,19 @@ class Shape extends Operation {
         super('Shape', 'fa fa-pencil');
         this.defaults = {};
 
-        for(let shape of AVAILABLE_SHAPES)
-        {
+        for (let shape of AVAILABLE_SHAPES) {
             let meta = null;
             switch (shape.value) {
                 case "Star":
                     meta = makerjs.models.Star.metaParameters;
-                    meta = meta.slice(0,3);
+                    meta = meta.slice(0, 3);
                     break;
                 case "Belt":
                     meta = makerjs.models.Belt.metaParameters;
                     break;
                 case "Polygon":
                     meta = makerjs.models.Polygon.metaParameters;
-                    meta = meta.slice(0,3);
+                    meta = meta.slice(0, 3);
                     break;
                 case "Rectangle":
                     meta = makerjs.models.Rectangle.metaParameters;
@@ -66,13 +65,12 @@ class Shape extends Operation {
                     meta = makerjs.models.RoundRectangle.metaParameters;
                     break;
                 case "Heart":
-                    meta = [{ title:'Radius', value:20, min:1, max:100},
-                         {title: "Angle" , value:90, min:60, max:120},
+                    meta = [{ title: 'radius', value: 20, min: 1, max: 100 },
+                            { title: "angle", value: 90, min: 60, max: 120 },
                     ];
                     break;
             }
-            if(meta)
-            {
+            if (meta) {
                 this.defaults[shape.value] = meta;
             }
 
@@ -81,88 +79,181 @@ class Shape extends Operation {
         this.properties.shape = "Star";
     }
 
-    onMouseDown(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
-
-        let param = this.defaults[this.properties.shape];
-        let arg=[];
-        for(let i = 0;i<param.length;i++)
+    isDimension(key)
+    {
+        let dimension =["radius","distance","width","height","left","right","inner","outer"];
+        let tokens = key.split("_");
+        if(tokens.length > 1)
         {
-            let name = this.properties.shape+'_'+param[i].title.split(" ")[0];
-            if(this.properties[name] !== undefined)
-                arg[i] = this.properties[name]
-            else 
-                arg[i] = param[i].value;  
+            let param = tokens[1];
+            if(dimension.includes(param))
+                return true;
         }
-        switch (this.properties.shape) {
+        return false;
+    }
+
+    getArgs(shape, data)
+    {
+        let param = this.defaults[shape];
+
+        let arg = [];
+        for (let i = 0; i < param.length; i++) {
+            let name = shape + '_' + param[i].title.split(" ")[0];
+            if(data != null){
+                arg[i] = data[name];
+            }
+            else if (this.properties[name] !== undefined){
+                arg[i] = this.properties[name]
+            }
+            else{
+                arg[i] = param[i].value;
+            }
+        }
+        return arg;
+    }
+
+    //todo need to store create params in mm
+    toInternal(value)
+    {
+        //const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+        //let valueInMM =  useInches ? parseFloat(value) * 25.4 : parseFloat(value);
+        return value * viewScale;
+    }
+    makeShape(x, y, svgPath, data) {
+
+        let shape = this.properties.shape;
+        if(svgPath != null) shape = svgPath.creationProperties.shape;
+        let arg = this.getArgs(shape, data);
+
+        switch (shape) {
 
             case 'Star':
 
-                this.model = new makerjs.models.Star(arg[0], arg[1]*viewScale, arg[2]*viewScale, 2);
+                this.model = new makerjs.models.Star(arg[0], this.toInternal(arg[1]), this.toInternal(arg[2]), 2);
                 break;
             case 'Belt':
-                this.model = new makerjs.models.Belt(arg[0]*viewScale, arg[1]*viewScale, arg[2]*viewScale);
+                this.model = new makerjs.models.Belt(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
                 break;
             case 'Polygon':
-                this.model = new makerjs.models.Polygon(arg[0],arg[1]*viewScale, arg[2],false);
+                this.model = new makerjs.models.Polygon(arg[0], this.toInternal(arg[1]), arg[2], false);
                 break;
             case 'Rectangle':
-                this.model = new makerjs.models.Rectangle(arg[0]*viewScale, arg[1]*viewScale);
+                this.model = new makerjs.models.Rectangle(this.toInternal(arg[0]), this.toInternal(arg[1]));
                 break;
             case 'RoundRectangle':
-                this.model = new makerjs.models.RoundRectangle(arg[0]*viewScale, arg[1]*viewScale,arg[2]*viewScale);
+                this.model = new makerjs.models.RoundRectangle(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
                 break;
             case 'Heart':
-                this.model = Heart(arg[0]*viewScale, arg[1]);
+                this.model = Heart(this.toInternal(arg[0]), arg[1]);
                 break;
         }
 
         var chain = makerjs.model.findSingleChain(this.model);
-        this.points = makerjs.chain.toKeyPoints(chain, 1*viewScale);
+        if(!chain) return;
+        
+        this.points = makerjs.chain.toKeyPoints(chain, 1 * viewScale);
+
         var path = [];
         for (let p of this.points) {
-            path.push({ x: p[0] + mouse.x, y: p[1] + mouse.y });
+            path.push({ x: p[0] + x, y: p[1] + y });
         }
 
         path.push(path[0]);
 
-        addUndo(false, true, false);
-        var svgPath = {
-            id: this.properties.shape + svgpathId,
-            type: 'path',
-            name: this.properties.shape + ' ' + svgpathId,
-            selected: false,
-            visible: true,
-            path: path,
-            bbox: boundingBox(path),
-            // Store creation properties for editing
-            creationTool: 'Shape',
-            creationProperties: {
-                param: param,
-                center: { x: mouse.x, y: mouse.y }
-            }
-        };
-        svgpaths.push(svgPath);
-        addSvgPath(svgPath.id, svgPath.name);
+        if (svgPath == null) {
+            addUndo(false, true, false);
+            svgPath = {
+                id: shape + svgpathId,
+                type: 'path',
+                name: shape + ' ' + svgpathId,
+                selected: false,
+                visible: true,
+                path: path,
+                bbox: boundingBox(path),
+                // Store creation properties for editing
+                creationTool: 'Shape',
+                creationProperties: {
+                    shape: shape,
+                    param: this.defaults[shape],
+                    arg:arg,
+                    center: { x: x, y: y }
+                }
+            };
+            svgpaths.push(svgPath);
+            addSvgPath(svgPath.id, svgPath.name);
 
-        // Auto-select the newly created polygon
-        svgPath.selected = true;
-        selectSidebarNode(svgPath.id);
+            // Auto-select the newly created polygon
+            svgPath.selected = true;
+            selectSidebarNode(svgPath.id);
+            this.currentPath = svgPath;
 
-        svgpathId++;
+
+            svgpathId++;
+        }
+        else{
+            svgPath.path = path;
+            svgPath.bbox = boundingBox(path);
+            svgPath.creationProperties.arg = arg;
+        }
         redraw();
+    }
+
+    stop()
+    {
+        this.currentPath = null;
+    }
+    onMouseDown(canvas, evt) {
+        var mouse = this.normalizeEvent(canvas, evt);
+
+        this.makeShape(mouse.x, mouse.y, null, null);
 
     }
 
+    updateInPlace(svgPath, data) {
+        var props = svgPath.creationProperties;
+        for (let key in data) {
+            let value = parseFloat(data[key]);
+            if (!isNaN(value)){
+                data[key] = value;
+                if(this.isDimension(key)){
+                    this.properties[key] = parseDimension(value);
+                    data[key] = parseDimension(value);
+                }
+            }
+        }
+
+        this.makeShape(props.center.x, props.center.y, svgPath, data);
+    }
 
     getCurrentProperties() {
         return this.parameters.star;
     }
 
-    getPropertiesHTML() {
+    getEditPropertiesHTML(path) {
+        return this.getPropertiesHTML(path);
+    }
+
+    getPropertiesHTML(path) {
         // Get current values from UI if available, otherwise use properties
         let type = this.properties.shape;
-        const param = this.defaults[type];
+        let arg = this.getArgs(type);
+        if(path)
+        {
+            type = path.creationProperties.shape;
+            arg = [...path.creationProperties.arg];
+        }
+        let param = this.defaults[type];
+        
+       for(let i = 0;i<param.length;i++){
+            param[i].name = type + '_' + param[i].title.split(" ")[0]
+            if(this.isDimension(param[i].name))
+            {
+                if(path)
+                    arg[i] = formatDimension(arg[i]);
+                else
+                    arg[i] = Math.round(formatDimension(arg[i])*2)/2;
+            }
+        }
 
         return `
 
@@ -176,15 +267,15 @@ class Shape extends Operation {
 
             <div class="mb-3">
                 
-                ${param.map(prop =>
-                `<label for="${type+'_'+prop.title.split(" ")[0]}" class="form-label">${prop.title}</label>
+                ${param.map((prop, index) =>
+                `<label for="${prop.name}" class="form-label">${prop.title}</label>
                 <input type="number"
                        class="form-control"
-                       id="${type+'_'+prop.title.split(" ")[0]}"
-                       name="${type+'_'+prop.title.split(" ")[0]}"
+                       id="${prop.name}"
+                       name="${prop.name}"
                        min="${prop.min}"
                        max="${prop.max}"
-                       value="${this.properties[type+'_'+prop.title.split(" ")[0]] || prop.value}">`).join('\n                    ')}
+                       value="${arg[index]}">`).join('\n                    ')}
             </div>
 
             ${this.centerPoint ? `
@@ -203,6 +294,9 @@ class Shape extends Operation {
         `;
     }
 
+    
+
+
     onPropertiesChanged(data) {
         // Prevent infinite recursion when updating HTML
         if (this._isUpdatingHTML) {
@@ -213,10 +307,15 @@ class Shape extends Operation {
         let oldShape = this.properties.shape || 'Star';
         this.properties = { ...this.properties, ...data };
 
-        for (let i in this.properties) {
-            let value = parseFloat(this.properties[i]);
-            if (!isNaN(value))
-                this.properties[i] = value;
+        for (let key in this.properties) {
+            let value = parseFloat(this.properties[key]);
+            if (!isNaN(value)){
+                this.properties[key] = value;
+                if(this.isDimension(key)){
+                    this.properties[key] = parseDimension(value);
+                    data[key] = parseDimension(value);
+                }
+            }
         }
 
         // Only update HTML if shape type changed
@@ -235,6 +334,11 @@ class Shape extends Operation {
             }
 
             this._isUpdatingHTML = false;
+        }
+        if(this.currentPath)
+        {
+            var props = this.currentPath.creationProperties;
+            this.makeShape(props.center.x, props.center.y, this.currentPath, data);
         }
 
         super.onPropertiesChanged(data);
