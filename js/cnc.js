@@ -126,6 +126,7 @@ var selectColor = '#ff0000';            // Selected path color (red)
 var highlightColor = '#00ff00';         // Highlighted elements (green)
 var toolColor = '#0000ff';              // Toolpath color (blue)
 var circleColor = '#0000ff';            // Circle/drill point color (blue)
+var activeToolpathColor = '#ff00ff';    // Active toolpath being edited (magenta)
 var canvasBackgroundColor = '#eee';    // Canvas background color
 var pointFillColor = 'black';           // Point/marker fill color
 var pointStrokeColor = '#888';          // Point/marker stroke color
@@ -1581,6 +1582,11 @@ function drawToolPaths() {
 	for (var i = 0; i < toolpaths.length; i++) {
 		if (toolpaths[i].visible) {
 			var paths = toolpaths[i].paths;
+			// Determine color: active > selected > normal
+			var isActive = toolpaths[i].active;
+			var color = isActive ? activeToolpathColor : ('#' + toolpaths[i].tool.color);
+			var lineWidth = isActive ? 4 : (toolpaths[i].selected ? 3 : 2);
+
 			for (var p = 0; p < paths.length; p++) {
 				raw = false;
 				var path = paths[p].tpath;
@@ -1590,17 +1596,16 @@ function drawToolPaths() {
 				var operation = toolpaths[i].operation;
 
 				if (operation == "Drill")
-					if (toolpaths[i].selected)
-						fillCircles(path, '#' + toolpaths[i].tool.color);
+					if (toolpaths[i].selected || isActive)
+						fillCircles(path, color);
 					else
-						drawCircles(path, '#' + toolpaths[i].tool.color);
+						drawCircles(path, color);
 
 				// Check if this is a plunge point
 				if (paths[p].isPlunge && paths[p].plungePoint) {
 					// Draw plunge point as a filled circle with cross
 					var plungePoint = paths[p].plungePoint;
 					var screenPoint = worldToScreen(plungePoint.x, plungePoint.y);
-					var color = '#' + toolpaths[i].tool.color;
 					var size = 8 * zoomLevel; // Size of the plunge marker, scaled with zoom
 
 					ctx.save();
@@ -1625,12 +1630,7 @@ function drawToolPaths() {
 				}
 				else if (tpath) {
 					// Normal path drawing
-					if (toolpaths[i].selected) {
-						drawCircles(path, '#' + toolpaths[i].tool.color);
-						drawPath(tpath, '#' + toolpaths[i].tool.color, 3);
-					}
-					else
-						drawPath(tpath, '#' + toolpaths[i].tool.color, 2);
+					drawPath(tpath, color, lineWidth);
 				}
 			}
 		}
@@ -2064,6 +2064,12 @@ function doRemoveToolPath(id) {
 			removeToolPath(id);
 		}
 	}
+
+	// Refresh the toolpath display to remove empty folders
+	if (typeof refreshToolPathsDisplay === 'function') {
+		refreshToolPathsDisplay();
+	}
+
 	redraw();
 }
 
@@ -2531,7 +2537,23 @@ function addCircles(path, r) {
 
 function pushToolPath(paths, name, svgId) {
 	addUndo(true, false, false);
-	toolpaths.push({ id: "T" + toolpathId, paths: paths, visible: true, operation: name, tool: { ...currentTool }, svgId: svgId });
+
+	// Create toolpath object with tool data
+	const toolpathData = {
+		id: "T" + toolpathId,
+		paths: paths,
+		visible: true,
+		operation: name,
+		tool: { ...currentTool },
+		svgId: svgId
+	};
+
+	// If toolpath properties were set (from the new properties panel), store them
+	if (window.currentToolpathProperties) {
+		toolpathData.toolpathProperties = { ...window.currentToolpathProperties };
+	}
+
+	toolpaths.push(toolpathData);
 	addToolPath('T' + toolpathId, name + ' ' + toolpathId, name, currentTool.name);
 	toolpathId++;
 
@@ -2539,10 +2561,6 @@ function pushToolPath(paths, name, svgId) {
 }
 
 function doOutside() {
-	if (currentTool.bit != 'End Mill') {
-		notify('Select End Mill to Profile');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to Profile');
 		return;
@@ -2593,11 +2611,6 @@ function reversePath(path) {
 }
 
 function doInside() {
-
-	if (currentTool.bit != 'End Mill') {
-		notify('Select End Mill to Profile');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to Profile');
 		return;
@@ -2638,10 +2651,6 @@ function doInside() {
 }
 
 function doCenter() {
-	if (currentTool.bit != 'End Mill' && currentTool.bit != 'VBit') {
-		notify('Select End Mill or VBit for center cut');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to center cut');
 		return;
@@ -2717,34 +2726,75 @@ function doText() {
 }
 
 function doDrill() {
-	if (currentTool.bit != 'Drill') {
-		notify('Select Drill to drill');
-		return;
-	}
 	cncController.setMode("Drill");
 }
 
 function makeHole(pt) {
-	if (currentTool.bit != 'Drill') {
-		notify('Select Drill to drill');
-		return;
-	}
 	var name = 'Drill';
 
+	// Check if we should read from properties panel
+	if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation('Drill')) {
+		// Try to collect form data from the properties panel
+		try {
+			const data = window.toolpathPropertiesManager.collectFormData();
+			const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+
+			if (selectedTool) {
+				// Temporarily set current tool and properties
+				const originalTool = window.currentTool;
+				window.currentTool = {
+					...selectedTool,
+					depth: data.depth || selectedTool.depth,
+					step: data.step || selectedTool.step
+				};
+
+				// Store properties for pushToolPath
+				window.currentToolpathProperties = { ...data };
+
+				var radius = toolRadius();
+				var paths = [];
+				paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
+
+				// Track toolpath count before creation
+				const beforeCount = toolpaths.length;
+
+				pushToolPath(paths, name, null);
+
+				// Mark the newly created drill path as active
+				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
+					const newToolpath = toolpaths[toolpaths.length - 1];
+					setActiveToolpaths([newToolpath]);
+				}
+
+				// Restore original tool and clear properties
+				window.currentTool = originalTool;
+				window.currentToolpathProperties = null;
+				return;
+			}
+		} catch (e) {
+			// If properties panel not available or form incomplete, fall through to default
+		}
+	}
+
+	// Fallback to default behavior (using currentTool directly)
 	var radius = toolRadius();
 	var paths = [];
 	paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
 
+	// Track toolpath count before creation
+	const beforeCount = toolpaths.length;
+
 	pushToolPath(paths, name, null);
 
+	// Mark the newly created drill path as active
+	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
+		const newToolpath = toolpaths[toolpaths.length - 1];
+		setActiveToolpaths([newToolpath]);
+	}
 }
 
 function doPocket() {
 	setMode("Pocket");
-	if (currentTool.bit != 'End Mill') {
-		notify('Select End Mill to Pocket');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to pocket');
 		return;
@@ -2837,11 +2887,6 @@ function doPocket() {
 }
 
 function doVcarveIn() {
-	if (currentTool.bit != 'VBit') {
-		notify('Select VBit to VCarve');
-		//w2alert('Select VBit to VCarve');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to VCarve');
 		return;
@@ -2852,10 +2897,6 @@ function doVcarveIn() {
 }
 
 function doVcarveOut() {
-	if (currentTool.bit != 'VBit') {
-		notify('Select VBit to VCarve');
-		return;
-	}
 	if (getSelectedPath() == null) {
 		notify('Select a path to VCarve');
 		return;

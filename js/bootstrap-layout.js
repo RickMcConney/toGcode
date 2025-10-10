@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-08";
+var APP_VERSION = "Ver 2025-10-09";
 
 var mode = "Select";
 var options = [];
@@ -668,13 +668,24 @@ function createSidebar() {
         if (item) item.classList.add('selected');
     });
 
-    // Context menu for paths
+    // Context menu for paths and tool folders
     sidebar.addEventListener('contextmenu', function (e) {
         const item = e.target.closest('.sidebar-item');
-        if (!item || !item.dataset.pathId) return;
+        if (!item) return;
 
-        e.preventDefault();
-        showContextMenu(e, item.dataset.pathId);
+        // Check if this is a tool folder
+        const toolFolder = item.closest('[data-tool-name]');
+        if (toolFolder && e.target.closest('.sidebar-item.fw-bold')) {
+            e.preventDefault();
+            showToolFolderContextMenu(e, toolFolder.dataset.toolName);
+            return;
+        }
+
+        // Otherwise, check if it's a path item
+        if (item.dataset.pathId) {
+            e.preventDefault();
+            showContextMenu(e, item.dataset.pathId);
+        }
     });
 
     // Add tab change event listeners to control bottom panel visibility
@@ -988,6 +999,38 @@ function showToolPropertiesEditor(operationName) {
     lucide.createIcons();
 }
 
+/**
+ * Centralized helper to set active toolpaths
+ * This ensures consistent active state management across all code paths
+ */
+function setActiveToolpaths(toolpathsArray) {
+    // Clear all active states first
+    if (window.toolpaths) {
+        toolpaths.forEach(tp => tp.active = false);
+    }
+
+    // Mark specified toolpaths as active
+    toolpathsArray.forEach(tp => {
+        tp.active = true;
+    });
+
+    // Trigger redraw to show active highlights
+    if (typeof redraw === 'function') {
+        redraw();
+    }
+
+    return toolpathsArray;
+}
+
+/**
+ * Get all currently active toolpaths
+ * This filters the actual toolpaths array, so it's always in sync
+ */
+function getActiveToolpaths() {
+    if (!window.toolpaths) return [];
+    return toolpaths.filter(tp => tp.active === true);
+}
+
 function showOperationPropertiesEditor(operationName) {
     const operationsList = document.getElementById('operations-list');
     const propertiesEditor = document.getElementById('operation-properties-editor');
@@ -1002,51 +1045,359 @@ function showOperationPropertiesEditor(operationName) {
     // Update title
     title.textContent = `${operationName} Operation`;
 
-    // Get the operation instance and populate properties
-    const operation = window.cncController?.operationManager?.getOperation(operationName);
-    if (operation && typeof operation.getPropertiesHTML === 'function') {
-        form.innerHTML = operation.getPropertiesHTML();
+    // Check if this is a toolpath operation that should use the new properties manager
+    const isToolpathOperation = window.toolpathPropertiesManager &&
+                                window.toolpathPropertiesManager.hasOperation(operationName);
 
-        // Add event listeners directly to input elements
-        const inputs = form.querySelectorAll('input, select, textarea');
-        inputs.forEach(input => {
-            function handleInputChange() {
-                if (operation && typeof operation.updateFromProperties === 'function') {
-                    // Collect form data manually
-                    const allInputs = form.querySelectorAll('input, select, textarea');
-                    const data = {};
-                    allInputs.forEach(inp => {
-                        if (inp.name) {
-                            if (inp.type === 'checkbox') {
-                                data[inp.name] = inp.checked;
-                            } else if (inp.type === 'radio') {
-                                if (inp.checked) {
+    if (isToolpathOperation) {
+        // Use the new toolpath properties manager for CNC operations
+        form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(operationName);
+
+        // Store the active operation name for path selection handler
+        window.activeToolpathOperation = operationName;
+
+        // Function to generate toolpath for current selection
+        function generateToolpathForSelection() {
+            // Collect form data
+            const data = window.toolpathPropertiesManager.collectFormData();
+
+            // Validate
+            const errors = window.toolpathPropertiesManager.validateFormData(operationName, data);
+            if (errors.length > 0) {
+                notify(errors.join(', '), 'error');
+                return null;
+            }
+
+            // Update defaults for this operation
+            window.toolpathPropertiesManager.updateDefaults(operationName, data);
+
+            // Get the selected tool
+            const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+            if (!selectedTool) {
+                notify('Selected tool not found', 'error');
+                return null;
+            }
+
+            // Store current tool and temporarily replace it with the selected one
+            const originalTool = window.currentTool;
+            window.currentTool = {
+                ...selectedTool,
+                depth: data.depth || selectedTool.depth,
+                step: data.step || selectedTool.step,
+                stepover: data.stepover || selectedTool.stepover
+            };
+
+            // Store the properties for later reference (to be used by pushToolPath)
+            window.currentToolpathProperties = { ...data };
+
+            // Store before toolpath count to detect ALL new toolpaths
+            const beforeCount = toolpaths.length;
+
+            // Execute the operation
+            try {
+                handleOperationClick(operationName);
+            } finally {
+                // Restore original tool
+                window.currentTool = originalTool;
+            }
+
+            // Find ALL newly created toolpaths (not just the last one)
+            const afterCount = toolpaths.length;
+
+            if (afterCount > beforeCount) {
+                // Get all the newly created toolpaths
+                const newToolpaths = toolpaths.slice(beforeCount);
+
+                // Use centralized helper to set active state
+                setActiveToolpaths(newToolpaths);
+
+                // Clear the properties after successful generation
+                window.currentToolpathProperties = null;
+
+                return newToolpaths;
+            }
+
+            // Clear the properties even if generation failed
+            window.currentToolpathProperties = null;
+            return null;
+        }
+
+        // Store function globally so it can be called when paths are selected
+        window.generateToolpathForSelection = generateToolpathForSelection;
+
+        // Check if there are already selected paths - if so, generate toolpath after DOM updates
+        const hasSelectedPaths = svgpaths && svgpaths.some(p => p.selected && p.visible);
+        if (hasSelectedPaths) {
+            // Wait for DOM to be fully rendered, then use the same function as click-to-select
+            setTimeout(() => {
+                generateToolpathForSelection();
+            }, 10); // Small delay to ensure DOM is ready
+        }
+
+        // Set up the "Update Toolpath" button using the shared handler
+        setupToolpathUpdateButton(operationName);
+    } else {
+        // Use the old behavior for drawing tool operations
+        const operation = window.cncController?.operationManager?.getOperation(operationName);
+        if (operation && typeof operation.getPropertiesHTML === 'function') {
+            form.innerHTML = operation.getPropertiesHTML();
+
+            // Add event listeners directly to input elements
+            const inputs = form.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                function handleInputChange() {
+                    if (operation && typeof operation.updateFromProperties === 'function') {
+                        // Collect form data manually
+                        const allInputs = form.querySelectorAll('input, select, textarea');
+                        const data = {};
+                        allInputs.forEach(inp => {
+                            if (inp.name) {
+                                if (inp.type === 'checkbox') {
+                                    data[inp.name] = inp.checked;
+                                } else if (inp.type === 'radio') {
+                                    if (inp.checked) {
+                                        data[inp.name] = inp.value;
+                                    }
+                                } else {
                                     data[inp.name] = inp.value;
                                 }
-                            } else {
-                                data[inp.name] = inp.value;
                             }
-                        }
-                    });
-                    operation.updateFromProperties(data);
+                        });
+                        operation.updateFromProperties(data);
+                    }
+                }
+
+                // Add both change and input events for real-time updates
+                input.addEventListener('change', handleInputChange);
+                input.addEventListener('input', handleInputChange);
+            });
+        } else {
+            form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
+        }
+    }
+
+    // Update help content
+    if (window.stepWiseHelp) {
+        window.stepWiseHelp.setActiveOperation(operationName);
+    }
+
+    lucide.createIcons();
+}
+
+/**
+ * Setup the Update Toolpath button handler (shared by both creation and editing flows)
+ */
+function setupToolpathUpdateButton(operationName) {
+    const updateButton = document.getElementById('update-toolpath-button');
+    if (!updateButton) return;
+
+    // Remove any existing listeners by cloning the button
+    const newButton = updateButton.cloneNode(true);
+    updateButton.parentNode.replaceChild(newButton, updateButton);
+
+    // Set up the click handler
+    newButton.addEventListener('click', function() {
+        // Get all currently active toolpaths
+        const activeToolpaths = getActiveToolpaths();
+
+        if (activeToolpaths.length === 0) {
+            notify('No toolpath to update. Select a path first.', 'info');
+            return;
+        }
+
+        // Collect form data
+        const data = window.toolpathPropertiesManager.collectFormData();
+
+        // Validate
+        const errors = window.toolpathPropertiesManager.validateFormData(operationName, data);
+        if (errors.length > 0) {
+            notify(errors.join(', '), 'error');
+            return;
+        }
+
+        // Update defaults for this operation
+        window.toolpathPropertiesManager.updateDefaults(operationName, data);
+
+        // Get the selected tool
+        const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+        if (!selectedTool) {
+            notify('Selected tool not found', 'error');
+            return;
+        }
+
+        // For VCarve and Drill operations, update in place without regenerating from SVG paths
+        if (operationName === 'Vcarve In' || operationName === 'Vcarve Out' || operationName === 'Drill') {
+            // Update toolpath properties and tool data in place without regenerating
+            for (const toolpath of activeToolpaths) {
+                toolpath.toolpathProperties = { ...data };
+                toolpath.tool = {
+                    ...selectedTool,
+                    depth: data.depth || selectedTool.depth,
+                    step: data.step || selectedTool.step,
+                    stepover: data.stepover || selectedTool.stepover
+                };
+
+                // For drill holes, if tool diameter changed, update the radius in the path
+                if (operationName === 'Drill' && selectedTool.diameter) {
+                    // Convert diameter to radius in world coordinates (multiply by viewScale)
+                    const newRadius = (selectedTool.diameter / 2) * viewScale;
+                    // Update radius in all path points
+                    if (toolpath.paths && Array.isArray(toolpath.paths)) {
+                        toolpath.paths.forEach(pathObj => {
+                            if (pathObj.path && Array.isArray(pathObj.path)) {
+                                pathObj.path.forEach(point => {
+                                    if (point.r !== undefined) {
+                                        point.r = newRadius;
+                                    }
+                                });
+                            }
+                            if (pathObj.tpath && Array.isArray(pathObj.tpath)) {
+                                pathObj.tpath.forEach(point => {
+                                    if (point.r !== undefined) {
+                                        point.r = newRadius;
+                                    }
+                                });
+                            }
+                        });
+                    }
                 }
             }
 
-            // Add both change and input events for real-time updates
-            input.addEventListener('change', handleInputChange);
-            input.addEventListener('input', handleInputChange);
-        });
+            // Refresh display to show updated tool name if changed
+            refreshToolPathsDisplay();
+            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+            redraw();
+            return;
+        }
+
+        // For non-VCarve operations, regenerate the toolpaths
+        // Collect all SVG paths that need to be regenerated
+        const svgPathsToRegenerate = [];
+        for (const toolpath of activeToolpaths) {
+            const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
+            if (svgPath) {
+                svgPathsToRegenerate.push(svgPath);
+            }
+        }
+
+        if (svgPathsToRegenerate.length === 0) {
+            notify('Original paths not found', 'error');
+            return;
+        }
+
+        // Remove ALL old toolpaths
+        for (let i = toolpaths.length - 1; i >= 0; i--) {
+            if (activeToolpaths.some(atp => atp.id === toolpaths[i].id)) {
+                toolpaths.splice(i, 1);
+            }
+        }
+
+        // Select all the original paths
+        unselectAll();
+        svgPathsToRegenerate.forEach(p => p.selected = true);
+
+        // Store current tool and temporarily replace it
+        const originalTool = window.currentTool;
+        window.currentTool = {
+            ...selectedTool,
+            depth: data.depth || selectedTool.depth,
+            step: data.step || selectedTool.step,
+            stepover: data.stepover || selectedTool.stepover
+        };
+
+        // Store the properties for later reference
+        window.currentToolpathProperties = { ...data };
+
+        // Track toolpaths before regeneration
+        const beforeCount = toolpaths.length;
+
+        // Regenerate ALL toolpaths with new tool/parameters
+        try {
+            handleOperationClick(operationName);
+        } finally {
+            // Restore original tool
+            window.currentTool = originalTool;
+            // Clear the stored properties
+            window.currentToolpathProperties = null;
+        }
+
+        // Mark all newly created toolpaths as active
+        const afterCount = toolpaths.length;
+
+        if (afterCount > beforeCount) {
+            // Get all the newly created toolpaths
+            const newToolpaths = toolpaths.slice(beforeCount);
+
+            // Use centralized helper to set active state
+            setActiveToolpaths(newToolpaths);
+        }
+
+        // Refresh display
+        refreshToolPathsDisplay();
+        notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+    });
+}
+
+/**
+ * Show toolpath properties editor for editing an existing toolpath
+ */
+function showToolpathPropertiesEditor(toolpath) {
+    // Use centralized helper to set active state
+    setActiveToolpaths([toolpath]);
+
+    // Switch to operations tab
+    const operationsTab = document.getElementById('operations-tab');
+    const operationsPane = document.getElementById('operations');
+
+    document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+
+    operationsTab.classList.add('active');
+    operationsPane.classList.add('show', 'active');
+
+    // Show the operation properties editor
+    const operationsList = document.getElementById('operations-list');
+    const propertiesEditor = document.getElementById('operation-properties-editor');
+    const title = document.getElementById('operation-properties-title');
+    const form = document.getElementById('operation-properties-form');
+
+    operationsList.style.display = 'none';
+    propertiesEditor.style.display = 'block';
+
+    // Update title
+    title.textContent = `Edit ${toolpath.operation} Toolpath`;
+
+    // Generate properties HTML with existing values
+    if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation(toolpath.operation)) {
+        // Make sure we have toolpathProperties, if not create from tool object
+        let properties = toolpath.toolpathProperties;
+        if (!properties) {
+            // Fallback: create properties from the tool object
+            properties = {
+                toolId: toolpath.tool.recid,
+                depth: toolpath.tool.depth,
+                step: toolpath.tool.step,
+                stepover: toolpath.tool.stepover
+            };
+        }
+
+        form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(
+            toolpath.operation,
+            properties
+        );
+
+        // Set up the "Update Toolpath" button using the shared handler
+        setupToolpathUpdateButton(toolpath.operation);
+
+        // Update help content
+        if (window.stepWiseHelp) {
+            window.stepWiseHelp.setActiveOperation(toolpath.operation);
+        }
+
+        lucide.createIcons();
     } else {
-        form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
+        form.innerHTML = '<p class="text-muted">This toolpath cannot be edited.</p>';
     }
-
-
-    if (window.stepWiseHelp) {
-            window.stepWiseHelp.setActiveOperation(operationName);
-    }
-
-
-    lucide.createIcons();
 }
 
 // Auto-close tool properties when context switches
@@ -1104,65 +1455,19 @@ function showToolsList() {
 
 // Apply or remove operation to/from a newly selected path when operation is active
 function applyOperationToPath(operationName, path) {
-    // Check if this path already has a toolpath for this operation
-    const hasExistingOperation = checkIfPathHasOperation(path, operationName);
-
-    if (hasExistingOperation) {
-        // Remove the existing operation
-        removeOperationFromPath(path, operationName);
-    } else {
-        // Apply the operation
-        applyNewOperationToPath(operationName, path);
+    // All operations in the operations panel now use the properties-based approach
+    if (window.generateToolpathForSelection) {
+        window.generateToolpathForSelection();
     }
 
     // Redraw to show the changes
     redraw();
 }
 
-// Check if a path already has a specific operation applied
-function checkIfPathHasOperation(path, operationName) {
-    // Check if there's a toolpath with matching svgId and operation
-    return toolpaths.some(toolpath =>
-        toolpath.svgId === path.id &&
-        toolpath.operation &&
-        toolpath.operation.toLowerCase() === operationName.toLowerCase()
-    );
-}
-
-// Remove operation toolpaths for a specific path
-function removeOperationFromPath(path, operationName) {
-    // Find and remove toolpaths that match both the svgId and operation name
-    for (let i = toolpaths.length - 1; i >= 0; i--) {
-        const toolpath = toolpaths[i];
-        if (toolpath.svgId === path.id &&
-            toolpath.operation &&
-            toolpath.operation.toLowerCase() === operationName.toLowerCase()) {
-
-            // Remove from toolpaths array
-            toolpaths.splice(i, 1);
-
-            // Remove from sidebar if it exists
-            if (typeof removeToolPath === 'function') {
-                removeToolPath(toolpath.id);
-            }
-        }
-    }
-}
-
 // Apply a new operation to a path
 function applyNewOperationToPath(operationName, path) {
-    // Map operation names to their corresponding functions
-    const operationMap = {
-        'Drill': () => doDrill(),
-        'Inside': () => doInside(),
-        'Center': () => doCenter(),
-        'Outside': () => doOutside(),
-        'Pocket': () => doPocket(),
-        'Vcarve In': () => doVcarveIn()
-    };
-
-    // Execute the operation if it exists
-    if (operationMap[operationName]) {
+    // All operations in the operations panel now use the properties-based approach
+    if (window.generateToolpathForSelection) {
         // Store original selections
         const originalSelections = svgpaths.map(p => p.selected);
 
@@ -1170,8 +1475,8 @@ function applyNewOperationToPath(operationName, path) {
         svgpaths.forEach(p => p.selected = false);
         path.selected = true;
 
-        // Apply the operation
-        operationMap[operationName]();
+        // Generate toolpath using current properties from panel
+        window.generateToolpathForSelection();
 
         // Restore original selections (keep the path selected)
         path.selected = true;
@@ -1608,9 +1913,6 @@ function createToolPanel() {
                         <th><i data-lucide="move" data-bs-toggle="tooltip" data-bs-placement="bottom" title="XY Feed"></i> XY Feed (<span id="tool-table-feed-unit">${getUnitLabel()}/min</span>)</th>
                         <th><i data-lucide="arrow-down" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Z Feed"></i> Z Feed (<span id="tool-table-zfeed-unit">${getUnitLabel()}/min</span>)</th>
                         <th><i data-lucide="triangle" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Angle"></i> Angle</th>
-                        <th><i data-lucide="arrow-down-to-line" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Depth"></i> Depth (<span id="tool-table-depth-unit">${getUnitLabel()}</span>)</th>
-                        <th><i data-lucide="layers" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Step"></i> Step (<span id="tool-table-step-unit">${getUnitLabel()}</span>)</th>
-                        <th><i data-lucide="percent" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Step %"></i> Step %</th>
                     </tr>
                 </thead>
                 <tbody id="tool-table-body">
@@ -1675,31 +1977,6 @@ function createToolRow(tool, index) {
     // Convert dimensional values for display (stored in mm, display with fractions in inch mode)
     const displayDiameter = formatDimension(tool.diameter, useInches, true);
 
-    // Display depth as percentage if set, otherwise as dimension
-    let displayDepth;
-    if (tool.depthPercent !== null && tool.depthPercent !== undefined) {
-        const calculatedDepth = formatDimension(tool.depth, useInches, true);
-        const unitLabel = getUnitLabel();
-        displayDepth = `${tool.depthPercent}% (${calculatedDepth} ${unitLabel})`;
-    } else {
-        displayDepth = formatDimension(tool.depth, useInches, true);
-    }
-
-    // Display step as percentage if set, otherwise as dimension
-    // Calculate number of passes (depth/step rounded up)
-    const numPasses = Math.ceil(tool.depth / tool.step);
-    let displayStep;
-    if (tool.stepPercent !== null && tool.stepPercent !== undefined) {
-        const calculatedStep = formatDimension(tool.step, useInches, true);
-        const unitLabel = getUnitLabel();
-        displayStep = `${tool.stepPercent}% (${calculatedStep} ${unitLabel}, ${numPasses} passes)`;
-    } else {
-        displayStep = formatDimension(tool.step, useInches, true);
-    }
-
-    // Check if step is too large (greater than diameter) - warning condition
-    const stepWarning = tool.step > tool.diameter;
-
     // Feed rates - convert mm/min to in/min if needed
     const displayFeed = useInches ? Math.round(tool.feed / 25.4) : tool.feed;
     const displayZFeed = useInches ? Math.round(tool.zfeed / 25.4) : tool.zfeed;
@@ -1708,11 +1985,6 @@ function createToolRow(tool, index) {
     const diameterMax = useInches ? 1 : 25;
     const diameterMin = useInches ? 0.01 : 0.1;
     const diameterStep = useInches ? 0.001 : 0.1;
-    const depthMax = useInches ? 1 : 25;
-    const depthStep = useInches ? 0.001 : 0.1;
-    const stepMax = useInches ? 0.2 : 5;
-    const stepMin = useInches ? 0.02 : 0.5;
-    const stepStep = useInches ? 0.01 : 0.1;
     const feedMax = useInches ? 40 : 1000;
     const feedMin = useInches ? 1 : 10;
     const feedStep = useInches ? 1 : 10;
@@ -1742,9 +2014,6 @@ function createToolRow(tool, index) {
         <td><input type="number" value="${displayFeed}" data-field="feed" min="${feedMin}" max="${feedMax}" step="${feedStep}" data-unit-type="${useInches ? 'inches' : 'mm'}"></td>
         <td><input type="number" value="${displayZFeed}" data-field="zfeed" min="${feedMin}" max="${feedMax}" step="${feedStep}" data-unit-type="${useInches ? 'inches' : 'mm'}"></td>
         <td><input type="number" value="${tool.angle}" data-field="angle" min="0" max="90" step="5"></td>
-        <td><input type="text" value="${displayDepth}" data-field="depth" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext" placeholder="${useInches ? '1/2 or 50%' : '10 or 50%'}"></td>
-        <td><input type="text" value="${displayStep}" data-field="step" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext ${stepWarning ? 'text-danger' : ''}" placeholder="${useInches ? '1/8 or 25%' : '1 or 25%'}" data-bs-toggle="tooltip" title="${stepWarning ? 'Warning: Step is greater than diameter!' : ''}"></td>
-        <td><input type="number" value="${tool.stepover}" data-field="stepover" min="5" max="100" step="5"></td>
     `;
 
     // Add event handlers for row selection and editing
@@ -1784,29 +2053,11 @@ function selectTool(index) {
 function updateTool(index, field, value) {
     if (tools[index]) {
         // Convert numeric fields
-        if (['diameter', 'feed', 'zfeed', 'angle', 'depth', 'step', 'stepover'].includes(field)) {
+        if (['diameter', 'feed', 'zfeed', 'angle'].includes(field)) {
             // Check if we're in inch mode
             const useInches = getOption('Inches');
 
-            // For depth and step, check if it's a percentage first
-            if (['depth', 'step'].includes(field)) {
-                const percent = parsePercentage(value);
-                if (percent !== null) {
-                    // Store percentage and calculate actual value
-                    tools[index][field + 'Percent'] = percent;
-                    value = calculateFromPercentage(percent);
-                } else {
-                    // Not a percentage, clear the percentage field
-                    tools[index][field + 'Percent'] = null;
-
-                    // Parse as dimension/fraction
-                    if (useInches) {
-                        value = parseDimension(value, true);
-                    } else {
-                        value = parseFloat(value);
-                    }
-                }
-            } else if (field === 'diameter') {
+            if (field === 'diameter') {
                 // Diameter doesn't support percentage
                 if (useInches) {
                     value = parseDimension(value, true);
@@ -1814,21 +2065,21 @@ function updateTool(index, field, value) {
                     value = parseFloat(value);
                 }
             } else {
-                // For other numeric fields (feed, zfeed, angle, stepover)
+                // For other numeric fields (feed, zfeed, angle)
                 value = parseFloat(value);
 
                 // Convert feed rates from in/min to mm/min if needed
                 if (useInches && ['feed', 'zfeed'].includes(field)) {
                     value = value * 25.4;
                 }
-                // angle and stepover are not unit-dependent
+                // angle is not unit-dependent
             }
         }
 
         tools[index][field] = value;
         localStorage.setItem('tools', JSON.stringify(tools));
 
-        // Refresh tool table to update warning colors
+        // Refresh tool table
         renderToolsTable();
 
         if (currentTool && currentTool.recid === tools[index].recid) {
@@ -2231,6 +2482,32 @@ function createModals() {
     `;
     body.appendChild(deleteToolModal);
 
+    // Generic Confirmation Modal (reusable)
+    const confirmModal = document.createElement('div');
+    confirmModal.innerHTML = `
+        <div class="modal fade" id="confirmModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header" id="confirm-modal-header">
+                        <h5 class="modal-title" id="confirm-modal-title">
+                            <i data-lucide="alert-triangle"></i>
+                            Confirm Action
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="confirm-modal-body">
+                        <p>Are you sure?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirm-modal-confirm">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(confirmModal);
+
     // Reset Options Confirmation Modal
     const resetOptionsModal = document.createElement('div');
     resetOptionsModal.innerHTML = `
@@ -2274,6 +2551,72 @@ function showHelpModal() {
     const modal = new bootstrap.Modal(document.getElementById('helpModal'));
     modal.show();
     // Initialize Lucide icons in the modal
+    lucide.createIcons();
+}
+
+/**
+ * Show a reusable confirmation dialog
+ * @param {Object} options - Configuration options
+ * @param {string} options.title - Modal title (default: "Confirm Action")
+ * @param {string} options.message - Message to display (HTML supported)
+ * @param {string} options.confirmText - Text for confirm button (default: "Confirm")
+ * @param {string} options.confirmClass - Bootstrap class for confirm button (default: "btn-danger")
+ * @param {string} options.headerClass - Bootstrap class for header (default: "bg-danger text-white")
+ * @param {Function} options.onConfirm - Callback function when confirmed
+ */
+function showConfirmModal(options) {
+    const {
+        title = 'Confirm Action',
+        message = 'Are you sure?',
+        confirmText = 'Confirm',
+        confirmClass = 'btn-danger',
+        headerClass = 'bg-danger text-white',
+        onConfirm = null
+    } = options;
+
+    const modalElement = document.getElementById('confirmModal');
+    const header = document.getElementById('confirm-modal-header');
+    const titleElement = document.getElementById('confirm-modal-title');
+    const body = document.getElementById('confirm-modal-body');
+    const confirmBtn = document.getElementById('confirm-modal-confirm');
+    const closeBtn = header.querySelector('.btn-close');
+
+    // Set header styling
+    header.className = `modal-header ${headerClass}`;
+
+    // Update close button styling based on header
+    if (headerClass.includes('text-white')) {
+        closeBtn.classList.add('btn-close-white');
+    } else {
+        closeBtn.classList.remove('btn-close-white');
+    }
+
+    // Set content
+    titleElement.innerHTML = `<i data-lucide="alert-triangle"></i> ${title}`;
+    body.innerHTML = message;
+
+    // Set button text and styling
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = `btn ${confirmClass}`;
+
+    // Remove any existing event listeners by replacing the button
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+    // Add new event listener
+    if (onConfirm) {
+        newConfirmBtn.addEventListener('click', function() {
+            onConfirm();
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            modal.hide();
+        }, { once: true });
+    }
+
+    // Show the modal
+    const modal = new bootstrap.Modal(modalElement);
+    modal.show();
+
+    // Initialize Lucide icons
     lucide.createIcons();
 }
 
@@ -2389,14 +2732,10 @@ function updateToolTableHeaders() {
     const unitElem = document.getElementById('tool-table-unit');
     const feedUnitElem = document.getElementById('tool-table-feed-unit');
     const zfeedUnitElem = document.getElementById('tool-table-zfeed-unit');
-    const depthUnitElem = document.getElementById('tool-table-depth-unit');
-    const stepUnitElem = document.getElementById('tool-table-step-unit');
 
     if (unitElem) unitElem.textContent = unitLabel;
     if (feedUnitElem) feedUnitElem.textContent = unitLabel + '/min';
     if (zfeedUnitElem) zfeedUnitElem.textContent = unitLabel + '/min';
-    if (depthUnitElem) depthUnitElem.textContent = unitLabel;
-    if (stepUnitElem) stepUnitElem.textContent = unitLabel;
 }
 
 function roundWorkpieceDimensions(useInches) {
@@ -2551,6 +2890,24 @@ function refreshToolsGrid() {
 function handleOperationClick(operation) {
     // addUndo() will be called by individual operation functions as needed
 
+    // Check if this is a toolpath operation managed by the properties panel
+    const isToolpathOperation = window.toolpathPropertiesManager &&
+                                window.toolpathPropertiesManager.hasOperation(operation);
+
+    // If it's a toolpath operation and we're NOT generating from properties,
+    // then we should NOT execute the operation yet - just set the mode
+    const isGeneratingFromProperties = window.currentToolpathProperties !== null &&
+                                       window.currentToolpathProperties !== undefined;
+
+    // For toolpath operations, handle specially
+    // Exception: Drill doesn't need path selection - it responds directly to clicks
+    if (isToolpathOperation && !isGeneratingFromProperties && operation !== 'Drill') {
+        // Keep in Select mode so user can select paths
+        cncController.setMode("Select");
+        return;
+    }
+
+    // Execute the appropriate operation
     switch (operation) {
         // Drawing/Interaction Tools
         case 'Select':
@@ -2583,10 +2940,10 @@ function handleOperationClick(operation) {
         case 'Text':
             doText();
             break;
+        // Machining Operations
         case 'Drill':
             doDrill();
             break;
-        // Machining Operations
         case 'Inside':
             doInside();
             break;
@@ -2613,6 +2970,22 @@ function handleOperationClick(operation) {
 
 function handlePathClick(pathId) {
     doSelect(pathId);
+
+    // Check if this is a toolpath (starts with 'T')
+    if (pathId && pathId.startsWith('T')) {
+        const toolpath = toolpaths.find(tp => tp.id === pathId);
+        if (toolpath) {
+            // Check if this operation has properties manager support
+            const hasPropertiesSupport = window.toolpathPropertiesManager &&
+                                        window.toolpathPropertiesManager.hasOperation(toolpath.operation);
+
+            if (hasPropertiesSupport) {
+                // Show toolpath properties editor
+                showToolpathPropertiesEditor(toolpath);
+                return;
+            }
+        }
+    }
 
     // Check if this path has creation properties for editing
     const path = svgpaths.find(p => p.id === pathId);
@@ -2697,6 +3070,119 @@ function showContextMenu(event, pathId) {
     }, 0);
 
     lucide.createIcons();
+}
+
+// Context menu for tool folders
+function showToolFolderContextMenu(event, toolName) {
+    // Remove existing context menu
+    const existingMenu = document.querySelector('.context-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'dropdown-menu show context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = event.clientX + 'px';
+    menu.style.top = event.clientY + 'px';
+    menu.style.zIndex = '9999';
+
+    menu.innerHTML = `
+        <button class="dropdown-item" data-action="show-all" data-tool-name="${toolName}">
+            <i data-lucide="eye"></i> Show All
+        </button>
+        <button class="dropdown-item" data-action="hide-all" data-tool-name="${toolName}">
+            <i data-lucide="eye-off"></i> Hide All
+        </button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-danger" data-action="delete-all" data-tool-name="${toolName}">
+            <i data-lucide="trash-2"></i> Delete All
+        </button>
+    `;
+
+    document.body.appendChild(menu);
+
+    // Add event handlers
+    menu.addEventListener('click', function (e) {
+        const button = e.target.closest('[data-action]');
+        if (button) {
+            const action = button.dataset.action;
+            const toolName = button.dataset.toolName;
+
+            switch (action) {
+                case 'show-all':
+                    setToolFolderVisibility(toolName, true);
+                    break;
+                case 'hide-all':
+                    setToolFolderVisibility(toolName, false);
+                    break;
+                case 'delete-all':
+                    deleteToolFolder(toolName);
+                    break;
+            }
+        }
+        menu.remove();
+    });
+
+    // Remove menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener('click', function closeMenu() {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        });
+    }, 0);
+
+    lucide.createIcons();
+}
+
+// Set visibility for all toolpaths in a tool folder
+function setToolFolderVisibility(toolName, visible) {
+    let changedCount = 0;
+    toolpaths.forEach(function(toolpath) {
+        if (toolpath.tool.name === toolName) {
+            toolpath.visible = visible;
+            changedCount++;
+        }
+    });
+
+    if (changedCount > 0) {
+        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} toolpath(s)`, 'success');
+        redraw();
+    }
+}
+
+// Delete all toolpaths in a tool folder
+function deleteToolFolder(toolName) {
+    // Find all toolpaths with this tool name
+    const toolpathsToDelete = toolpaths.filter(tp => tp.tool.name === toolName);
+
+    if (toolpathsToDelete.length === 0) return;
+
+    // Show confirmation dialog
+    showConfirmModal({
+        title: 'Delete Tool Folder',
+        message: `
+            <p>Are you sure you want to delete all <strong>${toolpathsToDelete.length}</strong> toolpath(s) for <strong>"${toolName}"</strong>?</p>
+            <p class="text-muted mb-0">This action cannot be undone.</p>
+        `,
+        confirmText: 'Delete All',
+        confirmClass: 'btn-danger',
+        headerClass: 'bg-danger text-white',
+        onConfirm: function() {
+            // Delete all toolpaths with this tool name
+            for (let i = toolpaths.length - 1; i >= 0; i--) {
+                if (toolpaths[i].tool.name === toolName) {
+                    toolpaths.splice(i, 1);
+                }
+            }
+
+            // Refresh the display - this will automatically remove the empty folder
+            refreshToolPathsDisplay();
+
+            notify(`Deleted ${toolpathsToDelete.length} toolpath(s)`, 'success');
+            redraw();
+        }
+    });
 }
 
 function setHidden(id, hidden) {

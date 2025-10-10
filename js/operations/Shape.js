@@ -56,6 +56,7 @@ class Shape extends Operation {
                     break;
                 case "Polygon":
                     meta = makerjs.models.Polygon.metaParameters;
+                    meta[1].value = 20;
                     meta = meta.slice(0, 3);
                     break;
                 case "Rectangle":
@@ -76,7 +77,7 @@ class Shape extends Operation {
 
         }
 
-        this.properties.shape = "Star";
+        this.properties.shape = "Polygon";
     }
 
     isDimension(key)
@@ -150,7 +151,7 @@ class Shape extends Operation {
 
         var chain = makerjs.model.findSingleChain(this.model);
         if(!chain) return;
-        
+
         this.points = makerjs.chain.toKeyPoints(chain, 1 * viewScale);
 
         var path = [];
@@ -225,9 +226,6 @@ class Shape extends Operation {
         this.makeShape(props.center.x, props.center.y, svgPath, data);
     }
 
-    getCurrentProperties() {
-        return this.parameters.star;
-    }
 
     getEditPropertiesHTML(path) {
         return this.getPropertiesHTML(path);
@@ -258,19 +256,19 @@ class Shape extends Operation {
         return `
 
             <div class="mb-3">
-                <label for="shape-select" class="form-label">Shape</label>
-                <select class="shape-select" id="shape-select" name="shape">
+                <label for="shape-select" class="form-label small"><strong>Shape:</strong></label>
+                <select class="form-select form-select-sm" id="shape-select" name="shape">
                     ${AVAILABLE_SHAPES.map(s =>
             `<option value="${s.value}" ${type === s.value ? 'selected' : ''}>${s.label}</option>`).join('\n                    ')}
                 </select>
             </div>
 
             <div class="mb-3">
-                
+
                 ${param.map((prop, index) =>
-                `<label for="${prop.name}" class="form-label">${prop.title}</label>
+                `<label for="${prop.name}" class="form-label small"><strong>${prop.title}:</strong></label>
                 <input type="number"
-                       class="form-control"
+                       class="form-control form-control-sm"
                        id="${prop.name}"
                        name="${prop.name}"
                        min="${prop.min}"

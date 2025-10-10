@@ -126,6 +126,15 @@ class Select extends Operation {
             unselectAll();
             this.selectionOrder = []; // Clear selection order
 
+            // Clear active toolpaths when clicking on empty canvas
+            if (window.toolpaths) {
+                const hadActiveToolpaths = toolpaths.some(tp => tp.active);
+                toolpaths.forEach(tp => tp.active = false);
+                if (hadActiveToolpaths && typeof redraw === 'function') {
+                    redraw();
+                }
+            }
+
             // Check if Move tool is currently active - if so, don't exit the tool
             const isMoveToolActive = window.cncController &&
                                    window.cncController.operationManager &&
