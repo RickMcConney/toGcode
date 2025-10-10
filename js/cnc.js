@@ -2751,14 +2751,14 @@ function makeHole(pt) {
 				// Store properties for pushToolPath
 				window.currentToolpathProperties = { ...data };
 
-				var radius = toolRadius();
-				var paths = [];
-				paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
+	var radius = toolRadius();
+	var paths = [];
+	paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
 
 				// Track toolpath count before creation
 				const beforeCount = toolpaths.length;
 
-				pushToolPath(paths, name, null);
+	pushToolPath(paths, name, null);
 
 				// Mark the newly created drill path as active
 				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
