@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-09";
+var APP_VERSION = "Ver 2025-10-11";
 
 var mode = "Select";
 var options = [];
@@ -429,6 +429,9 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Edit Points" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit path points">
                         <i data-lucide="edit"></i>Edit Points
                     </div>
+                    <div class="sidebar-item" data-operation="Boolean" data-bs-toggle="tooltip" data-bs-placement="right" title="Boolean">
+                        <i data-lucide="squares-unite"></i>Boolean
+                    </div>
                     <hr class="my-3">
                     <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
                         <i data-lucide="pen-tool"></i>Pen
@@ -652,7 +655,7 @@ function createSidebar() {
             handleOperationClick(operation);
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', ,'Boolean', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -1559,6 +1562,7 @@ function updateExistingPath(path, form) {
         // For text, we need to recreate all character paths
         updateShapeInPlace(path, data);
     }
+
 
     redraw();
 }
@@ -2928,6 +2932,9 @@ function handleOperationClick(operation) {
         case 'Edit Points':
             doEditPoints();
             break;
+        //case 'Boolean':
+       //     doBoolean();
+        //    break;
         case 'Pen':
             doPen();
             break;
@@ -3447,6 +3454,9 @@ function getPathIcon(name) {
     if (name.includes('Star')) return 'star';
     if (name.includes('Belt')) return 'egg';
     if (name.includes('Heart')) return 'heart';
+    if (name.includes('Union')) return 'squares-unite';
+    if (name.includes('Intersect')) return 'squares-intersect';
+    if (name.includes('Subtract')) return 'squares-subtract';
     return 'route';
 }
 

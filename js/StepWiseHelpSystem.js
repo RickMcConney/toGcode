@@ -215,6 +215,10 @@ class StepWiseHelpSystem {
                 'Hover over a point and press Delete/Backspace to remove it',
                 'Click on a different path to edit it, or click empty space to deselect'
             ],
+            'Boolean': [
+                'Select Multiple paths',
+                'Select Operation and click Apply',
+            ],
             'Pen': [
                 'Click on the canvas to set the first point of the path',
                 'Click to add more points and create line segments',

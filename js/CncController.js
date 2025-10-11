@@ -13,6 +13,7 @@ class CncController {
     // Pan tool removed - use middle mouse button to pan
     this.operationManager.registerOperation(new Transform());
     this.operationManager.registerOperation(new PathEdit());
+    this.operationManager.registerOperation(new BooleanOpp());
     this.operationManager.registerOperation(new Pen());
     this.operationManager.registerOperation(new Polygon());
     this.operationManager.registerOperation(new Shape());

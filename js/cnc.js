@@ -7,7 +7,7 @@ var origin = { x: 0, y: 0 }; // origin in virtual coordinates
 function worldToScreen(x, y) {
 	return {
 		x: (x * zoomLevel + panX),
-		y: (y * zoomLevel + panY) 
+		y: (y * zoomLevel + panY)
 	};
 }
 
@@ -66,15 +66,15 @@ function centerWorkpiece() {
 
 }
 
-// pocket with multiple paths
+//fix properties corruption
+// add cut and past
+// maintain selection order for bollean operations
+// support inches in tool properties panel
 // text group context menu missing
-// addcut depth to tool properties panel
 //todo tab support
 //blocked paths need to be turned into travel moves
 // make norms for rect not good
-// undo does not remove sidebar folder
 // center of rick path generate 0 lenght tool paths
-// make hole does not add svg path
 
 
 
@@ -223,7 +223,7 @@ function decimalToFraction(decimal, maxDenominator) {
 	}
 
 	// Simplify fraction
-	var gcd = function(a, b) { return b ? gcd(b, a % b) : a; };
+	var gcd = function (a, b) { return b ? gcd(b, a % b) : a; };
 	var divisor = gcd(bestNumer, bestDenom);
 	bestNumer /= divisor;
 	bestDenom /= divisor;
@@ -362,7 +362,7 @@ cncController.setupEventListeners();
 //canvas.addEventListener('mousewheel', handleScroll, false);
 
 // New mousewheel event for newZoom
-canvas.addEventListener('mousewheel', function(evt) {
+canvas.addEventListener('mousewheel', function (evt) {
 	var rect = canvas.getBoundingClientRect();
 	var zoomX = evt.clientX - rect.left;
 	var zoomY = evt.clientY - rect.top;
@@ -372,17 +372,17 @@ canvas.addEventListener('mousewheel', function(evt) {
 }, { passive: false });
 
 // Add window resize handler to re-center workpiece when viewport changes
-window.addEventListener('resize', function() {
+window.addEventListener('resize', function () {
 	// Debounce resize events to avoid excessive recalculations
 	clearTimeout(window.resizeTimeout);
-	window.resizeTimeout = setTimeout(function() {
+	window.resizeTimeout = setTimeout(function () {
 		centerWorkpiece();
 		redraw();
 	}, 150);
 });
 
 // Keyboard shortcuts
-document.addEventListener('keydown', function(evt) {
+document.addEventListener('keydown', function (evt) {
 	// Check if we're in an input field - if so, don't trigger shortcuts
 	const tagName = evt.target.tagName.toLowerCase();
 	if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
@@ -612,46 +612,6 @@ function newParseSvgContent(data) {
 		var svgDoc = new DOMParser().parseFromString(data, "image/svg+xml");
 		var svgElement = svgDoc.documentElement;
 
-		// Handle viewBox and scaling
-		var viewBox = svgElement.getAttribute('viewBox');
-		var width = parseFloat(svgElement.getAttribute('width')) || 100;
-		var height = parseFloat(svgElement.getAttribute('height')) || 100;
-
-		// Parse viewBox if present
-		var viewBoxCoords = null;
-		if (viewBox) {
-			var viewBoxParts = viewBox.split(/\s+/);
-			if (viewBoxParts.length === 4) {
-				viewBoxCoords = {
-					x: parseFloat(viewBoxParts[0]),
-					y: parseFloat(viewBoxParts[1]),
-					width: parseFloat(viewBoxParts[2]),
-					height: parseFloat(viewBoxParts[3])
-				};
-			}
-		}
-
-		// Create transformation function for coordinate system
-		function transformCoordinates(x, y) {
-			if (viewBoxCoords) {
-				// Transform from viewBox coordinates to screen coordinates
-				var scaleX = width / viewBoxCoords.width;
-				var scaleY = height / viewBoxCoords.height;
-
-				scaleX = 1;
-				scaleY = 1;
-				return {
-					x: (x - viewBoxCoords.x) * scaleX * svgscale,
-					y: (y - viewBoxCoords.y) * scaleY * svgscale
-				};
-			} else {
-				return {
-					x: x * svgscale,
-					y: y * svgscale
-				};
-			}
-		}
-
 		var paths = [];
 
 		// Parse all path elements
@@ -685,7 +645,7 @@ function newParseSvgContent(data) {
 			var points = polygonEl.getAttribute('points');
 			if (points) {
 				try {
-					
+
 					var paperPolygon = new paper.Path();
 
 					// Handle both comma-separated and space-separated coordinate formats
@@ -694,16 +654,16 @@ function newParseSvgContent(data) {
 						if (j + 1 < pointValues.length) {
 							var rawX = parseFloat(pointValues[j]);
 							var rawY = parseFloat(pointValues[j + 1]);
-							var transformed = transformCoordinates(rawX, rawY);
+	
 							if (j === 0) {
-								paperPolygon.moveTo(transformed.x, transformed.y);
+								paperPolygon.moveTo(rawX, rawY);
 							} else {
-								paperPolygon.lineTo(transformed.x, transformed.y);
+								paperPolygon.lineTo(rawX, rawY);
 							}
 						}
 					}
 					paperPolygon.closePath();
-					
+
 					var convertedPaths = newTransformFromPaperPath(paperPolygon, "Poly");
 					paths = paths.concat(convertedPaths);
 				} catch (polygonError) {
@@ -727,11 +687,11 @@ function newParseSvgContent(data) {
 					if (j + 1 < pointValues.length) {
 						var rawX = parseFloat(pointValues[j]);
 						var rawY = parseFloat(pointValues[j + 1]);
-						var transformed = transformCoordinates(rawX, rawY);
+		
 						if (j === 0) {
-							paperPolyline.moveTo(transformed.x, transformed.y);
+							paperPolyline.moveTo(rawX, rawY);
 						} else {
-							paperPolyline.lineTo(transformed.x, transformed.y);
+							paperPolyline.lineTo(rawX, rawY);
 						}
 					}
 				}
@@ -748,12 +708,10 @@ function newParseSvgContent(data) {
 			var rawY1 = parseFloat(lineEl.getAttribute('y1'));
 			var rawX2 = parseFloat(lineEl.getAttribute('x2'));
 			var rawY2 = parseFloat(lineEl.getAttribute('y2'));
-			var transformed1 = transformCoordinates(rawX1, rawY1);
-			var transformed2 = transformCoordinates(rawX2, rawY2);
 
 			var paperLine = new paper.Path();
-			paperLine.moveTo(transformed1.x, transformed1.y);
-			paperLine.lineTo(transformed2.x, transformed2.y);
+			paperLine.moveTo(rawX1, rawY1);
+			paperLine.lineTo(rawX2, rawY2);
 
 			var convertedPaths = newTransformFromPaperPath(paperLine, "Line");
 			paths = paths.concat(convertedPaths);
@@ -767,10 +725,8 @@ function newParseSvgContent(data) {
 			var rawY = parseFloat(rectEl.getAttribute('y') || 0);
 			var rawWidth = parseFloat(rectEl.getAttribute('width'));
 			var rawHeight = parseFloat(rectEl.getAttribute('height'));
-			var transformed = transformCoordinates(rawX, rawY);
-			var transformedSize = transformCoordinates(rawWidth, rawHeight);
 
-			var paperRect = new paper.Path.Rectangle(transformed.x, transformed.y, transformedSize.x, transformedSize.y);
+			var paperRect = new paper.Path.Rectangle(rawX, rawY, rawWidth, rawHeight);
 			var convertedPaths = newTransformFromPaperPath(paperRect, "Rect");
 			paths = paths.concat(convertedPaths);
 		}
@@ -781,11 +737,9 @@ function newParseSvgContent(data) {
 			var circleEl = circleElements[i];
 			var rawCx = parseFloat(circleEl.getAttribute('cx') || 0);
 			var rawCy = parseFloat(circleEl.getAttribute('cy') || 0);
-			var rawR = parseFloat(circleEl.getAttribute('r'));
-			var transformed = transformCoordinates(rawCx, rawCy);
-			var radius = rawR * svgscale; // Radius doesn't need viewBox transformation
+			var radius= parseFloat(circleEl.getAttribute('r'));
 
-			var paperCircle = new paper.Path.Circle(transformed.x, transformed.y, radius);
+			var paperCircle = new paper.Path.Circle(rawCx, rawCy, radius);
 			var convertedPaths = newTransformFromPaperPath(paperCircle, "Circle");
 			paths = paths.concat(convertedPaths);
 		}
@@ -796,13 +750,11 @@ function newParseSvgContent(data) {
 			var ellipseEl = ellipseElements[i];
 			var rawCx = parseFloat(ellipseEl.getAttribute('cx') || 0);
 			var rawCy = parseFloat(ellipseEl.getAttribute('cy') || 0);
-			var rawRx = parseFloat(ellipseEl.getAttribute('rx'));
-			var rawRy = parseFloat(ellipseEl.getAttribute('ry'));
-			var transformed = transformCoordinates(rawCx, rawCy);
-			var radiusX = rawRx * svgscale; // Radii don't need viewBox transformation
-			var radiusY = rawRy * svgscale;
+			var radiusX = parseFloat(ellipseEl.getAttribute('rx'));
+			var radiusY = parseFloat(ellipseEl.getAttribute('ry'));
 
-			var paperEllipse = new paper.Path.Ellipse(transformed.x, transformed.y, radiusX, radiusY);
+			var elipse = {center: new paper.Point(rawCx, rawCy), radius: new paper.Size(radiusX, radiusY)};
+			var paperEllipse = new paper.Path.Ellipse(elipse);
 			var convertedPaths = newTransformFromPaperPath(paperEllipse, "Ellipse");
 			paths = paths.concat(convertedPaths);
 		}
@@ -813,14 +765,14 @@ function newParseSvgContent(data) {
 			var textEl = textElements[i];
 			var rawX = parseFloat(textEl.getAttribute('x') || 0);
 			var rawY = parseFloat(textEl.getAttribute('y') || 0);
-			var transformed = transformCoordinates(rawX, rawY);
+
 			var textContent = textEl.textContent || textEl.text || '';
 
 			if (textContent.trim()) {
 				try {
-					var paperText = new paper.PointText(transformed.x, transformed.y);
+					var paperText = new paper.PointText(rawX, rawY);
 					paperText.content = textContent;
-					paperText.fontSize = parseFloat(textEl.getAttribute('font-size') || 12) * svgscale;
+					paperText.fontSize = parseFloat(textEl.getAttribute('font-size') || 12);
 
 					// Convert text to path
 					var textPath = paperText.createPath();
@@ -1132,8 +1084,8 @@ function drawDebug() {
 function drawGrid() {
 	ctx.beginPath();
 	// Get workpiece dimensions
-	const width = getOption("workpieceWidth")*viewScale;
-	const length = getOption("workpieceLength")*viewScale;
+	const width = getOption("workpieceWidth") * viewScale;
+	const length = getOption("workpieceLength") * viewScale;
 	// Workpiece bounds in world coordinates
 
 	var startX = 0;
@@ -1142,7 +1094,7 @@ function drawGrid() {
 	var bottomRight = worldToScreen(width, length);
 	let o = worldToScreen(origin.x, origin.y);
 	let gridSize = (typeof getOption !== 'undefined' && getOption("gridSize")) ? getOption("gridSize") : 10;
-	let grid = gridSize*viewScale*zoomLevel;
+	let grid = gridSize * viewScale * zoomLevel;
 
 
 
@@ -1176,8 +1128,8 @@ function drawGrid() {
 function drawOrigin() {
 	ctx.beginPath();
 	// Get workpiece dimensions
-	const width = getOption("workpieceWidth")*viewScale;
-	const length = getOption("workpieceLength")*viewScale;
+	const width = getOption("workpieceWidth") * viewScale;
+	const length = getOption("workpieceLength") * viewScale;
 	// Workpiece bounds in world coordinates
 
 	var startX = 0;
@@ -1186,7 +1138,7 @@ function drawOrigin() {
 	var bottomRight = worldToScreen(startX + width, startY + length);
 	let o = worldToScreen(origin.x, origin.y);
 	let gridSize = (typeof getOption !== 'undefined' && getOption("gridSize")) ? getOption("gridSize") : 10;
-	let grid = gridSize*viewScale*zoomLevel;
+	let grid = gridSize * viewScale * zoomLevel;
 
 	let offsetx = 0;
 	let offsety = 0;
@@ -1194,10 +1146,10 @@ function drawOrigin() {
 
 	// Draw blue X axis only within workpiece bounds
 
-	ctx.moveTo(offsetx+topLeft.x,offsety+o.y);
-	ctx.lineTo(offsetx+bottomRight.x,offsety+o.y);
-	ctx.moveTo(offsetx+o.x,offsety+topLeft.y);
-	ctx.lineTo(offsetx+o.x,offsety+bottomRight.y);
+	ctx.moveTo(offsetx + topLeft.x, offsety + o.y);
+	ctx.lineTo(offsetx + bottomRight.x, offsety + o.y);
+	ctx.moveTo(offsetx + o.x, offsety + topLeft.y);
+	ctx.lineTo(offsetx + o.x, offsety + bottomRight.y);
 
 	ctx.lineWidth = 1;
 	ctx.strokeStyle = axisColor;
@@ -1231,7 +1183,7 @@ function drawOrigin() {
 	var label = 0;
 	for (var y = o.y; y <= bottomRight.y; y += numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			var labelText = useInches ? formatDimension(-label,  true): -label;
+			var labelText = useInches ? formatDimension(-label, true) : -label;
 			ctx.fillText(labelText, o.x + 2, y - 2);
 		}
 		label += numberInterval;
@@ -1239,7 +1191,7 @@ function drawOrigin() {
 	label = 0;
 	for (var y = o.y; y >= topLeft.y; y -= numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			var labelText = useInches ? formatDimension(-label,  true): -label;
+			var labelText = useInches ? formatDimension(-label, true) : -label;
 			ctx.fillText(labelText, o.x + 2, y - 2);
 		}
 		label -= numberInterval;
@@ -1249,7 +1201,7 @@ function drawOrigin() {
 	label = 0;
 	for (var x = o.x; x <= bottomRight.x; x += numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			var labelText = useInches ? formatDimension(label, true): label;
+			var labelText = useInches ? formatDimension(label, true) : label;
 			ctx.fillText(labelText, x + 2, o.y - 2);
 		}
 		label += numberInterval;
@@ -1257,7 +1209,7 @@ function drawOrigin() {
 	label = 0;
 	for (var x = o.x; x >= topLeft.x; x -= numberGrid) {
 		if (label !== 0) { // Skip drawing 0 at origin to avoid overlap
-			var labelText = useInches ? formatDimension(label, true): label;
+			var labelText = useInches ? formatDimension(label, true) : label;
 			ctx.fillText(labelText, x + 2, o.y - 2);
 		}
 		label -= numberInterval;
@@ -2378,8 +2330,8 @@ function newProject() {
 	cncController.setMode("Select");
 	loadOptions();
 	loadTools();
-	const width = getOption("workpieceWidth")*viewScale;
-	const length = getOption("workpieceLength")*viewScale;
+	const width = getOption("workpieceWidth") * viewScale;
+	const length = getOption("workpieceLength") * viewScale;
 	const originPosition = getOption("originPosition") || 'middle-center';
 
 	// Calculate origin based on saved position preference
@@ -2705,6 +2657,10 @@ function doEditPoints() {
 	cncController.setMode("Edit Points");
 }
 
+function doBoolean() {
+	cncController.setMode("Boolean");
+}
+
 function doPen() {
 	cncController.setMode("Pen");
 	unselectAll();
@@ -2751,14 +2707,14 @@ function makeHole(pt) {
 				// Store properties for pushToolPath
 				window.currentToolpathProperties = { ...data };
 
-	var radius = toolRadius();
-	var paths = [];
-	paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
+				var radius = toolRadius();
+				var paths = [];
+				paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
 
 				// Track toolpath count before creation
 				const beforeCount = toolpaths.length;
 
-	pushToolPath(paths, name, null);
+				pushToolPath(paths, name, null);
 
 				// Mark the newly created drill path as active
 				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
@@ -2793,7 +2749,135 @@ function makeHole(pt) {
 	}
 }
 
+function generateClipperInfill(inputPaths, stepOverDistance, radius) {
+	const clipper = new ClipperLib.Clipper();	
+	// Determine the bounding box to generate infill lines
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	inputPaths.flat().forEach(point => {
+		minX = Math.min(minX, point.x);
+		minY = Math.min(minY, point.y);
+		maxX = Math.max(maxX, point.x);
+		maxY = Math.max(maxY, point.y);
+	});
+
+	// Generate a set of parallel lines that span the bounding box
+	const subjectLines = [];
+	for (let y = minY+radius; y <= (maxY-radius); y += stepOverDistance) {
+		// A single line segment to be clipped
+		const line = [{ x: minX, y: y }, { x: maxX, y: y }];
+		subjectLines.push(line);
+	}
+
+	//const line = [{ x: minX, y: maxY-radius }, { x: maxX, y: maxY-radius }];
+	//subjectLines.push(line);
+
+	// Add the boundary paths as the clip subject.
+	// The last parameter is `true` because boundaries are closed polygons.
+	// clipper.AddPaths() can handle multiple paths, including those for holes.
+	clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
+
+	// Add the infill lines as the subject to be clipped.
+	// The last parameter is `false` because they are open polylines.
+	clipper.AddPaths(subjectLines, ClipperLib.PolyType.ptSubject, false);
+
+	// Create a container for the result
+
+	const solutionPolyTree = new ClipperLib.PolyTree();
+
+	// Execute the intersection operation
+	clipper.Execute(
+		ClipperLib.ClipType.ctIntersection, // The clipping operation (intersect)
+		solutionPolyTree,
+		ClipperLib.PolyFillType.pftEvenOdd, // Filling rule
+		ClipperLib.PolyFillType.pftEvenOdd
+	);
+
+	const finalPaths = ClipperLib.Clipper.PolyTreeToPaths(solutionPolyTree);
+	for(let i = finalPaths.length-1;i>=0;i--)
+	{
+		let p = finalPaths[i];
+		p[0].x -= (radius);
+		p[1].x += (radius);
+
+		if(p[0].x < p[1].x)
+		{
+			finalPaths.splice(i,1);
+		}
+	}
+	// Scale the result back down
+	return finalPaths;
+}
+
+function getUnionOfPaths(inputPaths) {
+
+  // Create a Clipper instance
+  const clipper = new ClipperLib.Clipper();
+
+  // Add all paths to the Clipper object as subjects.
+  clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptSubject, true);
+
+  // Create a container for the result
+  const solutionPaths = new ClipperLib.Paths();
+
+  // Execute the union operation
+  clipper.Execute(
+    ClipperLib.ClipType.ctUnion, // Perform a union operation
+    solutionPaths,
+    ClipperLib.PolyFillType.pftNonZero,
+    ClipperLib.PolyFillType.pftNonZero
+  );
+
+  // Scale the result back down
+  return solutionPaths;
+}
+
 function doPocket() {
+	setMode("Pocket");
+	if (getSelectedPath() == null) {
+		notify('Select a path to pocket');
+		return;
+	}
+
+	var radius = toolRadius();
+	var stepover = 2 * radius * currentTool.stepover/100;
+	var name = 'Pocket';
+	var inputPaths = [];
+	for (var i = 0; i < svgpaths.length; i++) {
+		var path = svgpaths[i].path;
+		if (svgpaths[i].selected)
+			inputPaths.push(path);
+	}
+
+
+	var paths = [];
+	var offsetPaths = [];
+	let outerPath = getUnionOfPaths(inputPaths)[0];
+	
+	let tpath = offsetPath(outerPath, radius, false);
+	offsetPaths.push(tpath[0]);
+	paths.push({tpath: tpath[0]});
+
+	for(p of inputPaths)
+	{
+		if(pathIn(outerPath,p))
+		{
+			let tpath = offsetPath(p, radius, true);
+			paths.push({tpath: tpath[0]});
+			offsetPaths.push(tpath[0]);
+		}
+	}
+
+	let tpaths = generateClipperInfill(offsetPaths, stepover, radius);
+
+	for (let tpath of tpaths)
+	{
+		paths.push({tpath: tpath});
+	}
+
+
+	pushToolPath(paths, name, 100);
+}
+function olddoPocket() {
 	setMode("Pocket");
 	if (getSelectedPath() == null) {
 		notify('Select a path to pocket');
@@ -3328,7 +3412,7 @@ function getPathEndPoint(pathObj) {
 
 	if (pathObj.paths && pathObj.paths.length > 0) {
 		let len = pathObj.paths[0].tpath.length;
-		len = len > 1 ? len-1:0;
+		len = len > 1 ? len - 1 : 0;
 		var last = pathObj.paths[0].tpath[len];
 		return { x: last.x, y: last.y };
 	}
@@ -3365,7 +3449,7 @@ function reversePathData(pathObj) {
 // Only reverses straight lines (2 points) to preserve clockwise/counter-clockwise direction
 function optimizePathOrder(paths) {
 
-	if ( paths.length <= 1) {
+	if (paths.length <= 1) {
 		return paths; // Return original order for Pocket or single path
 	}
 
@@ -3430,7 +3514,7 @@ function getSortedToolpaths(toolpaths) {
 	// Create a copy to avoid modifying the original array
 	var sorted = toolpaths.slice();
 
-	sorted.sort(function(a, b) {
+	sorted.sort(function (a, b) {
 		var priorityA = getOperationPriority(a.operation);
 		var priorityB = getOperationPriority(b.operation);
 
@@ -3476,24 +3560,23 @@ function toGcode() {
 
 	var drillPaths = [];
 	for (var i = 0; i < sortedByOperation.length; i++) {
-		
+
 		var operation = sortedByOperation[i].operation;
-		if(operation == 'Drill')
+		if (operation == 'Drill')
 			drillPaths.push(sortedByOperation[i])
 	}
 	drillPaths = optimizePathOrder(drillPaths);
 
-    //todo finish optimization for profile paths with same tool
+	//todo finish optimization for profile paths with same tool
 	var sortedToolpaths = [];
 
-	for(path of drillPaths)
-	{
+	for (path of drillPaths) {
 		sortedToolpaths.push(path);
 	}
 	for (var i = 0; i < sortedByOperation.length; i++) {
-		
+
 		var operation = sortedByOperation[i].operation;
-		if(operation != 'Drill')
+		if (operation != 'Drill')
 			sortedToolpaths.push(sortedByOperation[i])
 	}
 
@@ -3529,8 +3612,8 @@ function toGcode() {
 
 			var paths = sortedToolpaths[i].paths;
 			// Optimize path order for this operation to minimize travel time
-		
-		
+
+
 
 			var zbacklash = getOption("zbacklash");
 			var safeHeight = getOption("safeHeight") + zbacklash;
@@ -3599,6 +3682,7 @@ function toGcode() {
 									var p = toGcodeUnits(path[j].x, path[j].y, useInches);
 
 									if (j == 0) {
+										output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
 										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 										output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoord, f: feedZ }) + '\n';
 									}
