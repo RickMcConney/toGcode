@@ -8,10 +8,22 @@ function applyBooleanOperation() {
     const clipper = new ClipperLib.Clipper();
     let operation = document.getElementById("boolean-select").value;
     var inputPaths = [];
+    let min = Infinity;
+    let firstPath = null;
+    let firstPathIndex = 0;
+    let count = 0;
     for (var i = 0; i < svgpaths.length; i++) {
         var path = svgpaths[i].path;
-        if (svgpaths[i].selected)
+        if (svgpaths[i].selected > 0)
+        {
             inputPaths.push(path);
+            if(min > svgpaths[i].selected){
+                min = svgpaths[i].selected;
+                firstPath = path;
+                firstPathIndex = count;
+            }
+            count++;
+        }
     }
 
     if (inputPaths.length < 2) {
@@ -30,8 +42,8 @@ function applyBooleanOperation() {
         );
     }
     else if (operation == "Intersect") {
-        clipper.AddPath(inputPaths[0], ClipperLib.PolyType.ptSubject, true);
-        inputPaths.splice(0, 1);
+        clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
+        inputPaths.splice(firstPathIndex, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
             ClipperLib.ClipType.ctIntersection, // Perform a intersection operation
@@ -41,8 +53,8 @@ function applyBooleanOperation() {
         );
     }
     else if (operation == "Subtract") {
-        clipper.AddPath(inputPaths[0], ClipperLib.PolyType.ptSubject, true);
-        inputPaths.splice(0, 1);
+        clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
+        inputPaths.splice(firstPathIndex, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
             ClipperLib.ClipType.ctDifference, // Perform a intersection operation
@@ -58,7 +70,7 @@ function applyBooleanOperation() {
         id: operation + svgpathId,
         type: 'path',
         name: operation + ' ' + svgpathId,
-        selected: false,
+        selected: 0,
         visible: true,
         path: solutionPaths[0],
         bbox: boundingBox(solutionPaths[0]),
@@ -72,17 +84,18 @@ function applyBooleanOperation() {
     addSvgPath(svgPath.id, svgPath.name);
 
     // Auto-select the newly created polygon
-    svgPath.selected = true;
+    svgPath.selected = 1;
     selectSidebarNode(svgPath.id);
 
     svgpathId++;
-
+    redraw();
     console.log("boolean " + operation);
 }
 
-class BooleanOpp extends Operation {
+class BooleanOpp extends Select {
     constructor() {
-        super('Boolean', 'fa fa-pencil');
+        super();
+        this.name = 'Boolean';
     }
 
     getEditPropertiesHTML(path) {

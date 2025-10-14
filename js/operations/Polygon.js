@@ -201,7 +201,7 @@ class Polygon extends Operation {
         addSvgPath(svgPath.id, svgPath.name);
 
         // Auto-select the newly created polygon
-        svgPath.selected = true;
+        svgPath.selected = 1;
         selectSidebarNode(svgPath.id);
 
         svgpathId++;

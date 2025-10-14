@@ -105,17 +105,17 @@ class PathEdit extends Select {
         var clickedPath = closestPath(mouse, false);
         if (clickedPath) {
             // Deselect all other paths
-            svgpaths.forEach(path => {path.selected = false; path.highlight = false; });
+            svgpaths.forEach(path => {path.selected = 0; path.highlight = false; });
 
             // Select the clicked path
-            clickedPath.selected = true;
+            clickedPath.selected = 2;
             this.selectedPath = clickedPath;
             this.originalPath = null;
 
             redraw();
         } else {
             // Clicked on empty space - deselect all
-            svgpaths.forEach(path => {path.selected = false; path.highlight = false; });
+            svgpaths.forEach(path => {path.selected = 0; path.highlight = false; });
             this.selectedPath = null;
             this.originalPath = null;
             redraw();

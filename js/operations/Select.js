@@ -4,6 +4,7 @@ class Select extends Operation {
         super('Select', 'fa fa-mouse-pointer');
         this.unselectOnMouseDown = true;
         this.selectionOrder = []; // Track order of path selection
+        this.selectionId = 2;
     }
 
 
@@ -24,10 +25,10 @@ class Select extends Operation {
         this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
         var selectedPath = closestPath(mouse, false);
         if (selectedPath) {
-            if (selectedPath.selected) {
+            if (selectedPath.selected > 0) {
                 if(this.unselectOnMouseDown)
                 {
-                    selectedPath.selected = false;
+                    selectedPath.selected = 0;
                     unselectSidebarNode(selectedPath.id);
 
                     // Remove from selection order
@@ -50,7 +51,7 @@ class Select extends Operation {
                         let mostRecentPath = null;
                         for (let i = this.selectionOrder.length - 1; i >= 0; i--) {
                             const pathId = this.selectionOrder[i];
-                            mostRecentPath = svgpaths.find(path => path.id === pathId && path.selected);
+                            mostRecentPath = svgpaths.find(path => path.id === pathId && path.selected > 0);
                             if (mostRecentPath) break;
                         }
 
@@ -76,7 +77,7 @@ class Select extends Operation {
                 }
             }
             else {
-                selectedPath.selected = true;
+                selectedPath.selected = this.selectionId++;
                 selectSidebarNode(selectedPath.id);
 
                 // Add to selection order (remove if already there, then add to end)
@@ -179,7 +180,7 @@ class Select extends Operation {
             this.selectBox = null;
 
             // Update selection order for newly selected paths
-            const selectedPaths = svgpaths.filter(path => path.selected);
+            const selectedPaths = svgpaths.filter(path => path.selected > 0);
             selectedPaths.forEach(path => {
                 // Add to selection order if not already there
                 if (!this.selectionOrder.includes(path.id)) {
@@ -189,7 +190,7 @@ class Select extends Operation {
 
             // Remove unselected paths from selection order
             this.selectionOrder = this.selectionOrder.filter(id =>
-                svgpaths.some(path => path.id === id && path.selected)
+                svgpaths.some(path => path.id === id && path.selected > 0)
             );
 
             // After drag selection, show properties panel for the selected paths if appropriate
@@ -198,7 +199,7 @@ class Select extends Operation {
                 let pathToShow = null;
                 for (let i = this.selectionOrder.length - 1; i >= 0; i--) {
                     const pathId = this.selectionOrder[i];
-                    pathToShow = svgpaths.find(path => path.id === pathId && path.selected);
+                    pathToShow = svgpaths.find(path => path.id === pathId && path.selected > 0);
                     if (pathToShow) break;
                 }
 

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-11";
+var APP_VERSION = "Ver 2025-10-13";
 
 var mode = "Select";
 var options = [];
@@ -276,7 +276,7 @@ fileInput.addEventListener('change', function (e) {
 
     var reader = new FileReader();
     reader.onload = function (event) {
-        parseSvgContent(event.target.result);
+        parseSvgContent(event.target.result, file.name);
         center();
         redraw();
     };
@@ -431,6 +431,9 @@ function createSidebar() {
                     </div>
                     <div class="sidebar-item" data-operation="Boolean" data-bs-toggle="tooltip" data-bs-placement="right" title="Boolean">
                         <i data-lucide="squares-unite"></i>Boolean
+                    </div>
+                    <div class="sidebar-item" data-operation="Gemini" data-bs-toggle="tooltip" data-bs-placement="right" title="Gemini">
+                        <i data-lucide="brain"></i>Gemini
                     </div>
                     <hr class="my-3">
                     <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
@@ -655,7 +658,7 @@ function createSidebar() {
             handleOperationClick(operation);
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', ,'Boolean', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', ,'Boolean', 'Gemini', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -681,6 +684,22 @@ function createSidebar() {
         if (toolFolder && e.target.closest('.sidebar-item.fw-bold')) {
             e.preventDefault();
             showToolFolderContextMenu(e, toolFolder.dataset.toolName);
+            return;
+        }
+
+        // Check if this is an SVG group folder
+        const svgGroup = item.closest('[data-svg-group-id]');
+        if (svgGroup && item.dataset.svgGroupHeader) {
+            e.preventDefault();
+            showSvgGroupContextMenu(e, item.dataset.svgGroupHeader);
+            return;
+        }
+
+        // Check if this is a text group folder
+        const textGroup = item.closest('[data-text-group-id]');
+        if (textGroup && item.dataset.textGroupHeader) {
+            e.preventDefault();
+            showTextGroupContextMenu(e, item.dataset.textGroupHeader);
             return;
         }
 
@@ -1444,7 +1463,7 @@ function showToolsList() {
         // Fallback path deselection
         if (window.svgpaths) {
             window.svgpaths.forEach(path => {
-                path.selected = false;
+                path.selected = 0;
             });
         }
     }
@@ -1472,17 +1491,17 @@ function applyNewOperationToPath(operationName, path) {
     // All operations in the operations panel now use the properties-based approach
     if (window.generateToolpathForSelection) {
         // Store original selections
-        const originalSelections = svgpaths.map(p => p.selected);
+        const originalSelections = svgpaths.map(p => p.selected > 0);
 
         // Deselect all paths except the current one
-        svgpaths.forEach(p => p.selected = false);
-        path.selected = true;
+        svgpaths.forEach(p => p.selected = 0);
+        path.selected = 2;
 
         // Generate toolpath using current properties from panel
         window.generateToolpathForSelection();
 
         // Restore original selections (keep the path selected)
-        path.selected = true;
+        path.selected = 2;
     }
 }
 
@@ -2903,16 +2922,17 @@ function handleOperationClick(operation) {
     const isGeneratingFromProperties = window.currentToolpathProperties !== null &&
                                        window.currentToolpathProperties !== undefined;
 
-    // For toolpath operations, handle specially
-    // Exception: Drill doesn't need path selection - it responds directly to clicks
-    if (isToolpathOperation && !isGeneratingFromProperties && operation !== 'Drill') {
-        // Keep in Select mode so user can select paths
-        cncController.setMode("Select");
-        return;
-    }
+   // let selectOperations = ['Select', 'Drill',  'Boolean'];
+
+   // cncController.setMode(operation);
+   // if( selectOperations.includes(operation)){
+   //     setMode("Select");
+   // }
+
 
     // Execute the appropriate operation
     switch (operation) {
+        
         // Drawing/Interaction Tools
         case 'Select':
             doSelect(operation);
@@ -2932,9 +2952,12 @@ function handleOperationClick(operation) {
         case 'Edit Points':
             doEditPoints();
             break;
-        //case 'Boolean':
-       //     doBoolean();
-        //    break;
+        case 'Boolean':
+            doBoolean();
+            break;
+        case 'Gemini':
+            doGemini();
+            break;
         case 'Pen':
             doPen();
             break;
@@ -2950,7 +2973,9 @@ function handleOperationClick(operation) {
         // Machining Operations
         case 'Drill':
             doDrill();
+            setMode("Select");
             break;
+            
         case 'Inside':
             doInside();
             break;
@@ -2973,6 +2998,7 @@ function handleOperationClick(operation) {
             doSelect(operation);
             break;
     }
+            
 }
 
 function handlePathClick(pathId) {
@@ -3192,6 +3218,234 @@ function deleteToolFolder(toolName) {
     });
 }
 
+// Context menu for SVG group folders
+function showSvgGroupContextMenu(event, groupId) {
+    // Remove existing context menu
+    const existingMenu = document.querySelector('.context-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'dropdown-menu show context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = event.clientX + 'px';
+    menu.style.top = event.clientY + 'px';
+    menu.style.zIndex = '9999';
+
+    menu.innerHTML = `
+        <button class="dropdown-item" data-action="show-all" data-group-id="${groupId}">
+            <i data-lucide="eye"></i> Show All
+        </button>
+        <button class="dropdown-item" data-action="hide-all" data-group-id="${groupId}">
+            <i data-lucide="eye-off"></i> Hide All
+        </button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-danger" data-action="delete-all" data-group-id="${groupId}">
+            <i data-lucide="trash-2"></i> Delete All
+        </button>
+    `;
+
+    document.body.appendChild(menu);
+
+    // Add event handlers
+    menu.addEventListener('click', function (e) {
+        const button = e.target.closest('[data-action]');
+        if (button) {
+            const action = button.dataset.action;
+            const groupId = button.dataset.groupId;
+
+            switch (action) {
+                case 'show-all':
+                    setSvgGroupVisibility(groupId, true);
+                    break;
+                case 'hide-all':
+                    setSvgGroupVisibility(groupId, false);
+                    break;
+                case 'delete-all':
+                    deleteSvgGroup(groupId);
+                    break;
+            }
+        }
+        menu.remove();
+    });
+
+    // Remove menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener('click', function closeMenu() {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        });
+    }, 0);
+
+    lucide.createIcons();
+}
+
+// Context menu for text group folders
+function showTextGroupContextMenu(event, groupId) {
+    // Remove existing context menu
+    const existingMenu = document.querySelector('.context-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'dropdown-menu show context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = event.clientX + 'px';
+    menu.style.top = event.clientY + 'px';
+    menu.style.zIndex = '9999';
+
+    menu.innerHTML = `
+        <button class="dropdown-item" data-action="show-all" data-group-id="${groupId}">
+            <i data-lucide="eye"></i> Show All
+        </button>
+        <button class="dropdown-item" data-action="hide-all" data-group-id="${groupId}">
+            <i data-lucide="eye-off"></i> Hide All
+        </button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-danger" data-action="delete-all" data-group-id="${groupId}">
+            <i data-lucide="trash-2"></i> Delete All
+        </button>
+    `;
+
+    document.body.appendChild(menu);
+
+    // Add event handlers
+    menu.addEventListener('click', function (e) {
+        const button = e.target.closest('[data-action]');
+        if (button) {
+            const action = button.dataset.action;
+            const groupId = button.dataset.groupId;
+
+            switch (action) {
+                case 'show-all':
+                    setTextGroupVisibility(groupId, true);
+                    break;
+                case 'hide-all':
+                    setTextGroupVisibility(groupId, false);
+                    break;
+                case 'delete-all':
+                    deleteTextGroup(groupId);
+                    break;
+            }
+        }
+        menu.remove();
+    });
+
+    // Remove menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener('click', function closeMenu() {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        });
+    }, 0);
+
+    lucide.createIcons();
+}
+
+// Set visibility for all paths in an SVG group
+function setSvgGroupVisibility(groupId, visible) {
+    let changedCount = 0;
+    svgpaths.forEach(function(path) {
+        if (path.svgGroupId === groupId) {
+            path.visible = visible;
+            changedCount++;
+        }
+    });
+
+    if (changedCount > 0) {
+        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} path(s)`, 'success');
+        redraw();
+    }
+}
+
+// Set visibility for all paths in a text group
+function setTextGroupVisibility(groupId, visible) {
+    let changedCount = 0;
+    svgpaths.forEach(function(path) {
+        if (path.textGroupId === groupId) {
+            path.visible = visible;
+            changedCount++;
+        }
+    });
+
+    if (changedCount > 0) {
+        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} path(s)`, 'success');
+        redraw();
+    }
+}
+
+// Delete all paths in an SVG group
+function deleteSvgGroup(groupId) {
+    const pathsToDelete = svgpaths.filter(p => p.svgGroupId === groupId);
+
+    if (pathsToDelete.length === 0) return;
+
+    showConfirmModal({
+        title: 'Delete SVG Group',
+        message: `
+            <p>Are you sure you want to delete all <strong>${pathsToDelete.length}</strong> path(s) in this SVG group?</p>
+            <p class="text-muted mb-0">This action cannot be undone.</p>
+        `,
+        confirmText: 'Delete All',
+        confirmClass: 'btn-danger',
+        headerClass: 'bg-danger text-white',
+        onConfirm: function() {
+            // Delete all paths with this group ID
+            for (let i = svgpaths.length - 1; i >= 0; i--) {
+                if (svgpaths[i].svgGroupId === groupId) {
+                    svgpaths.splice(i, 1);
+                }
+            }
+
+            // Remove the group from the sidebar
+            const groupElement = document.querySelector(`[data-svg-group-id="${groupId}"]`);
+            if (groupElement) {
+                groupElement.remove();
+            }
+
+            notify(`Deleted ${pathsToDelete.length} path(s)`, 'success');
+            redraw();
+        }
+    });
+}
+
+// Delete all paths in a text group
+function deleteTextGroup(groupId) {
+    const pathsToDelete = svgpaths.filter(p => p.textGroupId === groupId);
+
+    if (pathsToDelete.length === 0) return;
+
+    showConfirmModal({
+        title: 'Delete Text Group',
+        message: `
+            <p>Are you sure you want to delete all <strong>${pathsToDelete.length}</strong> path(s) in this text group?</p>
+            <p class="text-muted mb-0">This action cannot be undone.</p>
+        `,
+        confirmText: 'Delete All',
+        confirmClass: 'btn-danger',
+        headerClass: 'bg-danger text-white',
+        onConfirm: function() {
+            // Delete all paths with this group ID
+            for (let i = svgpaths.length - 1; i >= 0; i--) {
+                if (svgpaths[i].textGroupId === groupId) {
+                    svgpaths.splice(i, 1);
+                }
+            }
+
+            // Remove the group from the sidebar
+            const groupElement = document.querySelector(`[data-text-group-id="${groupId}"]`);
+            if (groupElement) {
+                groupElement.remove();
+            }
+
+            notify(`Deleted ${pathsToDelete.length} path(s)`, 'success');
+            redraw();
+        }
+    });
+}
+
 function setHidden(id, hidden) {
 
 
@@ -3263,9 +3517,9 @@ function addTextGroup(groupId, text, paths) {
         const textPaths = svgpaths.filter(p => p.textGroupId === groupId);
         if (textPaths.length > 0) {
             // Deselect all other paths
-            svgpaths.forEach(p => p.selected = false);
+            svgpaths.forEach(p => p.selected = 0);
             // Select all paths in this text group
-            textPaths.forEach(p => p.selected = true);
+            textPaths.forEach(p => p.selected = 1);
             // Highlight the group header
             document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
             groupHeader.classList.add('selected');
@@ -3295,6 +3549,92 @@ function addTextGroup(groupId, text, paths) {
         item.dataset.pathId = path.id;
         item.innerHTML = `
             <i data-lucide="type"></i>${path.name}
+        `;
+        collapseContainer.appendChild(item);
+    });
+
+    groupContainer.appendChild(collapseContainer);
+    section.appendChild(groupContainer);
+    lucide.createIcons();
+}
+
+// Add SVG group to sidebar (groups all paths from an SVG import together)
+function addSvgGroup(groupId, groupName, paths) {
+    const section = document.getElementById('svg-paths-section');
+
+    // Remove any existing group with this ID
+    const existingGroup = section.querySelector(`[data-svg-group-id="${groupId}"]`);
+    if (existingGroup) {
+        existingGroup.remove();
+    }
+
+    // Create collapsible group container
+    const groupContainer = document.createElement('div');
+    groupContainer.dataset.svgGroupId = groupId;
+    groupContainer.className = 'svg-group';
+
+    // Create group header with separate expand/collapse control
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'sidebar-item fw-bold d-flex align-items-center justify-content-between';
+    groupHeader.dataset.svgGroupHeader = groupId;
+
+    // Create folder content
+    const folderContent = document.createElement('span');
+    folderContent.innerHTML = `<i data-lucide="folder"></i>${groupName}`;
+    folderContent.style.flex = '1';
+    folderContent.style.cursor = 'pointer';
+
+    // Create chevron for expand/collapse
+    const chevronContainer = document.createElement('span');
+    chevronContainer.dataset.bsToggle = 'collapse';
+    chevronContainer.dataset.bsTarget = `#${groupId}`;
+    chevronContainer.setAttribute('aria-expanded', 'false');
+    chevronContainer.style.cursor = 'pointer';
+
+    const chevron = document.createElement('i');
+    chevron.className = 'collapse-chevron';
+    chevron.dataset.lucide = 'chevron-down';
+    chevron.style.minWidth = '16px';
+
+    chevronContainer.appendChild(chevron);
+
+    groupHeader.appendChild(folderContent);
+    groupHeader.appendChild(chevronContainer);
+
+    // Handle clicking on the chevron - just toggle, don't select
+    chevronContainer.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    // Handle clicking on the folder content to select all SVG paths
+    folderContent.addEventListener('click', (e) => {
+        const svgPaths = svgpaths.filter(p => p.svgGroupId === groupId);
+        if (svgPaths.length > 0) {
+            // Deselect all other paths
+            svgpaths.forEach(p => p.selected = 0);
+            // Select all paths in this SVG group
+            svgPaths.forEach(p => p.selected = 1);
+            // Highlight the group header
+            document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+            groupHeader.classList.add('selected');
+            redraw();
+        }
+    });
+
+    groupContainer.appendChild(groupHeader);
+
+    // Create collapsible container for individual paths
+    const collapseContainer = document.createElement('div');
+    collapseContainer.className = 'collapse'; // Start collapsed
+    collapseContainer.id = groupId;
+
+    // Add individual paths
+    paths.forEach(path => {
+        const item = document.createElement('div');
+        item.className = 'sidebar-item ms-4';
+        item.dataset.pathId = path.id;
+        item.innerHTML = `
+            <i data-lucide="${getPathIcon(path.name)}"></i>${path.name}
         `;
         collapseContainer.appendChild(item);
     });
@@ -3446,7 +3786,8 @@ function addSidebarOperations() {
 // Helper functions
 function getPathIcon(name) {
     if (name.includes('Circle')) return 'circle';
-      if (name.includes('RoundRect')) return 'square';
+    if (name.includes('Ellipse')) return 'egg';
+    if (name.includes('RoundRect')) return 'square';
     if (name.includes('Rect')) return 'rectangle-horizontal';
     if (name.includes('Line')) return 'minus';
     if (name.includes('Text')) return 'type';
@@ -3457,6 +3798,7 @@ function getPathIcon(name) {
     if (name.includes('Union')) return 'squares-unite';
     if (name.includes('Intersect')) return 'squares-intersect';
     if (name.includes('Subtract')) return 'squares-subtract';
+     if (name.includes('Gemini')) return 'brain';
     return 'route';
 }
 

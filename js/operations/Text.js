@@ -3497,12 +3497,7 @@ class Text extends Operation {
 
                     svgpaths.push(svgPath);
                     // Don't add individual paths to sidebar - will add as group later
-
-                    // Auto-select the first path created for this text
-                    if (pathIndex === 0 && char === text.charAt(0)) {
-                        svgPath.selected = true;
-                    }
-
+                    svgPath.selected = 1;
                     svgpathId++;
                 }
             });

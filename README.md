@@ -6,7 +6,7 @@
 
 **🌐 [Launch toGcode](https://rickmcconney.github.io/toGcode/)**
 
-A web-based CNC CAM (Computer-Aided Manufacturing) application that converts SVG files into G-code for CNC machines. Designed with a focus on woodworking and maker-friendly CNC operations.
+A web-based CNC CAM (Computer-Aided Manufacturing) application that converts SVG files into G-code for CNC machines. Features AI-powered SVG generation, advanced path editing tools, and intelligent toolpath optimization. Designed with a focus on woodworking and maker-friendly CNC operations.
 
 ## 🚧 Work in Progress
 
@@ -16,7 +16,9 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 
 ## Key Features
 
+- 🤖 **AI-Powered Design**: Generate SVG designs from text descriptions using Google Gemini API, unfortunately generated images are primative
 - 🎨 **Visual CAM Workflow**: Import SVG, design toolpaths, export G-code - all in your browser
+- ✏️ **Advanced Path Tools**: Boolean operations, parametric shapes, path editing, and freehand drawing
 - 🔧 **Complete Tool Library**: Manage unlimited tools with full parameter control
 - 📐 **Flexible Workpiece Setup**: Configure dimensions, material, origin position with visual feedback
 - ⚙️ **Smart Operations**: Inside/Outside profiling, Pocketing, Drilling, V-Carving with automatic tool compensation
@@ -28,15 +30,27 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 
 ### File Operations
 - **SVG Import**: Parse and import SVG files with support for various drawing software (Adobe Illustrator, Inkscape)
+- **AI-Powered SVG Generation**: Generate SVG designs from text descriptions using Google Gemini API
+  - Text-to-SVG conversion experimental not very useful at the moment
+  - Generates stroke-based line drawings (no fills)
+  - Requires free Gemini API key (stored securely in browser localStorage)
+  - Automatic import of generated SVG into workspace
 - **G-code Export**: Generate standard G-code with proper feed rates, depths, and tool changes
 - **Project Management**: Save/load project state with undo functionality
 
 ### Drawing Tools
 - **Pen Tool**: Freehand drawing for custom paths
-- **Polygon Tool**: Create multi-sided geometric shapes, can be used for circles and rectangles 
-- **Text Tool**: Add text with font support (using OpenType.js)
+- **Shape Tool**: Insert parametric shapes from built-in library (powered by Maker.js)
+  - Rectangles, Rounded rectangles, Circles, Ellipses, Stars, Polygons, Hearts
+  - Configurable parameters for each shape type
+- **Text Tool**: Add text with font support (using OpenType.js) using Google Fonts
 - **Selection Tool**: Select and manipulate imported paths
 - **Transform Tools**: Move, rotate, and scale objects
+- **PathEdit Tool**: Edit path control points directly on canvas for precise adjustments
+- **Boolean Operations**: Combine or subtract paths using boolean operations
+  - Union: Merge multiple selected paths into one
+  - Intersection: Keep only overlapping areas
+  - Difference: Subtract one path from another
 
 ### CNC Operations
 - **Inside Profiling**: Cut inside a closed path with tool radius compensation
@@ -45,19 +59,20 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 - **Drilling**: Create drilling operations for holes
 - **V-Carving**: Generate V-bit toolpaths for engraving and decorative cuts
 - **Center Operation**: Follow a path with no offset for engraving and decorative cuts
+ - Cutting parameters: depth, step down, stepover on a per operation basis
 
 ### Tool Management
 - **Tool Library**: Complete tool management system with:
   - Tool parameters: diameter, feed rate, plunge rate
-  - Cutting parameters: depth, step down, stepover
   - Tool types: End Mill, Drill Bit, V-Bit
   - Color-coded tool visualization
   - Add, edit, duplicate, and delete tools
   - Persistent storage in browser localStorage
 - **Material Database**: Wood species selection with optimized cutting parameters:
-  - Pine, Oak, Maple, Cherry, Walnut, MDF, Plywood
+  - Pine, Oak, Maple, Cherry, Walnut, Birch, Poplar, Cedar, Ash, Mahogany
   - Automatic feed rate adjustment based on material density
   - Visual material preview with realistic colors
+  - Species-specific feed and speed multipliers
 - **Auto Feed Rate Calculator**: Intelligent speed/feed calculation based on tool and material properties
 
 ### Workpiece Configuration
@@ -75,7 +90,8 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 
 ### Visualization & Navigation
 - **Interactive Canvas**: Responsive 2D canvas with:
-  - Smooth zoom and pan controls
+  - Smooth zoom and pan controls (mouse wheel to zoom, middle mouse button to pan)
+  - Snap-to-grid functionality when grid is visible (1/10 grid size precision)
   - Dynamic viewport centering
   - Real-time path selection and highlighting
   - Resizable panels for optimal workspace
@@ -86,7 +102,6 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
   - Show/hide individual toolpaths
 - **Grid & Guides**: Alignment and measurement aids:
   - Configurable grid size
-  - Origin crosshair indicator
   - Workpiece boundary outline
 - **Layer Management**: Complete visibility control:
   - Toggle SVG paths visibility
@@ -101,7 +116,9 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 - **UI Framework**: Bootstrap 5 with responsive layout
 - **Geometry**: Paper.js for SVG parsing and geometric operations
 - **Path Operations**: ClipperJS for offsetting and boolean operations
+- **Parametric Shapes**: Maker.js for generating geometric primitives
 - **Typography**: OpenType.js for font handling
+- **AI Integration**: Google Gemini API for text-to-SVG generation
 - **Icons**: Lucide icon system
 - **Storage**: Browser localStorage for project persistence
 
@@ -112,10 +129,14 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 - `js/operations/` - Operation system with individual tool implementations
   - `Operation.js` - Base operation class
   - `Select.js` - Selection and manipulation tool
+  - `Transform.js` - Move, rotate, scale operations
+  - `PathEdit.js` - Control point editing
   - `Workpiece.js` - Workpiece configuration interface
   - `Origin.js` - Origin setting tool
   - `Pan.js` - Canvas navigation
-  - `Pen.js`, `Polygon.js`, `Text.js`, `Drill.js` - Drawing tools
+  - `Pen.js`, `Shape.js`, `Text.js`, `Drill.js` - Drawing tools
+  - `Boolean.js` - Boolean operations (union, intersection, difference)
+  - `Gemini.js` - AI-powered SVG generation
   - `OperationManager.js` - Operation lifecycle and event handling
 - `js/CncController.js` - Main controller orchestrating operations and UI
 - `js/ToolPropertiesEditor.js` - Dynamic properties panel system
@@ -184,7 +205,8 @@ If you want to run toGcode locally or contribute to development:
 
 2. **Import or Draw Paths**
    - Import an SVG file via Import SVG
-   - Or use drawing tools (Pen, Polygon, Text) to create paths
+   - Or use drawing tools (Pen, Polygon, Shape, Text) to create paths
+   - Or generate SVG from text using the Gemini AI tool (requires free API key)
 
 3. **Set Up Tools**
    - Switch to Operations panel and add or edit tools in the Tool panel at the bottom
@@ -201,6 +223,25 @@ If you want to run toGcode locally or contribute to development:
    - Simulate the tool paths with the play button
    - Choose or create a post-processor profile
    - Save the G-code file for your CNC machine
+
+### Using AI-Powered SVG Generation
+
+1. **Get a Gemini API Key** (free)
+   - Visit [Google AI Studio](https://aistudio.google.com/apikey)
+   - Create a free API key
+
+2. **Generate SVG from Text**
+   - Click the "Gemini" tool in the sidebar
+   - Enter your API key (stored securely in browser)
+   - Type a description (e.g., "a decorative oak leaf", "a geometric mountain range")
+   - Click Apply to generate and import the SVG
+   - Unfortunately the Gemini models are not realy trained to generate SVG images so functionality is pretty limited
+
+3. **Tips for Best Results**
+   - Be specific and descriptive
+   - Use technical drawing terms (e.g., "line drawing", "outline", "contours")
+   - The AI generates stroke-based drawings optimized for CNC
+   - Generated SVG is automatically imported and ready for toolpath operations
 
 
 ## Project Structure
@@ -225,12 +266,16 @@ toGcode/
 │   │   ├── Pan.js                  # Pan/navigation tool
 │   │   ├── Transform.js            # Transform operations
 │   │   ├── Pen.js                  # Freehand drawing
-│   │   ├── Polygon.js              # Polygon creation
+│   │   ├── Shape.js                # Parametric shape library
 │   │   ├── Text.js                 # Text tool
 │   │   ├── Drill.js                # Drilling operations
+│   │   ├── PathEdit.js             # Path control point editing
+│   │   ├── Boolean.js              # Boolean operations
+│   │   ├── Gemini.js               # AI SVG generation
 │   │   └── OperationManager.js     # Operation lifecycle manager
 │   ├── simplify.js                 # Path simplification
 │   ├── clipperf.js                 # ClipperJS wrapper
+│   ├── maker.js                    # Maker.js parametric shapes
 │   ├── paper-full.js               # Paper.js library
 │   ├── opentype.js                 # OpenType font library
 │   └── lucide.js                   # Lucide icon library
@@ -242,16 +287,20 @@ toGcode/
 
 ### Completed Features
 - ✅ SVG import and parsing with multi-software support
-- ✅ Complete drawing tools suite (Pen, Polygon, Text, Drill)
+- ✅ AI-powered SVG generation via Google Gemini API
+- ✅ Complete drawing tools suite (Pen, Polygon, Shape, Text, Drill)
+- ✅ Path editing with control point manipulation
+- ✅ Boolean operations (union, intersection, difference)
 - ✅ Core CNC operations (Inside, Outside, Pocket, Center, V-Carve, Drill)
 - ✅ Comprehensive tool management system
 - ✅ Tool library with add/edit/duplicate/delete
-- ✅ Material database with wood species properties
+- ✅ Material database with 10 wood species properties
 - ✅ Auto feed rate calculation
 - ✅ Workpiece configuration panel
 - ✅ Flexible origin positioning system (9 positions)
 - ✅ G-code export with post-processor support
-- ✅ Interactive canvas with zoom/pan
+- ✅ Interactive canvas with zoom/pan (mouse wheel + middle button)
+- ✅ Snap-to-grid functionality
 - ✅ Undo/redo functionality
 - ✅ Project save/load with localStorage persistence
 - ✅ Bootstrap 5 responsive UI

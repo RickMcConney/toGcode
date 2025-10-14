@@ -1,12 +1,14 @@
 var makerjs = require('makerjs');
 
-var AVAILABLE_SHAPES = [{ value: 'Star', label: "Star" },
+var AVAILABLE_SHAPES = [
 { value: 'Belt', label: "Belt" },
+{ value: 'Circle', label: "Circle" },
+{ value: 'Ellipse', label: "Ellipse" },
+{ value: 'Heart', label: "Heart" },
 { value: 'Polygon', label: "Polygon" },
 { value: 'Rectangle', label: "Rentangle" },
 { value: 'RoundRectangle', label: "Round Rentangle" },
-{ value: 'Heart', label: "Heart" }
-
+{ value: 'Star', label: "Star" }
 ]
 
 function Heart(r, a2) {
@@ -53,6 +55,13 @@ class Shape extends Operation {
                     break;
                 case "Belt":
                     meta = makerjs.models.Belt.metaParameters;
+                    break;
+                case "Circle":
+                        meta = [{ title: 'radius', value: 20, min: 1, max: 100 }
+                                ];
+                    break;
+                case "Ellipse":
+                    meta = makerjs.models.Ellipse.metaParameters;
                     break;
                 case "Polygon":
                     meta = makerjs.models.Polygon.metaParameters;
@@ -135,6 +144,12 @@ class Shape extends Operation {
             case 'Belt':
                 this.model = new makerjs.models.Belt(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
                 break;
+            case 'Circle':
+                this.model = new makerjs.models.Ellipse(this.toInternal(arg[0]), this.toInternal(arg[0]));
+                break;
+            case 'Ellipse':
+                this.model = new makerjs.models.Ellipse(this.toInternal(arg[0]), this.toInternal(arg[1]));
+                break;
             case 'Polygon':
                 this.model = new makerjs.models.Polygon(arg[0], this.toInternal(arg[1]), arg[2], false);
                 break;
@@ -149,6 +164,9 @@ class Shape extends Operation {
                 break;
         }
 
+        this.model.origin = [x, y];
+        if(shape == "Rectangle" || shape == "RoundRectangle")
+            this.model.origin = [x - this.toInternal(arg[0])/2, y - this.toInternal(arg[1])/2];
         var chain = makerjs.model.findSingleChain(this.model);
         if(!chain) return;
 
@@ -156,7 +174,7 @@ class Shape extends Operation {
 
         var path = [];
         for (let p of this.points) {
-            path.push({ x: p[0] + x, y: p[1] + y });
+            path.push({ x: p[0], y: p[1] });
         }
 
         path.push(path[0]);
@@ -184,7 +202,7 @@ class Shape extends Operation {
             addSvgPath(svgPath.id, svgPath.name);
 
             // Auto-select the newly created polygon
-            svgPath.selected = true;
+            svgPath.selected = 1;
             selectSidebarNode(svgPath.id);
             this.currentPath = svgPath;
 
@@ -318,6 +336,7 @@ class Shape extends Operation {
 
         // Only update HTML if shape type changed
         if (oldShape !== this.properties.shape) {
+            this.currentPath = null;
             this._isUpdatingHTML = true;
 
             const form = document.getElementById('tool-properties-form');

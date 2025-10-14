@@ -130,10 +130,10 @@ class Operation {
 
             for (var j = 0; j < svgpaths[i].path.length; j++) {
                 if(!addToSelection)
-                    svgpaths[i].selected = false;
+                    svgpaths[i].selected = 0;
                 var pt = svgpaths[i].path[j];
                 if (pointInBoundingBox(pt, selectBox)) {
-                    svgpaths[i].selected = true;
+                    svgpaths[i].selected = this.selectionId++;
                     continue;
                 }
             }

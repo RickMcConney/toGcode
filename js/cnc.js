@@ -123,6 +123,7 @@ var MAX_UNDO = 50;
 // Canvas Drawing Colors
 var lineColor = '#000000';              // SVG path stroke color (black)
 var selectColor = '#ff0000';            // Selected path color (red)
+var activeColor = '#ff00ff';        // Active elements (orange)
 var highlightColor = '#00ff00';         // Highlighted elements (green)
 var toolColor = '#0000ff';              // Toolpath color (blue)
 var circleColor = '#0000ff';            // Circle/drill point color (blue)
@@ -458,7 +459,7 @@ function handleScroll(evt) {
 
 function unselectAll() {
 	for (var i = 0; i < svgpaths.length; i++) {
-		svgpaths[i].selected = false;
+		svgpaths[i].selected = 0;
 
 	}
 	unselectSidebarNode(null);
@@ -583,7 +584,7 @@ function initPaperJS() {
 }
 
 // New robust SVG parsing using Paper.js library
-function newParseSvgContent(data) {
+function newParseSvgContent(data, name) {
 	try {
 
 		// Initialize Paper.js if needed
@@ -797,17 +798,36 @@ function newParseSvgContent(data) {
 			}
 		}
 		addUndo(false, true, false);
+
+		// Generate unique group ID for this SVG import
+		const svgGroupId = 'svg-group-' + Date.now();
+		const groupedPaths = [];
+
 		for (var i = 0; i < paths.length; i++) {
 			paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
 			if (paths[i].geom.length > 0) {
-				let name = paths[i].name + ' ' + svgpathId;
+				let pathName = paths[i].name + ' ' + svgpathId;
 				let id = paths[i].name + svgpathId;
-				svgpaths.push({ id: id, name: name, path: paths[i].geom, visible: true, bbox: boundingBox(paths[i].geom) });
-				addSvgPath(id, name);
+				const pathObj = {
+					id: id,
+					name: pathName,
+					path: paths[i].geom,
+					visible: true,
+					bbox: boundingBox(paths[i].geom),
+					svgGroupId: svgGroupId
+				};
+				svgpaths.push(pathObj);
+				groupedPaths.push(pathObj);
 				svgpathId++;
 			}
 
 		}
+
+		// Add the SVG group to sidebar after all paths are created
+		if (typeof addSvgGroup === 'function' && groupedPaths.length > 0) {
+			addSvgGroup(svgGroupId, name, groupedPaths);
+		}
+
 		var bbox = boundingBoxPaths(svgpaths);
 
 
@@ -956,8 +976,8 @@ function boundingBox(path) {
 }
 
 // Create a wrapper function that uses the new parsing by default
-function parseSvgContent(data) {
-	return newParseSvgContent(data);
+function parseSvgContent(data, name) {
+	return newParseSvgContent(data, name);
 }
 
 
@@ -1510,13 +1530,13 @@ function drawSvgPaths() {
 			// drawNearby();
 
 
-			if (svgpath.highlight)
-				drawSvgPath(svgpath, highlightColor, 3);
-			if (svgpath.selected)
+			if(svgpath.selected == 1)
+				drawSvgPath(svgpath, activeColor, 3);
+			else if (svgpath.selected > 0)
 				drawSvgPath(svgpath, selectColor, 3);
-
-
-			if (!svgpath.selected || svgpath.highlight)
+			else if (svgpath.highlight)
+				drawSvgPath(svgpath, highlightColor, 3);
+			else
 				drawSvgPath(svgpath, lineColor, 0.5);
 		}
 	}
@@ -2348,7 +2368,8 @@ function doSelect(id) {
 	for (var i = 0; i < svgpaths.length; i++) {
 
 		if (svgpaths[i].id == id) {
-			svgpaths[i].selected = !svgpaths[i].selected;
+			if (svgpaths[i].selected == 0) svgpaths[i].selected = 1;
+			else svgpaths[i].selected = 0;
 			break;
 		}
 	}
@@ -2661,6 +2682,10 @@ function doBoolean() {
 	cncController.setMode("Boolean");
 }
 
+function doGemini() {
+	cncController.setMode("Gemini");
+}
+
 function doPen() {
 	cncController.setMode("Pen");
 	unselectAll();
@@ -2683,6 +2708,7 @@ function doText() {
 
 function doDrill() {
 	cncController.setMode("Drill");
+	setMode("Select");
 }
 
 function makeHole(pt) {

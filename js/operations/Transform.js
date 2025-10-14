@@ -536,7 +536,7 @@ class Transform extends Select {
         for (let handle of handles) {
             const dx = handle.x - point.x;
             const dy = handle.y - point.y;
-            if (Math.sqrt(dx * dx + dy * dy) <= this.handleSize) {
+            if (Math.sqrt(dx * dx + dy * dy) <= this.handleSize*4) {
                 return handle;
             }
         }
