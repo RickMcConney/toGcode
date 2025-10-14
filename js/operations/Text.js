@@ -3112,7 +3112,7 @@ class Text extends Operation {
                 ${(() => {
                 const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
                 const unitLabel = useInches ? 'in' : 'mm';
-                const fontSize = this.properties.fontSize || (useInches ? (25.4) : 20); // Fallback to 2in or 20mm
+                const fontSize = parseFloat(this.properties.fontSize || (useInches ? (25.4) : 20)); // Fallback to 2in or 20mm
                 const displaySize = formatDimension(fontSize, true);
                 // Dynamic max based on workpiece size
                 const workpieceWidth = getOption("workpieceWidth") || 300;
@@ -3168,7 +3168,7 @@ class Text extends Operation {
                 ${(() => {
                 const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
                 const unitLabel = useInches ? 'in' : 'mm';
-                const fontSize = path.creationProperties.fontSize || (useInches ? (25.4) : 20);
+                const fontSize = parseFloat(path.creationProperties.fontSize || (useInches ? (25.4) : 20));
                 const displaySize = formatDimension(fontSize, true);
                 // Dynamic max based on workpiece size
                 const workpieceWidth = getOption("workpieceWidth") || 300;
