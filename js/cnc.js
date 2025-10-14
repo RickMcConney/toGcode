@@ -2703,7 +2703,7 @@ function doShape() {
 
 function doText() {
 	cncController.setMode("Text");
-	unselectAll();
+	//unselectAll();
 }
 
 function doDrill() {

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-13";
+var APP_VERSION = "Ver 2025-10-14";
 
 var mode = "Select";
 var options = [];
@@ -1521,13 +1521,20 @@ function showPathPropertiesEditor(path) {
     // Update title
     title.textContent = `Edit ${path.creationTool} - ${path.name}`;
 
-    // Get properties HTML from the operation's getEditPropertiesHTML method
+    // Get properties HTML from the operation
     let propertiesHTML = '';
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-    if (operation && typeof operation.getEditPropertiesHTML === 'function') {
-        propertiesHTML = operation.getEditPropertiesHTML(path);
+
+    // Set the edit context before getting properties HTML
+    if (operation && typeof operation.setEditPath === 'function') {
+        operation.setEditPath(path);
+    }
+
+    // Now get the properties HTML (works for both edit and creation modes)
+    if (operation && typeof operation.getPropertiesHTML === 'function') {
+        propertiesHTML = operation.getPropertiesHTML();
     } else {
-        // Fallback for operations without edit properties
+        // Fallback for operations without properties
         propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
     }
 
@@ -1574,11 +1581,15 @@ function updateExistingPath(path, form) {
         // For polygons, update the existing path in place without creating new ones
         updatePolygonInPlace(path, data);
     } else if (path.creationTool === 'Text') {
-        // For text, we need to recreate all character paths
-        updateTextInPlace(path, data);
+        // For text, use the standard operation pattern
+        const operation = window.cncController?.operationManager?.getOperation('Text');
+        if (operation) {
+            operation.updateFromProperties(data);
+            // onPropertiesChanged will handle the update
+        }
     }
     else if (path.creationTool === 'Shape') {
-        // For text, we need to recreate all character paths
+        // For shapes, update in place
         updateShapeInPlace(path, data);
     }
 
@@ -1643,242 +1654,7 @@ function updatePolygonInPlace(path, data) {
     // Keep the same name and ID - don't create new paths
 }
 
-// Update text paths in place
-function updateTextInPlace(path, data) {
-    // Find all paths that belong to this text creation
-    const relatedPaths = svgpaths.filter(p =>
-        p.creationTool === 'Text' &&
-        p.creationProperties &&
-        p.creationProperties.position.x === path.creationProperties.position.x &&
-        p.creationProperties.position.y === path.creationProperties.position.y
-    );
 
-    // Check if only font size changed (same text and font) - we can update in place
-    const originalText = path.creationProperties.text;
-    const originalFont = path.creationProperties.font;
-    const sameTextAndFont = (data.text === originalText && data.font === originalFont);
-
-    if (sameTextAndFont && relatedPaths.length > 0) {
-        // Just update font size in place without recreating paths
-        updateTextSizeInPlace(relatedPaths, data);
-        redraw();
-    } else {
-        // Text or font changed, need to recreate paths
-        if (typeof opentype !== 'undefined') {
-            opentype.load(data.font, (err, font) => {
-                if (!err && font) {
-                    updateTextPathsInPlace(relatedPaths, font, data);
-                    redraw();
-                }
-            });
-        }
-    }
-}
-
-// Update text size without recreating paths (faster for size-only changes)
-function updateTextSizeInPlace(textPaths, data) {
-    const newFontSize = parseFloat(data.fontSize);
-    const oldFontSize = textPaths[0].creationProperties.fontSize;
-    const scaleFactor = newFontSize / oldFontSize;
-
-    // Update each path by scaling the points
-    textPaths.forEach(textPath => {
-        const centerX = textPath.creationProperties.position.x;
-        const centerY = textPath.creationProperties.position.y;
-
-        // Scale all points relative to the text origin
-        textPath.path = textPath.path.map(point => ({
-            x: centerX + (point.x - centerX) * scaleFactor,
-            y: centerY + (point.y - centerY) * scaleFactor
-        }));
-
-        // Update bounding box
-        textPath.bbox = boundingBox(textPath.path);
-
-        // Update stored properties
-        textPath.creationProperties.fontSize = newFontSize;
-    });
-}
-
-// Update existing text paths without creating new ones
-function updateTextPathsInPlace(textPaths, font, data) {
-    const text = data.text;
-    const fontSize = parseFloat(data.fontSize);
-    const fontname = data.font;
-
-    if (!textPaths.length) return;
-
-    // Get position from the first path
-    const position = textPaths[0].creationProperties.position;
-    const x = position.x;
-    const y = position.y;
-
-    // Store original path IDs, names, and textGroupId to preserve them
-    const textGroupId = textPaths[0].textGroupId || ('TextGroup' + Date.now());
-    const originalPaths = textPaths.map(p => ({
-        id: p.id,
-        name: p.name,
-        selected: p.selected
-    }));
-
-    // Remove existing text paths from sidebar and array
-    textPaths.forEach(textPath => {
-        const pathIndex = svgpaths.findIndex(p => p.id === textPath.id);
-        if (pathIndex !== -1) {
-            removeSvgPath(textPath.id);
-            svgpaths.splice(pathIndex, 1);
-        }
-    });
-
-    // Create new text paths using the same logic as the original text tool
-    let currentX = x;
-
-    // Calculate proper font size based on capital letter height
-    // Use a reference character (capital 'H') to determine actual scaling needed
-    const referenceChar = font.charToGlyph('H');
-    const referenceBBox = referenceChar.getBoundingBox();
-    const referenceHeight = referenceBBox.y2 - referenceBBox.y1;
-    const scaleFactor = font.unitsPerEm / referenceHeight;
-    let fontSizeScaled = fontSize * viewScale * scaleFactor;
-    let pathIdCounter = 0; // Track which original ID to reuse
-
-    const chars = text.split('');
-    chars.forEach((char, index) => {
-        var fontPath = font.getPath(char, currentX, y, fontSizeScaled);
-
-        // Track separate subpaths
-        var currentPathData = [];
-        var allPaths = [];
-        var lastX = currentX;
-        var lastY = y;
-        var firstPoint = null;
-
-        fontPath.commands.forEach(function (cmd) {
-            switch (cmd.type) {
-                case 'M': // Move - Start new subpath
-                    if (currentPathData.length > 0) {
-                        if (currentPathData.length >= 2) {
-                            allPaths.push([...currentPathData]);
-                        }
-                    }
-                    currentPathData = [];
-                    firstPoint = { x: cmd.x, y: cmd.y };
-                    if (fontname.indexOf("SingleLine") == -1) {
-                        currentPathData.push({ x: cmd.x, y: cmd.y });
-                    }
-                    lastX = cmd.x;
-                    lastY = cmd.y;
-                    break;
-
-                case 'L': // Line
-                    currentPathData.push({ x: cmd.x, y: cmd.y });
-                    lastX = cmd.x;
-                    lastY = cmd.y;
-                    break;
-
-                case 'C': // Curve
-                    var steps = 10;
-                    for (var i = 0; i <= steps; i++) {
-                        var t = i / steps;
-                        var tx = Math.pow(1 - t, 3) * lastX +
-                            3 * Math.pow(1 - t, 2) * t * cmd.x1 +
-                            3 * (1 - t) * Math.pow(t, 2) * cmd.x2 +
-                            Math.pow(t, 3) * cmd.x;
-                        var ty = Math.pow(1 - t, 3) * lastY +
-                            3 * Math.pow(1 - t, 2) * t * cmd.y1 +
-                            3 * (1 - t) * Math.pow(t, 2) * cmd.y2 +
-                            Math.pow(t, 3) * cmd.y;
-                        currentPathData.push({ x: tx, y: ty });
-                    }
-                    lastX = cmd.x;
-                    lastY = cmd.y;
-                    break;
-
-                case 'Q': // Quadratic curve
-                    var steps = 10;
-                    for (var i = 0; i <= steps; i++) {
-                        var t = i / steps;
-                        var tx = Math.pow(1 - t, 2) * lastX +
-                            2 * (1 - t) * t * cmd.x1 +
-                            Math.pow(t, 2) * cmd.x;
-                        var ty = Math.pow(1 - t, 2) * lastY +
-                            2 * (1 - t) * t * cmd.y1 +
-                            Math.pow(t, 2) * cmd.y;
-                        currentPathData.push({ x: tx, y: ty });
-                    }
-                    lastX = cmd.x;
-                    lastY = cmd.y;
-                    break;
-
-                case 'Z': // Close path
-                    if (firstPoint && currentPathData.length > 0) {
-                        currentPathData.push({ x: firstPoint.x, y: firstPoint.y });
-                    }
-                    break;
-            }
-        });
-
-        // Add the last subpath if it exists
-        if (currentPathData.length >= 2) {
-            allPaths.push(currentPathData);
-        }
-
-        // Create separate SVG path for each subpath
-        allPaths.forEach((pathData, pathIndex) => {
-            pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
-            if (pathData.length > 0) {
-                var pathType = pathIndex === 0 ? 'outer' : 'inner';
-
-                // Reuse original ID and name if available, otherwise create new
-                var pathId, pathName, isSelected;
-                if (pathIdCounter < originalPaths.length) {
-                    pathId = originalPaths[pathIdCounter].id;
-                    pathName = originalPaths[pathIdCounter].name;
-                    isSelected = originalPaths[pathIdCounter].selected;
-                } else {
-                    // If we need more paths than before, create new ones
-                    pathId = 'Text' + svgpathId;
-                    pathName = 'Text_' + char + '_' + pathType + '_' + svgpathId;
-                    isSelected = false;
-                    svgpathId++;
-                }
-
-                var svgPath = {
-                    id: pathId,
-                    type: 'path',
-                    name: pathName,
-                    selected: isSelected,
-                    visible: true,
-                    path: pathData,
-                    bbox: boundingBox(pathData),
-                    // Store creation properties for editing
-                    creationTool: 'Text',
-                    textGroupId: textGroupId, // Preserve group ID
-                    creationProperties: {
-                        text: text,
-                        font: fontname,
-                        fontSize: fontSize,
-                        position: { x: x, y: y },
-                        character: char,
-                        pathType: pathType
-                    }
-                };
-
-                svgpaths.push(svgPath);
-                pathIdCounter++;
-            }
-        });
-
-        // Move to next character position
-        currentX += font.getAdvanceWidth(char, fontSizeScaled);
-    });
-
-    // Add the updated text group to sidebar
-    const updatedTextPaths = svgpaths.filter(p => p.textGroupId === textGroupId);
-    if (updatedTextPaths.length > 0) {
-        addTextGroup(textGroupId, text, updatedTextPaths);
-    }
-}
 
 // Tool panel creation
 function createToolPanel() {
@@ -2648,8 +2424,7 @@ function renderOptionsTable() {
     tbody.innerHTML = '';
 
     // Filter out workpiece options that are now managed by the workpiece properties panel
-    const workpieceOptions = ['workpieceWidth', 'workpieceLength', 'workpieceThickness', 'woodSpecies', 'originPosition', 'showGrid', 'showOrigin', 'gridSize', 'showWorkpiece'];
-    const filteredOptions = options.filter(option => !workpieceOptions.includes(option.option));
+    const filteredOptions = options.filter(option => !option.hidden);
 
     filteredOptions.forEach((option, filteredIndex) => {
         // Find the original index in the full options array for the change handler
@@ -2843,26 +2618,27 @@ function performOptionsReset() {
     localStorage.removeItem('options');
 
     // Load default options
+
     options = [
-        { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid' },
-        { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin' },
-        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches' },
-        { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
-        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
-        { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm' },
-        { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)' },
-        { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)' },
-        { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)' },
-        { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
-        { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
-        { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)' },
-        { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)' },
-        { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
-        { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
-        { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
-        { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
-        { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
-        { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+        { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid', hidden: true },
+        { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin', hidden: true },
+        { recid: 3, option: 'Inches', value: false, desc: 'Display Inches', hidden: false },
+        { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm', hidden: false },
+        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance', hidden: false },
+        { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm', hidden: false },
+        { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)', hidden: true },
+        { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)', hidden: true },
+        { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)', hidden: true },
+        { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' , hidden: true },
+        { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates', hidden: false },
+        { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)', hidden: false },
+        { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
+        { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position', hidden: true },
+        { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)', hidden: true },
+        { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece', hidden: true },
+        { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm', hidden: false },
+        { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm', hidden: false },
+        { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false }
     ];
 
     // Recalculate origin based on reset workpiece dimensions
@@ -3527,6 +3303,7 @@ function addTextGroup(groupId, text, paths) {
             // Show properties for the first path in the group
             if (textPaths[0].creationTool && textPaths[0].creationProperties) {
                 showPathPropertiesEditor(textPaths[0]);
+                cncController.setMode("Text");
             }
 
             redraw();
@@ -3817,22 +3594,16 @@ function getOperationIcon(operation) {
 
 function getOption(name) {
     const option = options.find(opt => opt.option === name);
-    return option ? option.value : false;
+    return option ? option.value : null;
 }
 
 function setOption(name, value) {
     const option = options.find(opt => opt.option === name);
     if (option) {
         option.value = value;
-    } else {
-        // Create new option if it doesn't exist (for tool defaults like polygonRadius, textFontSize)
-        const newRecid = options.length > 0 ? Math.max(...options.map(o => o.recid)) + 1 : 1;
-        options.push({
-            recid: newRecid,
-            option: name,
-            value: value,
-            desc: name // Use name as description for dynamically created options
-        });
+    } 
+    else {
+        options.push({ option: name, value: value, hidden: true });
     }
     // Save to localStorage to persist the change
     localStorage.setItem('options', JSON.stringify(options));

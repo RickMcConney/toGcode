@@ -12,6 +12,10 @@ class OperationManager {
     return this.operations.get(name);
   }
 
+  getCurrentOperation() {
+    return this.currentOperation;
+  }
+
   setCurrentOperation(name) {
     if (this.currentOperation) {
       this.currentOperation.stop();
