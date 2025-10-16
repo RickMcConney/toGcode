@@ -655,7 +655,7 @@ function newParseSvgContent(data, name) {
 						if (j + 1 < pointValues.length) {
 							var rawX = parseFloat(pointValues[j]);
 							var rawY = parseFloat(pointValues[j + 1]);
-	
+
 							if (j === 0) {
 								paperPolygon.moveTo(rawX, rawY);
 							} else {
@@ -688,7 +688,7 @@ function newParseSvgContent(data, name) {
 					if (j + 1 < pointValues.length) {
 						var rawX = parseFloat(pointValues[j]);
 						var rawY = parseFloat(pointValues[j + 1]);
-		
+
 						if (j === 0) {
 							paperPolyline.moveTo(rawX, rawY);
 						} else {
@@ -738,7 +738,7 @@ function newParseSvgContent(data, name) {
 			var circleEl = circleElements[i];
 			var rawCx = parseFloat(circleEl.getAttribute('cx') || 0);
 			var rawCy = parseFloat(circleEl.getAttribute('cy') || 0);
-			var radius= parseFloat(circleEl.getAttribute('r'));
+			var radius = parseFloat(circleEl.getAttribute('r'));
 
 			var paperCircle = new paper.Path.Circle(rawCx, rawCy, radius);
 			var convertedPaths = newTransformFromPaperPath(paperCircle, "Circle");
@@ -754,7 +754,7 @@ function newParseSvgContent(data, name) {
 			var radiusX = parseFloat(ellipseEl.getAttribute('rx'));
 			var radiusY = parseFloat(ellipseEl.getAttribute('ry'));
 
-			var elipse = {center: new paper.Point(rawCx, rawCy), radius: new paper.Size(radiusX, radiusY)};
+			var elipse = { center: new paper.Point(rawCx, rawCy), radius: new paper.Size(radiusX, radiusY) };
 			var paperEllipse = new paper.Path.Ellipse(elipse);
 			var convertedPaths = newTransformFromPaperPath(paperEllipse, "Ellipse");
 			paths = paths.concat(convertedPaths);
@@ -1340,6 +1340,7 @@ function calculateFeedRate(tool, woodSpecies, operation) {
 		return tool ? tool.feed : 600;
 	}
 
+	if (tool.step == undefined) tool.step = tool.depth || 1;
 	// Get chip load for this material and tool
 	const chipLoad = getChipLoad(woodSpecies, tool.diameter, tool.bit);
 
@@ -1530,7 +1531,7 @@ function drawSvgPaths() {
 			// drawNearby();
 
 
-			if(svgpath.selected == 1)
+			if (svgpath.selected == 1)
 				drawSvgPath(svgpath, activeColor, 3);
 			else if (svgpath.selected > 0)
 				drawSvgPath(svgpath, selectColor, 3);
@@ -1732,6 +1733,22 @@ function distToSegmentSquared(p, v, w) {
 	return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
 }
 
+function distanceToClosestPath(pt, path, r) {
+
+	var rs = r * r;
+	min = Infinity
+
+	for (var i = 0; i < path.length - 1; i++) {
+		var j = (i + 1) % path.length;
+		var start = path[i];
+		var end = path[j];
+		var dist = distToSegmentSquared(pt, start, end);
+		if (dist < min) min = dist;
+	}
+	return Math.sqrt(min);
+}
+
+
 function isPointInCircle(pt, path, r) {
 
 	var rs = r * r;
@@ -1783,6 +1800,18 @@ function nearbyPaths(svgpath, radius) {
 	return paths;
 }
 
+function newbitFits(point, r) {
+	let min = Infinity;
+	for (var j = 0; j < nearbypaths.length; j++) {
+		var path = nearbypaths[j].path;
+		var dist = distanceToClosestPath(point, path, r);
+		if (dist < min) min = dist;
+	}
+	if (Math.abs(min - r) > 0.01)
+		return false;
+	return true;
+}
+
 function bitFits(point, r) {
 	for (var j = 0; j < nearbypaths.length; j++) {
 		var path = nearbypaths[j].path;
@@ -1823,6 +1852,9 @@ function bitFitsSubpath(point, r, subpath) {
 
 	return true;
 }
+
+
+
 
 function bitFitsTool(point, r) {
 	for (var j = 0; j < toolpaths.length; j++) {
@@ -1972,6 +2004,16 @@ function bitPos(start, end) {
 
 }
 
+function vbitRadius(tool) {
+	if (tool.bit != "VBit") return tool.diameter / 2;
+	var depth = tool.depth || 1;
+	var angle = tool.angle * Math.PI / 180.0;
+	var r = depth / Math.sin(angle / 2) / 2;
+	if (r > tool.diameter / 2) r = tool.diameter / 2;
+
+	return r;
+}
+
 function largestEmptyCircles(norms, startRadius, subpath) {
 	var circles = [];
 
@@ -1979,15 +2021,32 @@ function largestEmptyCircles(norms, startRadius, subpath) {
 		var n = norms[i];
 		var inc = 0.1;
 		var point = {};
-		for (var r = inc; r < startRadius; r += inc) {
-			point.x = n.x1 + (n.dx * (r + inc));
-			point.y = n.y1 + (n.dy * (r + inc));
-			if (!bitFits(point, r) || r >= startRadius - 1) {
+
+
+		for (var r = startRadius; r > 0; r -= inc) {
+			point.x = n.x1 + (n.dx * r);
+			point.y = n.y1 + (n.dy * r);
+			if (newbitFits(point, r) || r <= inc) {
 				point.r = r;
 				circles.push(point);
+				drawCircle(point);
 				break;
 			}
 		}
+
+
+		/*
+				for (var r = inc; r < startRadius; r += inc) {
+					point.x = n.x1 + (n.dx * (r + inc));
+					point.y = n.y1 + (n.dy * (r + inc));
+					if (!bitFits(point, r) || r >= startRadius - 1) {
+						point.r = r;
+						circles.push(point);
+						drawCircle(point);
+						break;
+					}
+				}
+				*/
 	}
 
 	if (circles.length > 0) {
@@ -2532,7 +2591,14 @@ function pushToolPath(paths, name, svgId) {
 
 	redraw();
 }
-
+function doProfile() {
+	if (currentTool.inside == "inside")
+		doInside();
+	else if (currentTool.inside == "outside")
+		doOutside();
+	else
+		doCenter();
+}
 function doOutside() {
 	if (getSelectedPath() == null) {
 		notify('Select a path to Profile');
@@ -2561,7 +2627,7 @@ function doOutside() {
 			var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 			//var tpath2 = window.simplify(circles,0.1,true);
-			if (currentTool.direction != "Climb") {
+			if (currentTool.direction != "climb") {
 				var rcircles = reversePath(circles);
 				var rtpath = reversePath(tpath);
 				paths.push({ path: rcircles, tpath: rtpath });
@@ -2609,7 +2675,7 @@ function doInside() {
 			var circles = checkPath(subpath, radius - 1);
 			//var tpath = window.simplify(circles,0.1,true);
 			var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
-			if (currentTool.direction == "Climb") {
+			if (currentTool.direction == "climb") {
 				var rcircles = reversePath(circles);
 				var rtpath = reversePath(tpath);
 				paths.push({ path: rcircles, tpath: rtpath });
@@ -2637,13 +2703,14 @@ function doCenter() {
 		var paths = [];
 		var path = svgpaths[i].path;
 		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
-		var subpath = subdividePath(path, 2);
-		var circles = addCircles(subpath, radius);
-		var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+		//var subpath = subdividePath(path, 2);
+		var circles = addCircles(path, radius);
+		var tpath = path;
+		//var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 		//if(svgpaths[i].id.indexOf("Line") >=0 )
-		tpath.pop(); // remove last point if not a closed path
+		//tpath.pop(); // remove last point if not a closed path
 
-		if (currentTool.direction != "Climb") {
+		if (currentTool.direction != "climb") {
 			var rcircles = reversePath(circles);
 			var rtpath = reversePath(tpath);
 			paths.push({ path: rcircles, tpath: rtpath });
@@ -2776,7 +2843,7 @@ function makeHole(pt) {
 }
 
 function generateClipperInfill(inputPaths, stepOverDistance, radius) {
-	const clipper = new ClipperLib.Clipper();	
+	const clipper = new ClipperLib.Clipper();
 	// Determine the bounding box to generate infill lines
 	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 	inputPaths.flat().forEach(point => {
@@ -2788,7 +2855,7 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 
 	// Generate a set of parallel lines that span the bounding box
 	const subjectLines = [];
-	for (let y = minY+radius; y <= (maxY-radius); y += stepOverDistance) {
+	for (let y = minY + radius; y <= (maxY - radius); y += stepOverDistance) {
 		// A single line segment to be clipped
 		const line = [{ x: minX, y: y }, { x: maxX, y: y }];
 		subjectLines.push(line);
@@ -2819,15 +2886,13 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 	);
 
 	const finalPaths = ClipperLib.Clipper.PolyTreeToPaths(solutionPolyTree);
-	for(let i = finalPaths.length-1;i>=0;i--)
-	{
+	for (let i = finalPaths.length - 1; i >= 0; i--) {
 		let p = finalPaths[i];
 		p[0].x -= (radius);
 		p[1].x += (radius);
 
-		if(p[0].x < p[1].x)
-		{
-			finalPaths.splice(i,1);
+		if (p[0].x < p[1].x) {
+			finalPaths.splice(i, 1);
 		}
 	}
 	// Scale the result back down
@@ -2836,25 +2901,25 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 
 function getUnionOfPaths(inputPaths) {
 
-  // Create a Clipper instance
-  const clipper = new ClipperLib.Clipper();
+	// Create a Clipper instance
+	const clipper = new ClipperLib.Clipper();
 
-  // Add all paths to the Clipper object as subjects.
-  clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptSubject, true);
+	// Add all paths to the Clipper object as subjects.
+	clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptSubject, true);
 
-  // Create a container for the result
-  const solutionPaths = new ClipperLib.Paths();
+	// Create a container for the result
+	const solutionPaths = new ClipperLib.Paths();
 
-  // Execute the union operation
-  clipper.Execute(
-    ClipperLib.ClipType.ctUnion, // Perform a union operation
-    solutionPaths,
-    ClipperLib.PolyFillType.pftNonZero,
-    ClipperLib.PolyFillType.pftNonZero
-  );
+	// Execute the union operation
+	clipper.Execute(
+		ClipperLib.ClipType.ctUnion, // Perform a union operation
+		solutionPaths,
+		ClipperLib.PolyFillType.pftNonZero,
+		ClipperLib.PolyFillType.pftNonZero
+	);
 
-  // Scale the result back down
-  return solutionPaths;
+	// Scale the result back down
+	return solutionPaths;
 }
 
 function doPocket() {
@@ -2865,7 +2930,7 @@ function doPocket() {
 	}
 
 	var radius = toolRadius();
-	var stepover = 2 * radius * currentTool.stepover/100;
+	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
 	var inputPaths = [];
 	for (var i = 0; i < svgpaths.length; i++) {
@@ -2878,26 +2943,23 @@ function doPocket() {
 	var paths = [];
 	var offsetPaths = [];
 	let outerPath = getUnionOfPaths(inputPaths)[0];
-	
+
 	let tpath = offsetPath(outerPath, radius, false);
 	offsetPaths.push(tpath[0]);
-	paths.push({tpath: tpath[0]});
+	paths.push({ tpath: tpath[0] });
 
-	for(p of inputPaths)
-	{
-		if(pathIn(outerPath,p))
-		{
+	for (p of inputPaths) {
+		if (pathIn(outerPath, p)) {
 			let tpath = offsetPath(p, radius, true);
-			paths.push({tpath: tpath[0]});
+			paths.push({ tpath: tpath[0] });
 			offsetPaths.push(tpath[0]);
 		}
 	}
 
 	let tpaths = generateClipperInfill(offsetPaths, stepover, radius);
 
-	for (let tpath of tpaths)
-	{
-		paths.push({tpath: tpath});
+	for (let tpath of tpaths) {
+		paths.push({ tpath: tpath });
 	}
 
 
@@ -2953,7 +3015,7 @@ function olddoPocket() {
 					};
 				}
 
-				if (currentTool.direction == "Climb") {
+				if (currentTool.direction == "climb") {
 					var rcircles = reversePath(circles);
 					var rtpath = reversePath(tpath);
 					paths.push({
@@ -2995,8 +3057,17 @@ function olddoPocket() {
 	unselectAll();
 
 }
-
-function doVcarveIn() {
+function doVcarve() {
+	if (currentTool.inside == 'inside') {
+		doVcarveIn();
+	} else if (currentTool.inside == 'outside') {
+		doVcarveOut();
+	}
+	else {
+		doVcarveCenter();
+	}
+}
+function doVcarveCenter() {
 	if (getSelectedPath() == null) {
 		notify('Select a path to VCarve');
 		return;
@@ -3006,13 +3077,23 @@ function doVcarveIn() {
 	unselectAll();
 }
 
+function doVcarveIn() {
+	if (getSelectedPath() == null) {
+		notify('Select a path to VCarve');
+		return;
+	}
+	setMode("VCarve In");
+	oldcompute(false, 'VCarve In');
+	unselectAll();
+}
+
 function doVcarveOut() {
 	if (getSelectedPath() == null) {
 		notify('Select a path to VCarve');
 		return;
 	}
 	setMode("VCarve Out");
-	compute(true, 'VCarve Out');
+	oldcompute(true, 'VCarve Out');
 	unselectAll();
 }
 function getSelectedPath() {
@@ -3036,24 +3117,29 @@ function medialAxis(name, path, holes, svgId) {
 	};
 	let intermediate_debug_data = null;
 
+	maxRadius = vbitRadius(currentTool)*viewScale;
 
 	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
 	var circles = [];
 	for (seg in segments) {
 		seg = segments[seg];
-		var p = { x: seg.point0.x, y: seg.point0.y, r: seg.point0.radius };
+		var p = { x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) };
 		//if (pointInPolygon(p, path))
 		circles.push(p);
-		var p1 = { x: seg.point1.x, y: seg.point1.y, r: seg.point1.radius };
+		var p1 = { x: seg.point1.x, y: seg.point1.y, r: Math.min(seg.point1.radius, maxRadius) };
 		//if (pointInPolygon(p1, path))
 		circles.push(p1);
 	}
 	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 	var tpath = findBestPath(segments).toolpath;
+	for(p of tpath) {
+		p.r = Math.min(p.r, maxRadius)
+	}
 	var paths = [{ path: circles, tpath: tpath }];
 	pushToolPath(paths, name, svgId);
 }
+
 function compute(outside, name) {
 	var selected = [];
 	var paths = [];
@@ -3091,7 +3177,7 @@ function pathIn(outer, inner) {
 }
 
 function oldcompute(outside, name) {
-	var radius = toolRadius();
+	var radius = vbitRadius(currentTool) * viewScale;
 
 	for (var i = 0; i < svgpaths.length; i++) {
 		var paths = [];
@@ -3101,8 +3187,8 @@ function oldcompute(outside, name) {
 
 		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
 
-		medialAxis(name, path, [], svgpaths[i].id);
-		continue;
+		//medialAxis(name, path, [], svgpaths[i].id);
+		//continue;
 
 		var r = radius;
 
@@ -3118,13 +3204,14 @@ function oldcompute(outside, name) {
 		var subpath = subdividePath(path, 2); // max path length
 
 		norms = makeNorms(subpath, path, cw, 1, outside);
+		drawNorms(norms)
 
 		var circles = largestEmptyCircles(norms, r, subpath);
 		//var tpath = simplify(circles,2,true);
 		var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 		if (outside) {
-			if (currentTool.direction != "Climb") {
+			if (currentTool.direction != "climb") {
 				var rcircles = reversePath(circles);
 				var rtpath = reversePath(tpath);
 				paths.push({ path: rcircles, tpath: rtpath });
@@ -3134,7 +3221,7 @@ function oldcompute(outside, name) {
 			}
 		}
 		else {
-			if (currentTool.direction == "Climb") {
+			if (currentTool.direction == "climb") {
 				var rcircles = reversePath(circles);
 				var rtpath = reversePath(tpath);
 				paths.push({ path: rcircles, tpath: rtpath });
@@ -3668,7 +3755,8 @@ function toGcode() {
 				output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
 
 				if (bit == 'VBit') {
-					depth = toolDepth(angle, radius);
+					let maxRadius = vbitRadius(sortedToolpaths[i].tool);
+					depth = toolDepth(angle, maxRadius);
 				}
 
 				var left = depth;
@@ -3810,7 +3898,8 @@ function toGcode() {
 						z = 0;
 
 						if (bit == 'VBit') {
-							depth = toolDepth(angle, radius);
+							let maxRadius = vbitRadius(sortedToolpaths[i].tool);
+							depth = toolDepth(angle, maxRadius);
 						}
 						var left = depth;
 						var pass = 0;
@@ -4387,6 +4476,7 @@ function drawMaterialRemoval() {
 	for (let i = 0; i < materialRemovalPoints.length; i++) {
 		const point = materialRemovalPoints[i];
 		var pt = worldToScreen(point.x, point.y);
+	
 		ctx.beginPath();
 		ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
 		if (point.isActualGcodePoint) {

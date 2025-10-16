@@ -9,27 +9,27 @@ class ToolpathPropertiesManager {
         this.operationConfigs = {
             'Inside': {
                 compatibleBits: ['End Mill'],
-                fields: ['tool', 'depth', 'step', 'stepover'],
+                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
                 description: 'Cut inside the selected closed path'
             },
-            'Outside': {
-                compatibleBits: ['End Mill'],
-                fields: ['tool', 'depth', 'step', 'stepover'],
-                description: 'Cut outside the selected closed path'
+            'Profile': {
+                compatibleBits: ['End Mill', 'VBit'],
+                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
+                description: 'Cut along the profile of the selected path'
             },
             'Center': {
                 compatibleBits: ['End Mill', 'VBit'],
-                fields: ['tool', 'depth', 'step'],
+                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
                 description: 'Cut along the center line of the path'
             },
             'Pocket': {
                 compatibleBits: ['End Mill'],
-                fields: ['tool', 'depth', 'step', 'stepover'],
+                fields: ['tool', 'depth', 'step', 'stepover', 'direction'],
                 description: 'Remove all material inside the path'
             },
-            'Vcarve In': {
+            'Vcarve': {
                 compatibleBits: ['VBit'],
-                fields: ['tool', 'depth'],
+                fields: ['tool', 'depth', 'inside'],
                 description: 'V-carve inside the path with tapered cuts'
             },
             'Drill': {
@@ -82,7 +82,9 @@ class ToolpathPropertiesManager {
                 toolId: null, // Will be set to first compatible tool
                 depth: workpieceThickness,
                 step: workpieceThickness * 0.25,
-                stepover: 25
+                stepover: 25,
+                inside: 'inside', // Default to 'inside' for inside/outside option
+                direction: 'climb' // Default to 'climb' for direction option
             };
         }
         return this.defaults[operationName];
@@ -164,6 +166,54 @@ class ToolpathPropertiesManager {
         return html;
     }
 
+    generateInsideOutsideDropdownHTML(operationName, value = null) {
+
+        if (value === null) {
+            value = this.getDefaults(operationName).inside;
+        }
+
+        const options = ['Inside', 'Outside', 'Center'];
+
+
+        let html = '<div class="mb-3">';
+        html += '<label for="inside-select" class="form-label small"><strong>Cutting Side:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="inside-select" name="inside">';
+
+        options.forEach(option => {
+            const selected = option.toLowerCase() === value.toLowerCase() ? 'selected' : '';
+            html += `<option value="${option.toLowerCase()}" ${selected}>${option}</option>`;
+        });
+
+        html += '</select>';
+        html += '</div>';
+
+        return html;
+    }
+
+    generateDirectionDropdownHTML(operationName, value = null) {
+
+        if (value === null) {
+            value = this.getDefaults(operationName).direction;
+        }
+
+        const options = ['Climb', 'Conventional'];
+
+        let html = '<div class="mb-3">';
+        html += '<label for="direction-select" class="form-label small"><strong>Direction:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="direction-select" name="direction">';
+
+
+        options.forEach(option => {
+            const selected = option.toLowerCase() === value.toLowerCase() ? 'selected' : '';
+            html += `<option value="${option.toLowerCase()}" ${selected}>${option}</option>`;
+        });
+
+        html += '</select>';
+        html += '</div>';
+
+        return html;
+    }
+
     /**
      * Generate HTML for depth input
      */
@@ -235,6 +285,17 @@ class ToolpathPropertiesManager {
             html += this.generateToolDropdownHTML(operationName, toolId);
         }
 
+        // Inside/Outside selection (for relevant operations)
+        if (config.fields.includes('inside')) {
+            const inside = existingProperties?.inside || null;
+            html += this.generateInsideOutsideDropdownHTML(operationName, inside);
+        }
+        // Direction selection (for relevant operations)
+        if (config.fields.includes('direction')) {
+            const direction = existingProperties?.direction || null;
+            html += this.generateDirectionDropdownHTML(operationName, direction);
+        }
+
         // Depth input
         if (config.fields.includes('depth')) {
             const depth = existingProperties?.depth || null;
@@ -274,9 +335,17 @@ class ToolpathPropertiesManager {
         const depthInput = document.getElementById('depth-input');
         const stepInput = document.getElementById('step-input');
         const stepoverInput = document.getElementById('stepover-input');
+        const insideInput = document.getElementById('inside-select');
+        const directionInput = document.getElementById('direction-select');
 
         if (toolSelect) {
             data.toolId = parseInt(toolSelect.value);
+        }
+        if (insideInput) {
+            data.inside = insideInput.value;
+        }
+        if (directionInput) {
+            data.direction = directionInput.value;
         }
         if (depthInput) {
             data.depth = parseFloat(depthInput.value);
@@ -302,6 +371,9 @@ class ToolpathPropertiesManager {
             errors.push('Please select a tool');
         }
 
+        if (config.fields.includes('inside') && !data.inside) {
+            errors.push('Please select inside/outside option');
+        }
         if (config.fields.includes('depth')) {
             if (!data.depth || data.depth <= 0) {
                 errors.push('Depth must be greater than 0');

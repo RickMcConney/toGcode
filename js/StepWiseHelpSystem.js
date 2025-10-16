@@ -257,6 +257,13 @@ class StepWiseHelpSystem {
                 'Check tool diameter and cutting parameters',
                 'Inside cutting toolpath generated'
             ],
+            'Profile': [
+                'Select paths to cut along the profile',
+                'Select Inside, Outside or Center cutting option',
+                'Depth of cut is determined by tool depth setting',
+                'Useful for cutting parts out of stock material',
+                'Profile cutting toolpath generated'
+            ],
             'Outside': [
                 'Select closed paths to cut outside',
                 'Tool will cut outside the path boundary',

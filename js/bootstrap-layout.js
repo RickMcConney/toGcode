@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-14";
+var APP_VERSION = "Ver 2025-10-16";
 
 var mode = "Select";
 var options = [];
@@ -490,20 +490,15 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Drill" data-bs-toggle="tooltip" data-bs-placement="right" title="Drill holes at selected points">
                         <i data-lucide="circle-plus"></i>Drill
                     </div>
-                    <div class="sidebar-item" data-operation="Inside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut inside the selected path">
-                        <i data-lucide="circle-dot"></i>Inside
+                    <div class="sidebar-item" data-operation="Profile" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut inside or outside the selected path">
+                        <i data-lucide="circle"></i>Profile
                     </div>
-                    <div class="sidebar-item" data-operation="Center" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut along the center line">
-                        <i data-lucide="circle-off"></i>Center
-                    </div>
-                    <div class="sidebar-item" data-operation="Outside" data-bs-toggle="tooltip" data-bs-placement="right" title="Cut outside the selected path">
-                        <i data-lucide="circle"></i>Outside
-                    </div>
+
                     <div class="sidebar-item" data-operation="Pocket" data-bs-toggle="tooltip" data-bs-placement="right" title="Remove material inside the path">
                         <i data-lucide="target"></i>Pocket
                     </div>
-                    <div class="sidebar-item" data-operation="Vcarve In" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside the path">
-                        <i data-lucide="star"></i>V-Carve In
+                    <div class="sidebar-item" data-operation="Vcarve" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside or outside the path">
+                        <i data-lucide="star"></i>V-Carve
                     </div>
 
                     <!-- Tool Paths Section -->
@@ -1104,9 +1099,11 @@ function showOperationPropertiesEditor(operationName) {
             const originalTool = window.currentTool;
             window.currentTool = {
                 ...selectedTool,
-                depth: data.depth || selectedTool.depth,
-                step: data.step || selectedTool.step,
-                stepover: data.stepover || selectedTool.stepover
+                depth: data.depth,
+                step: data.step,
+                stepover: data.stepover,
+                inside: data.inside,
+                direction: data.direction
             };
 
             // Store the properties for later reference (to be used by pushToolPath)
@@ -1248,7 +1245,7 @@ function setupToolpathUpdateButton(operationName) {
         }
 
         // For VCarve and Drill operations, update in place without regenerating from SVG paths
-        if (operationName === 'Vcarve In' || operationName === 'Vcarve Out' || operationName === 'Drill') {
+        if ( operationName === 'Drill') {
             // Update toolpath properties and tool data in place without regenerating
             for (const toolpath of activeToolpaths) {
                 toolpath.toolpathProperties = { ...data };
@@ -1324,7 +1321,8 @@ function setupToolpathUpdateButton(operationName) {
             ...selectedTool,
             depth: data.depth || selectedTool.depth,
             step: data.step || selectedTool.step,
-            stepover: data.stepover || selectedTool.stepover
+            stepover: data.stepover || selectedTool.stepover,
+            inside: data.inside
         };
 
         // Store the properties for later reference
@@ -1705,7 +1703,6 @@ function createToolPanel() {
                         <th><i data-lucide="palette" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Set tool color"></i> Color</th>
                         <th><i data-lucide="tag" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool name"></i> Name</th>
                         <th><i data-lucide="wrench" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool"></i> Tool</th>
-                        <th><i data-lucide="rotate-cw" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Direction"></i> Direction</th>
                         <th><i data-lucide="diameter" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Diameter"></i>Diameter (<span id="tool-table-unit">${getUnitLabel()}</span>)</th>
                         <th><i data-lucide="hash" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of cutting edges"></i> Flutes</th>
                         <th><i data-lucide="gauge" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Spindle speed (RPM)"></i> RPM</th>
@@ -1801,12 +1798,7 @@ function createToolRow(tool, index) {
                 <option value="VBit" ${tool.bit === 'VBit' ? 'selected' : ''}>VBit</option>
             </select>
         </td>
-        <td>
-            <select data-field="direction" class="form-select form-select-sm">
-                <option value="Climb" ${tool.direction === 'Climb' ? 'selected' : ''}>Climb</option>
-                <option value="Conventional" ${tool.direction === 'Conventional' ? 'selected' : ''}>Conventional</option>
-            </select>
-        </td>
+
         <td><input type="text" value="${displayDiameter}" data-field="diameter" data-unit-type="${useInches ? 'inches' : 'mm'}" class="form-control-plaintext" placeholder="${useInches ? '1/4' : '6'}"></td>
         <td><input type="number" value="${tool.flutes || 2}" data-field="flutes" min="1" max="6" step="1" data-bs-toggle="tooltip" title="Number of cutting edges"></td>
         <td><input type="number" value="${tool.rpm || 18000}" data-field="rpm" min="1000" max="30000" step="100" data-bs-toggle="tooltip" title="Spindle speed (RPM)"></td>
@@ -2060,7 +2052,7 @@ function createModals() {
                                 <li class="mb-2"><strong>Select Paths:</strong> Choose which SVG paths to machine</li>
                                 <li class="mb-2"><strong>Select Tool:</strong> Note: Depth field of tool determines depth of cut, copy tool and change depth to cut different depths. Depth and Step can be given as a percentage of workpiece thickness. So for example 100% will cut all the way through the work piece.</li>
                                 <li class="mb-2"><strong>Warning:</strong> If workpiece thickness is chaged check the step size it will be colored red if the step size is too aggressive for the bit.</li>
-                                <li class="mb-2"><strong>Apply Operations:</strong> Use Inside, Outside, Pocket, or V-Carve operations</li>
+                                <li class="mb-2"><strong>Apply Operations:</strong> Use Profile, Pocket, or V-Carve operations</li>
                                 <li class="mb-2"><strong>Export G-code:</strong> Click "Save Gcode" to download your toolpaths</li>
                             </ol>
                         </div>
@@ -2758,14 +2750,14 @@ function handleOperationClick(operation) {
         case 'Center':
             doCenter();
             break;
-        case 'Outside':
-            doOutside();
+        case 'Profile':
+            doProfile();
             break;
         case 'Pocket':
             doPocket();
             break;
-        case 'Vcarve In':
-            doVcarveIn();
+        case 'Vcarve':
+            doVcarve();
             break;
         case 'Vcarve Out':
             doVcarveOut();
