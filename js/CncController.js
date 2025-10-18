@@ -9,14 +9,13 @@ class CncController {
     // Register all operations
     this.operationManager.registerOperation(new Select());
     this.operationManager.registerOperation(new Workpiece());
-    this.operationManager.registerOperation(new Origin());
+    //this.operationManager.registerOperation(new Origin());
     // Pan tool removed - use middle mouse button to pan
     this.operationManager.registerOperation(new Transform());
     this.operationManager.registerOperation(new PathEdit());
     this.operationManager.registerOperation(new BooleanOpp());
     this.operationManager.registerOperation(new Gemini())
     this.operationManager.registerOperation(new Pen());
-    this.operationManager.registerOperation(new Polygon());
     this.operationManager.registerOperation(new Shape());
     this.operationManager.registerOperation(new Text());
     this.operationManager.registerOperation(new Drill());
@@ -93,8 +92,8 @@ class CncController {
       }
     });
 
-    this.operationManager.addOperations();
-    addSidebarOperations();
+
+ 
   }
 
   setMode(mode) {

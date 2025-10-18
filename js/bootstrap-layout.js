@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-16";
+var APP_VERSION = "Ver 2025-10-18";
 
 var mode = "Select";
 var options = [];
@@ -309,6 +309,7 @@ function initializeLayout() {
     createSidebar();
     createToolPanel();
     createModals();
+    cncController.operationManager.addOperations();
     lucide.createIcons();
 }
 
@@ -408,7 +409,7 @@ function createSidebar() {
         <!-- Tab Navigation -->
         <nav class="nav nav-tabs border-bottom" id="sidebar-tabs" role="tablist">
             <button class="nav-link active" id="draw-tools-tab" data-bs-toggle="tab" data-bs-target="#draw-tools" type="button" role="tab">
-                <i data-lucide="pen-tool"></i> Draw Tools
+                <i data-lucide="drafting-compass"></i> Draw Tools
             </button>
             <button class="nav-link" id="operations-tab" data-bs-toggle="tab" data-bs-target="#operations" type="button" role="tab">
                 <i data-lucide="settings"></i> Operations
@@ -420,43 +421,10 @@ function createSidebar() {
             <!-- Draw Tools Tab -->
             <div class="tab-pane fade show active h-100" id="draw-tools" role="tabpanel">
                 <div id="draw-tools-list" class="p-3">
-                    <div class="sidebar-item" data-operation="Workpiece" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure workpiece dimensions and material">
-                        <i data-lucide="package"></i>Workpiece
-                    </div>
-                    <div class="sidebar-item" data-operation="Move" data-bs-toggle="tooltip" data-bs-placement="right" title="Move selected objects">
-                        <i data-lucide="move"></i>Move
-                    </div>
-                    <div class="sidebar-item" data-operation="Edit Points" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit path points">
-                        <i data-lucide="edit"></i>Edit Points
-                    </div>
-                    <div class="sidebar-item" data-operation="Boolean" data-bs-toggle="tooltip" data-bs-placement="right" title="Boolean">
-                        <i data-lucide="squares-unite"></i>Boolean
-                    </div>
-                    <div class="sidebar-item" data-operation="Gemini" data-bs-toggle="tooltip" data-bs-placement="right" title="Gemini">
-                        <i data-lucide="brain"></i>Gemini
-                    </div>
-                    <hr class="my-3">
-                    <div class="sidebar-item" data-operation="Pen" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw freehand lines">
-                        <i data-lucide="pen-tool"></i>Pen
-                    </div>
-                    <div class="sidebar-item" data-operation="Shape" data-bs-toggle="tooltip" data-bs-placement="right" title="Draw Shapes">
-                        <i data-lucide="pentagon"></i>Shape
-                    </div>
-                    <div class="sidebar-item" data-operation="Text" data-bs-toggle="tooltip" data-bs-placement="right" title="Add text elements">
-                        <i data-lucide="type"></i>Text
-                    </div>
-
-                    <!-- SVG Paths Section -->
-                    <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section" aria-expanded="false">
-                            <span>SVG Paths</span>
-                            <i data-lucide="chevron-down" class="collapse-chevron"></i>
-                        </div>
-                        <div class="collapse" id="svg-paths-section">
-                            <!-- SVG paths will be added dynamically -->
-                        </div>
-                    </div>
+                    <!-- Draw Tools will be added dynamically -->
                 </div>
+
+                
 
                 <!-- Tool Properties Editor (hidden by default) -->
                 <div id="tool-properties-editor" class="p-3" style="display: none;">
@@ -482,6 +450,18 @@ function createSidebar() {
                         <i data-lucide="check"></i> Done
                     </button>
                 </div>
+
+                <!-- SVG Paths Section -->
+                    <div class="sidebar-section mt-4">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section" aria-expanded="false">
+                            <span>SVG Paths</span>
+                            <i data-lucide="chevron-down" class="collapse-chevron"></i>
+                        </div>
+                        <div class="collapse" id="svg-paths-section">
+                            <!-- SVG paths will be added dynamically -->
+                        </div>
+                    </div>
+
             </div>
 
             <!-- Operations Tab -->
@@ -500,7 +480,31 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Vcarve" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside or outside the path">
                         <i data-lucide="star"></i>V-Carve
                     </div>
+                </div>
+                <!-- Operation Properties Editor (hidden by default) -->
+                <div id="operation-properties-editor" class="p-3" style="display: none;">
+                    <div class="mb-3 pb-3 border-bottom">
+                        <h6 class="mb-0" id="operation-properties-title">Operation Properties</h6>
+                    </div>
 
+                    <!-- Operation properties form will be injected here -->
+                    <div id="operation-properties-form"></div>
+
+                    <!-- Help section -->
+                    <div class="mt-4">
+                        <h6 class="text-muted mb-2">
+                            <i data-lucide="help-circle"></i> How to use
+                        </h6>
+                        <div id="operation-help-content" class="small text-muted mb-3">
+                            Select an operation to see instructions here.
+                        </div>
+                    </div>
+
+                    <!-- Done button after help -->
+                    <button type="button" class="btn btn-secondary w-100" id="operation-done-button">
+                        <i data-lucide="check"></i> Done
+                    </button>
+                </div>
                     <!-- Tool Paths Section -->
                     <div class="sidebar-section mt-4">
                         <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section" aria-expanded="false">
@@ -602,32 +606,9 @@ function createSidebar() {
                             </div>
                         </div>
                     </div>
-                </div>
+                
 
-                <!-- Operation Properties Editor (hidden by default) -->
-                <div id="operation-properties-editor" class="p-3" style="display: none;">
-                    <div class="mb-3 pb-3 border-bottom">
-                        <h6 class="mb-0" id="operation-properties-title">Operation Properties</h6>
-                    </div>
-
-                    <!-- Operation properties form will be injected here -->
-                    <div id="operation-properties-form"></div>
-
-                    <!-- Help section -->
-                    <div class="mt-4">
-                        <h6 class="text-muted mb-2">
-                            <i data-lucide="help-circle"></i> How to use
-                        </h6>
-                        <div id="operation-help-content" class="small text-muted mb-3">
-                            Select an operation to see instructions here.
-                        </div>
-                    </div>
-
-                    <!-- Done button after help -->
-                    <button type="button" class="btn btn-secondary w-100" id="operation-done-button">
-                        <i data-lucide="check"></i> Done
-                    </button>
-                </div>
+                
             </div>
         </div>
     `;
@@ -653,7 +634,7 @@ function createSidebar() {
             handleOperationClick(operation);
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece',  'Move', 'Edit Points', 'Pen', 'Shape', ,'Boolean', 'Gemini', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -666,6 +647,7 @@ function createSidebar() {
 
         // Update selection
         sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+        //unselectAll();
         if (item) item.classList.add('selected');
     });
 
@@ -1004,7 +986,7 @@ function showToolPropertiesEditor(operationName) {
 
             // Add both change and input events for real-time updates
             input.addEventListener('change', handleInputChange);
-            input.addEventListener('input', handleInputChange);
+            //input.addEventListener('input', handleInputChange);
         });
     } else {
         form.innerHTML = '<p class="text-muted">No properties available for this tool.</p>';
@@ -1064,7 +1046,7 @@ function showOperationPropertiesEditor(operationName) {
 
     // Check if this is a toolpath operation that should use the new properties manager
     const isToolpathOperation = window.toolpathPropertiesManager &&
-                                window.toolpathPropertiesManager.hasOperation(operationName);
+        window.toolpathPropertiesManager.hasOperation(operationName);
 
     if (isToolpathOperation) {
         // Use the new toolpath properties manager for CNC operations
@@ -1143,7 +1125,7 @@ function showOperationPropertiesEditor(operationName) {
 
         // Store function globally so it can be called when paths are selected
         window.generateToolpathForSelection = generateToolpathForSelection;
-
+/*
         // Check if there are already selected paths - if so, generate toolpath after DOM updates
         const hasSelectedPaths = svgpaths && svgpaths.some(p => p.selected && p.visible);
         if (hasSelectedPaths) {
@@ -1152,7 +1134,7 @@ function showOperationPropertiesEditor(operationName) {
                 generateToolpathForSelection();
             }, 10); // Small delay to ensure DOM is ready
         }
-
+*/
         // Set up the "Update Toolpath" button using the shared handler
         setupToolpathUpdateButton(operationName);
     } else {
@@ -1188,7 +1170,7 @@ function showOperationPropertiesEditor(operationName) {
 
                 // Add both change and input events for real-time updates
                 input.addEventListener('change', handleInputChange);
-                input.addEventListener('input', handleInputChange);
+               // input.addEventListener('input', handleInputChange);
             });
         } else {
             form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
@@ -1215,7 +1197,7 @@ function setupToolpathUpdateButton(operationName) {
     updateButton.parentNode.replaceChild(newButton, updateButton);
 
     // Set up the click handler
-    newButton.addEventListener('click', function() {
+    newButton.addEventListener('click', function () {
         // Get all currently active toolpaths
         const activeToolpaths = getActiveToolpaths();
 
@@ -1245,16 +1227,19 @@ function setupToolpathUpdateButton(operationName) {
         }
 
         // For VCarve and Drill operations, update in place without regenerating from SVG paths
-        if ( operationName === 'Drill') {
+        if (operationName === 'Drill') {
             // Update toolpath properties and tool data in place without regenerating
             for (const toolpath of activeToolpaths) {
                 toolpath.toolpathProperties = { ...data };
                 toolpath.tool = {
                     ...selectedTool,
-                    depth: data.depth || selectedTool.depth,
-                    step: data.step || selectedTool.step,
-                    stepover: data.stepover || selectedTool.stepover
+                    depth: data.depth,
+                    step: data.step,
+                    stepover: data.stepover,
+                    inside: data.inside,
+                    direction: data.direction
                 };
+
 
                 // For drill holes, if tool diameter changed, update the radius in the path
                 if (operationName === 'Drill' && selectedTool.diameter) {
@@ -1319,11 +1304,14 @@ function setupToolpathUpdateButton(operationName) {
         const originalTool = window.currentTool;
         window.currentTool = {
             ...selectedTool,
-            depth: data.depth || selectedTool.depth,
-            step: data.step || selectedTool.step,
-            stepover: data.stepover || selectedTool.stepover,
-            inside: data.inside
+            depth: data.depth,
+            step: data.step,
+            stepover: data.stepover,
+            inside: data.inside,
+            direction: data.direction
         };
+
+
 
         // Store the properties for later reference
         window.currentToolpathProperties = { ...data };
@@ -1525,18 +1513,21 @@ function showPathPropertiesEditor(path) {
 
     // Set the edit context before getting properties HTML
     if (operation && typeof operation.setEditPath === 'function') {
-        operation.setEditPath(path);
+        
+        //operation.onPropertiesChanged(path.creationProperties.properties); // Ensure properties are synced
     }
 
     // Now get the properties HTML (works for both edit and creation modes)
     if (operation && typeof operation.getPropertiesHTML === 'function') {
-        propertiesHTML = operation.getPropertiesHTML();
+        propertiesHTML = operation.getPropertiesHTML(path);
+        
     } else {
         // Fallback for operations without properties
         propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
     }
 
     form.innerHTML = propertiesHTML;
+    operation.setEditPath(path);
 
     // Add event listeners directly to input elements for path editing
     const inputs = form.querySelectorAll('input, select, textarea');
@@ -1547,7 +1538,7 @@ function showPathPropertiesEditor(path) {
 
         // Add both change and input events for real-time updates
         input.addEventListener('change', handlePathEditChange);
-        input.addEventListener('input', handlePathEditChange);
+        //input.addEventListener('input', handlePathEditChange);
     });
 
     // Update help content
@@ -1575,10 +1566,7 @@ function updateExistingPath(path, form) {
         }
     });
 
-    if (path.creationTool === 'Polygon') {
-        // For polygons, update the existing path in place without creating new ones
-        updatePolygonInPlace(path, data);
-    } else if (path.creationTool === 'Text') {
+    if (path.creationTool === 'Text') {
         // For text, use the standard operation pattern
         const operation = window.cncController?.operationManager?.getOperation('Text');
         if (operation) {
@@ -1595,62 +1583,12 @@ function updateExistingPath(path, form) {
     redraw();
 }
 
-function updateShapeInPlace(path, data)
-{
+function updateShapeInPlace(path, data) {
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-    operation.updateInPlace(path,data);
+    operation.setEditPath(path);
+    operation.onPropertiesChanged(data);
 }
 
-// Update polygon path in place without creating new paths
-function updatePolygonInPlace(path, data) {
-    const newSides = parseInt(data.sides);
-    // Convert radius from current units to mm
-    const useInches = getOption('Inches');
-    const newRadius = useInches ? parseFloat(data.radius) * MM_PER_INCH : parseFloat(data.radius);
-
-    // Use ACTUAL current center (in case polygon was moved), not stored creation center
-    const actualCenterX = (path.bbox.minx + path.bbox.maxx) / 2;
-    const actualCenterY = (path.bbox.miny + path.bbox.maxy) / 2;
-    const center = { x: actualCenterX, y: actualCenterY };
-
-    // Generate new points for the polygon using same logic as polygon creation
-    const points = [];
-    const radius = newRadius * viewScale;
-
-    if (newSides % 2 === 1) {
-        // Odd-sided polygons: put one point at the bottom
-        const angleStep = (2 * Math.PI) / newSides;
-        const startAngle = -Math.PI / 2; // Start with a point at bottom (flip 180 degrees from 90)
-
-        for (let i = 0; i < newSides; i++) {
-            const angle = startAngle + (i * angleStep);
-            const x = center.x + radius * Math.cos(angle);
-            const y = center.y + radius * Math.sin(angle);
-            points.push({ x: x, y: y });
-        }
-    } else {
-        // Even-sided polygons: put an edge at the bottom
-        const angleStep = (2 * Math.PI) / newSides;
-        const startAngle = -Math.PI / 2 + (angleStep / 2); // Flip 180 degrees and offset so edge is at bottom
-
-        for (let i = 0; i < newSides; i++) {
-            const angle = startAngle + (i * angleStep);
-            const x = center.x + radius * Math.cos(angle);
-            const y = center.y + radius * Math.sin(angle);
-            points.push({ x: x, y: y });
-        }
-    }
-    points.push(points[0]); // Close the polygon
-
-    // Update the existing path object
-    path.path = points;
-    path.bbox = boundingBox(points);
-    path.creationProperties.sides = newSides;
-    path.creationProperties.radius = newRadius;
-    path.creationProperties.center = center; // Update center to actual current location
-
-    // Keep the same name and ID - don't create new paths
-}
 
 
 
@@ -2164,9 +2102,9 @@ function createModals() {
                                 </ul>
                                 <p class="mb-2 mt-3"><strong>Path Editing:</strong></p>
                                 <ul>
-                                    <li>Use "Edit Points" tool to modify path vertices</li>
+                                    <li>Use "Edit" tool to modify path vertices</li>
                                     <li>Text objects can be re-edited after creation</li>
-                                    <li>Polygon properties can be changed after creation</li>
+                                    <li>Shape properties can be changed after creation</li>
                                 </ul>
                             </div>
                         </div>
@@ -2396,7 +2334,7 @@ function showConfirmModal(options) {
 
     // Add new event listener
     if (onConfirm) {
-        newConfirmBtn.addEventListener('click', function() {
+        newConfirmBtn.addEventListener('click', function () {
             onConfirm();
             const modal = bootstrap.Modal.getInstance(modalElement);
             modal.hide();
@@ -2621,7 +2559,7 @@ function performOptionsReset() {
         { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)', hidden: true },
         { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)', hidden: true },
         { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)', hidden: true },
-        { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' , hidden: true },
+        { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species', hidden: true },
         { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates', hidden: false },
         { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)', hidden: false },
         { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
@@ -2683,24 +2621,24 @@ function handleOperationClick(operation) {
 
     // Check if this is a toolpath operation managed by the properties panel
     const isToolpathOperation = window.toolpathPropertiesManager &&
-                                window.toolpathPropertiesManager.hasOperation(operation);
+        window.toolpathPropertiesManager.hasOperation(operation);
 
     // If it's a toolpath operation and we're NOT generating from properties,
     // then we should NOT execute the operation yet - just set the mode
     const isGeneratingFromProperties = window.currentToolpathProperties !== null &&
-                                       window.currentToolpathProperties !== undefined;
+        window.currentToolpathProperties !== undefined;
 
-   // let selectOperations = ['Select', 'Drill',  'Boolean'];
+    // let selectOperations = ['Select', 'Drill',  'Boolean'];
 
-   // cncController.setMode(operation);
-   // if( selectOperations.includes(operation)){
-   //     setMode("Select");
-   // }
+    // cncController.setMode(operation);
+    // if( selectOperations.includes(operation)){
+    //     setMode("Select");
+    // }
 
 
     // Execute the appropriate operation
     switch (operation) {
-        
+
         // Drawing/Interaction Tools
         case 'Select':
             doSelect(operation);
@@ -2717,7 +2655,7 @@ function handleOperationClick(operation) {
         case 'Move':
             doMove();
             break;
-        case 'Edit Points':
+        case 'Edit':
             doEditPoints();
             break;
         case 'Boolean':
@@ -2728,9 +2666,6 @@ function handleOperationClick(operation) {
             break;
         case 'Pen':
             doPen();
-            break;
-        case 'Polygon':
-            doPolygon();
             break;
         case 'Shape':
             doShape();
@@ -2743,7 +2678,7 @@ function handleOperationClick(operation) {
             doDrill();
             setMode("Select");
             break;
-            
+
         case 'Inside':
             doInside();
             break;
@@ -2752,21 +2687,25 @@ function handleOperationClick(operation) {
             break;
         case 'Profile':
             doProfile();
+            setMode("Select");
             break;
         case 'Pocket':
             doPocket();
+            setMode("Select");
             break;
         case 'Vcarve':
             doVcarve();
+            setMode("Select");
             break;
         case 'Vcarve Out':
             doVcarveOut();
+            setMode("Select");
             break;
         default:
             doSelect(operation);
             break;
     }
-            
+
 }
 
 function handlePathClick(pathId) {
@@ -2778,7 +2717,7 @@ function handlePathClick(pathId) {
         if (toolpath) {
             // Check if this operation has properties manager support
             const hasPropertiesSupport = window.toolpathPropertiesManager &&
-                                        window.toolpathPropertiesManager.hasOperation(toolpath.operation);
+                window.toolpathPropertiesManager.hasOperation(toolpath.operation);
 
             if (hasPropertiesSupport) {
                 // Show toolpath properties editor
@@ -2939,7 +2878,7 @@ function showToolFolderContextMenu(event, toolName) {
 // Set visibility for all toolpaths in a tool folder
 function setToolFolderVisibility(toolName, visible) {
     let changedCount = 0;
-    toolpaths.forEach(function(toolpath) {
+    toolpaths.forEach(function (toolpath) {
         if (toolpath.tool.name === toolName) {
             toolpath.visible = visible;
             changedCount++;
@@ -2969,7 +2908,7 @@ function deleteToolFolder(toolName) {
         confirmText: 'Delete All',
         confirmClass: 'btn-danger',
         headerClass: 'bg-danger text-white',
-        onConfirm: function() {
+        onConfirm: function () {
             // Delete all toolpaths with this tool name
             for (let i = toolpaths.length - 1; i >= 0; i--) {
                 if (toolpaths[i].tool.name === toolName) {
@@ -3115,7 +3054,7 @@ function showTextGroupContextMenu(event, groupId) {
 // Set visibility for all paths in an SVG group
 function setSvgGroupVisibility(groupId, visible) {
     let changedCount = 0;
-    svgpaths.forEach(function(path) {
+    svgpaths.forEach(function (path) {
         if (path.svgGroupId === groupId) {
             path.visible = visible;
             changedCount++;
@@ -3131,7 +3070,7 @@ function setSvgGroupVisibility(groupId, visible) {
 // Set visibility for all paths in a text group
 function setTextGroupVisibility(groupId, visible) {
     let changedCount = 0;
-    svgpaths.forEach(function(path) {
+    svgpaths.forEach(function (path) {
         if (path.textGroupId === groupId) {
             path.visible = visible;
             changedCount++;
@@ -3159,7 +3098,7 @@ function deleteSvgGroup(groupId) {
         confirmText: 'Delete All',
         confirmClass: 'btn-danger',
         headerClass: 'bg-danger text-white',
-        onConfirm: function() {
+        onConfirm: function () {
             // Delete all paths with this group ID
             for (let i = svgpaths.length - 1; i >= 0; i--) {
                 if (svgpaths[i].svgGroupId === groupId) {
@@ -3194,7 +3133,7 @@ function deleteTextGroup(groupId) {
         confirmText: 'Delete All',
         confirmClass: 'btn-danger',
         headerClass: 'bg-danger text-white',
-        onConfirm: function() {
+        onConfirm: function () {
             // Delete all paths with this group ID
             for (let i = svgpaths.length - 1; i >= 0; i--) {
                 if (svgpaths[i].textGroupId === groupId) {
@@ -3217,6 +3156,31 @@ function deleteTextGroup(groupId) {
 function setHidden(id, hidden) {
 
 
+}
+
+function addOrReplaceSvgPath(oldId, id, name) {
+    const section = document.getElementById('svg-paths-section');
+
+    // Check for existing item with this ID
+    const existingItem = section.querySelector(`[data-path-id="${oldId}"]`);
+    if (existingItem) {
+        // Replace existing item
+        existingItem.dataset.pathId = id;
+        existingItem.innerHTML = `
+            <i data-lucide="${getPathIcon(name)}"></i>${name}
+        `;
+    } else {
+        // Create new item
+        const item = document.createElement('div');
+        item.className = 'sidebar-item';
+        item.dataset.pathId = id;
+        item.innerHTML = `
+            <i data-lucide="${getPathIcon(name)}"></i>${name}
+        `;
+        section.appendChild(item);
+    }
+
+    lucide.createIcons();
 }
 // Sidebar management functions (maintaining compatibility with existing code)
 function addSvgPath(id, name) {
@@ -3475,7 +3439,7 @@ function refreshToolPathsDisplay() {
             item.className = 'sidebar-item ms-4';
             item.dataset.pathId = toolpath.id;
             item.innerHTML = `
-                <i data-lucide="${getOperationIcon(toolpath.operation)}"></i>${toolpath.operation} ${toolpath.id.replace('T', '')}
+                <i data-lucide="${getOperationIcon(toolpath.name)}"></i>${toolpath.name} ${toolpath.id.replace('T', '')}
             `;
             toolGroup.appendChild(item);
         });
@@ -3539,10 +3503,15 @@ function unselectSidebarNode(id) {
 }
 
 // Compatibility function for operation manager
-function addOperation(name, icon) {
-    // Operations are already added statically in createSidebar()
-    // This function is kept for compatibility with OperationManager
-    //console.log(`Operation ${name} with icon ${icon} registered`);
+function addOperation(name, icon, tooltip) {
+
+    if (icon != null) {
+        document.getElementById('draw-tools-list').innerHTML += `
+        <div class="sidebar-item" data-operation=${name} data-bs-toggle="tooltip" data-bs-placement="right" title="${tooltip}">
+         <i data-lucide=${icon}></i>${name}
+        </div>`
+    }
+
 }
 
 // Compatibility function for CncController
@@ -3567,7 +3536,7 @@ function getPathIcon(name) {
     if (name.includes('Union')) return 'squares-unite';
     if (name.includes('Intersect')) return 'squares-intersect';
     if (name.includes('Subtract')) return 'squares-subtract';
-     if (name.includes('Gemini')) return 'brain';
+    if (name.includes('Gemini')) return 'brain';
     return 'route';
 }
 
@@ -3593,7 +3562,7 @@ function setOption(name, value) {
     const option = options.find(opt => opt.option === name);
     if (option) {
         option.value = value;
-    } 
+    }
     else {
         options.push({ option: name, value: value, hidden: true });
     }

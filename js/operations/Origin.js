@@ -1,6 +1,6 @@
 class Origin extends Operation {
     constructor() {
-        super('Origin', 'fa fa-anchor');
+        super('Origin', null);
     }
 
     // Properties Editor Interface

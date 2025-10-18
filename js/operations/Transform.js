@@ -1,8 +1,9 @@
 class Transform extends Select {
     constructor() {
-        super();
+        super('Move', 'move');
         this.name = 'Move';
-        this.icon = 'fa fa-arrows';
+        this.icon = 'move';
+        this.tooltip = 'Move, scale, and rotate selected objects';
         this.transformBox = null;
         this.handleSize = 8;
         this.ROTATION_SNAP = Math.PI / 36; // 5 degree snapping
@@ -54,6 +55,7 @@ class Transform extends Select {
 
         // Refresh properties panel to show the right state
         this.refreshPropertiesPanel();
+        redraw();
     }
 
     refreshPropertiesPanel() {
@@ -434,16 +436,16 @@ class Transform extends Select {
             // Show current dimensions instead of scale factors
             const currentWidth = this.transformBox.width / viewScale;
             const currentHeight = this.transformBox.height / viewScale;
-            const useInches = typeof getOption === 'function' && getOption('Inches');
-            const unitLabel = useInches ? '"' : ' mm';
-            text = formatDimension(currentWidth, true) + unitLabel + ' × ' + formatDimension(currentHeight, true) + unitLabel;
+ 
+ 
+            text = formatDimension(currentWidth, true) + ' × ' + formatDimension(currentHeight, true);
         }
         else if (this.activeHandle.type == 'translate') {
             const deltaXmm = this.deltaX / viewScale;
             const deltaYmm = -this.deltaY / viewScale;
-            const useInches = typeof getOption === 'function' && getOption('Inches');
-            const unitLabel = useInches ? '"' : ' mm';
-            text = formatDimension(deltaXmm, true) + unitLabel + ', ' + formatDimension(deltaYmm, true) + unitLabel;
+  
+ 
+            text = formatDimension(deltaXmm, true) +  ', ' + formatDimension(deltaYmm, true);
         }
         let handle = this.getTransformHandles()[this.activeHandle.id - 1];
         let screenHandle = worldToScreen(handle.x, handle.y);
@@ -553,15 +555,15 @@ class Transform extends Select {
         if (this.transformBox) {
             const centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
             const useInches = typeof getOption === 'function' && getOption('Inches');
-            const unitLabel = useInches ? '"' : 'mm';
+
             const centerXStr = formatDimension(centerMM.x, true);
             const centerYStr = formatDimension(centerMM.y, true);
             centerInfo = `
                 <div class="alert alert-info mb-3">
                     <i data-lucide="move"></i>
                     <strong>Center Position</strong><br>
-                    X: <span id="move-center-x">${centerXStr}</span> ${unitLabel}<br>
-                    Y: <span id="move-center-y">${centerYStr}</span> ${unitLabel}
+                    X: <span id="move-center-x">${centerXStr}</span><br>
+                    Y: <span id="move-center-y">${centerYStr}</span>
                 </div>
             `;
         } else {
@@ -575,7 +577,7 @@ class Transform extends Select {
         }
 
         const useInches = typeof getOption === 'function' && getOption('Inches');
-        const unitLabel = useInches ? '"' : 'mm';
+
         const deltaXmm = this.deltaX / viewScale;
         const deltaYmm = -this.deltaY / viewScale;
         const deltaXValue = useInches ? formatDimension(deltaXmm, true) : deltaXmm.toFixed(2);
@@ -586,12 +588,12 @@ class Transform extends Select {
                 <label class="form-label"><strong>Translation</strong></label>
                 <div class="row">
                     <div class="col-6">
-                        <label for="move-delta-x" class="form-label">Delta X (${unitLabel})</label>
+                        <label for="move-delta-x" class="form-label">Delta X</label>
                         <input type="text" class="form-control" id="move-delta-x" name="deltaX"
                                value="${deltaXValue}" ${disabled}>
                     </div>
                     <div class="col-6">
-                        <label for="move-delta-y" class="form-label">Delta Y (${unitLabel})</label>
+                        <label for="move-delta-y" class="form-label">Delta Y</label>
                         <input type="text" class="form-control" id="move-delta-y" name="deltaY"
                                value="${deltaYValue}" ${disabled}>
                     </div>
@@ -602,12 +604,12 @@ class Transform extends Select {
                 <label class="form-label"><strong>Dimensions</strong></label>
                 <div class="row">
                     <div class="col-6">
-                        <label for="move-width" class="form-label">Width (${unitLabel})</label>
+                        <label for="move-width" class="form-label">Width</label>
                         <input type="text" class="form-control" id="move-width" name="width"
                                value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.width / viewScale, true) : (this.transformBox.width / viewScale).toFixed(2)) : '0'}" ${disabled}>
                     </div>
                     <div class="col-6">
-                        <label for="move-height" class="form-label">Height (${unitLabel})</label>
+                        <label for="move-height" class="form-label">Height</label>
                         <input type="text" class="form-control" id="move-height" name="height"
                                value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.height / viewScale, true) : (this.transformBox.height / viewScale).toFixed(2)) : '0'}" ${disabled}>
                     </div>

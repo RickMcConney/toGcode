@@ -1,7 +1,7 @@
 
 class Select extends Operation {
     constructor() {
-        super('Select', 'fa fa-mouse-pointer');
+        super('Select', null);
         this.unselectOnMouseDown = true;
         this.selectionOrder = []; // Track order of path selection
         this.selectionId = 2;
@@ -67,9 +67,9 @@ class Select extends Operation {
 
                             if (isOnDrawToolsTab && mostRecentPath.creationTool && mostRecentPath.creationProperties && !isMoveToolActive) {
                                 // Check if this is a draw tool that supports editing
-                                if (mostRecentPath.creationTool === 'Text' || mostRecentPath.creationTool === 'Polygon') {
+                                if (mostRecentPath.creationTool === 'Text' || mostRecentPath.creationTool === 'Shape') {
                                     // Show properties editor for the most recently selected path
-                                    showPathPropertiesEditor(mostRecentPath);
+                                    //showPathPropertiesEditor(mostRecentPath);
                                 }
                             }
                         }
@@ -115,9 +115,9 @@ class Select extends Operation {
 
                     if (isOnDrawToolsTab && selectedPath.creationTool && selectedPath.creationProperties && !isMoveToolActive) {
                         // Check if this is a draw tool that supports editing
-                        if (selectedPath.creationTool === 'Text' || selectedPath.creationTool === 'Polygon') {
+                        if (selectedPath.creationTool === 'Text' || selectedPath.creationTool === 'Shape') {
                             // Show properties editor for this path
-                            showPathPropertiesEditor(selectedPath);
+                            //showPathPropertiesEditor(selectedPath);
                         }
                     }
                 }
@@ -222,7 +222,7 @@ class Select extends Operation {
                         // Check if this is a draw tool that supports editing
                         if (pathToShow.creationTool === 'Text' || pathToShow.creationTool === 'Polygon') {
                             // Show properties editor for this path
-                            showPathPropertiesEditor(pathToShow);
+                           // showPathPropertiesEditor(pathToShow);
                         }
                     }
                 }

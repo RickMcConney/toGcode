@@ -1,6 +1,6 @@
 class Workpiece extends Operation {
     constructor() {
-        super('Workpiece', 'fa fa-cube');
+        super('Workpiece', 'package', 'Configure your workpiece dimensions and material properties');
     }
 
     // Origin position calculation function
@@ -30,15 +30,12 @@ class Workpiece extends Operation {
         const currentThickness = getOption("workpieceThickness") || 19;
         const currentGridSize = getOption("gridSize") || 10;
 
-        // Check if using inches for display
-        const useInches = getOption('Inches');
-        const unitLabel = useInches ? 'in' : 'mm';
 
         // Convert values for display (with fractions in inch mode)
-        const displayWidth = formatDimension(currentWidth, useInches, true);
-        const displayLength = formatDimension(currentLength, useInches, true);
-        const displayThickness = formatDimension(currentThickness, useInches, true);
-        const displayGridSize = formatDimension(currentGridSize, useInches, true);
+        const displayWidth = formatDimension(currentWidth, true);
+        const displayLength = formatDimension(currentLength, true);
+        const displayThickness = formatDimension(currentThickness,  true);
+        const displayGridSize = formatDimension(currentGridSize,  true);
 
         const currentSpecies = getOption("woodSpecies") || 'Pine';
         const currentOriginPosition = getOption("originPosition") || 'middle-center';
@@ -99,25 +96,25 @@ class Workpiece extends Operation {
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceWidth" class="form-label">Width (${unitLabel})</label>
+                    <label for="workpieceWidth" class="form-label">Width</label>
                     <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth"
-                           value="${displayWidth}" data-unit-type="${useInches ? 'inches' : 'mm'}">
-                    <small class="text-muted">Enter value as ${useInches ? 'decimal or fraction (e.g., 11.75 or 11 3/4)' : 'millimeters'}</small>
+                           value="${displayWidth}" >
+     
                 </div>
                 <div class="col-md-6">
-                    <label for="workpieceLength" class="form-label">Length (${unitLabel})</label>
+                    <label for="workpieceLength" class="form-label">Length</label>
                     <input type="text" class="form-control" id="workpieceLength" name="workpieceLength"
-                           value="${displayLength}" data-unit-type="${useInches ? 'inches' : 'mm'}">
-                    <small class="text-muted">Enter value as ${useInches ? 'decimal or fraction' : 'millimeters'}</small>
+                           value="${displayLength}" >
+     
                 </div>
             </div>
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceThickness" class="form-label">Thickness (${unitLabel})</label>
+                    <label for="workpieceThickness" class="form-label">Thickness</label>
                     <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness"
-                           value="${displayThickness}" data-unit-type="${useInches ? 'inches' : 'mm'}">
-                    <small class="text-muted">Common: ${useInches ? '3/4, 1/2, 1/4' : '19, 12, 6'}</small>
+                           value="${displayThickness}" >
+
                 </div>
                 <div class="col-md-6">
                     <label for="woodSpecies" class="form-label">Wood Species</label>
@@ -129,11 +126,11 @@ class Workpiece extends Operation {
 
             <div class="row mb-3 align-items-center">
                 <div class="col-auto">
-                    <label for="gridSize" class="form-label mb-0">Grid Size (${unitLabel}):</label>
+                    <label for="gridSize" class="form-label mb-0">Grid Size</label>
                 </div>
                 <div class="col-auto">
                     <input type="text" class="form-control" id="gridSize" name="gridSize"
-                           value="${displayGridSize}" data-unit-type="${useInches ? 'inches' : 'mm'}" style="width: 100px;">
+                           value="${displayGridSize}"  style="width: 100px;">
                 </div>
             </div>
 
@@ -241,7 +238,7 @@ class Workpiece extends Operation {
     updateFromProperties(data) {
         super.updateFromProperties(data);
 
-        console.log('Workpiece updateFromProperties called with:', data);
+
 
         let dimensionChanged = false;
         let originChanged = false;
@@ -285,7 +282,7 @@ class Workpiece extends Operation {
         }
 
         if ('originPosition' in data) {
-            console.log('Origin position change detected:', data.originPosition);
+
             setOption("originPosition", data.originPosition);
             originChanged = true;
         }
@@ -312,13 +309,12 @@ class Workpiece extends Operation {
             const position = getOption("originPosition") || 'middle-center';
 
             const newOrigin = this.calculateOriginPosition(position, width, length);
-            console.log('Updating origin from', typeof origin !== 'undefined' ? `${origin.x}, ${origin.y}` : 'undefined', 'to', `${newOrigin.x}, ${newOrigin.y}`, 'for position:', position);
-            console.log('Width:', width, 'Length:', length, 'Position:', position);
+
 
             if (typeof origin !== 'undefined') {
                 origin.x = newOrigin.x;
                 origin.y = newOrigin.y;
-                console.log('Origin updated to:', origin.x, origin.y);
+
             } else {
                 console.log('Warning: origin object is undefined');
             }
@@ -336,8 +332,6 @@ class Workpiece extends Operation {
             redraw();
         }
 
-        // For debugging - log when properties change
-        console.log('Workpiece properties changed:', data);
 
         // Force a second redraw on next frame to ensure all updates are visible
         if (typeof requestAnimationFrame !== 'undefined') {
@@ -347,6 +341,7 @@ class Workpiece extends Operation {
                 }
             });
         }
+            
     }
 
     // Help system integration

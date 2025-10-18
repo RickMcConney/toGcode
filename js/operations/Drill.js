@@ -1,6 +1,6 @@
 class Drill extends Operation {
     constructor() {
-        super('Drill', 'fa fa-dot-circle-o');
+        super('Drill', null);
         this.circleColor = circleColor;
         this.holeThreshold = 15;
     }

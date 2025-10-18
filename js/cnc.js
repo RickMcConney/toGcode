@@ -67,10 +67,7 @@ function centerWorkpiece() {
 }
 
 //fix properties corruption
-// add cut and past
-// maintain selection order for bollean operations
 // support inches in tool properties panel
-// text group context menu missing
 //todo tab support
 //blocked paths need to be turned into travel moves
 // make norms for rect not good
@@ -251,7 +248,7 @@ function formatDimension(mm, showFractions) {
 	var useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
 	if (!useInches) {
 		// Metric display
-		return mm.toFixed(1);
+		return parseFloat(mm).toFixed(1)+' mm';
 	}
 
 	// Convert to inches
@@ -259,12 +256,12 @@ function formatDimension(mm, showFractions) {
 
 	// For very small values, show decimal
 	if (Math.abs(inches) < 0.01) {
-		return inches.toFixed(3);
+		return inches.toFixed(3)+' in';
 	}
 
 	if (!showFractions) {
 		// Decimal inches
-		return inches.toFixed(3);
+		return inches.toFixed(3)+' in';
 	}
 
 	// Try to convert to fraction
@@ -272,7 +269,7 @@ function formatDimension(mm, showFractions) {
 
 	if (!frac) {
 		// Couldn't convert to clean fraction, use decimal
-		return inches.toFixed(3);
+		return inches.toFixed(3)+' in';
 	}
 
 	// Build fraction string
@@ -294,7 +291,7 @@ function formatDimension(mm, showFractions) {
 		result += frac.numerator + '/' + frac.denominator;
 	}
 
-	return result || '0';
+	return result + ' in' || '0' + ' in';
 }
 
 // Parse user input dimension back to mm
@@ -303,6 +300,9 @@ function parseDimension(value) {
 	var isInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
 	// Convert to string and trim
 	value = String(value).trim();
+
+	if(value.indexOf("m")>0) isInches = false;
+	else if(value.indexOf("i")>0) isInches = true;
 
 	if (!isInches) {
 		// Parse as mm
@@ -394,6 +394,13 @@ document.addEventListener('keydown', function (evt) {
 	const cmdOrCtrl = isMac ? evt.metaKey : evt.ctrlKey;
 
 	// Ctrl/Cmd + Z: Undo
+	if (cmdOrCtrl && evt.key === 'v' && !evt.shiftKey) {
+		evt.preventDefault();
+		doPaste();
+		return;
+	}
+
+	// Ctrl/Cmd + Z: Undo
 	if (cmdOrCtrl && evt.key === 'z' && !evt.shiftKey) {
 		evt.preventDefault();
 		doUndo();
@@ -430,7 +437,7 @@ document.addEventListener('keydown', function (evt) {
 		if (typeof cncController !== 'undefined' &&
 			cncController.operationManager &&
 			cncController.operationManager.currentOperation &&
-			cncController.operationManager.currentOperation.name === 'Edit Points') {
+			cncController.operationManager.currentOperation.name === 'Edit') {
 			// Let PathEdit handle the delete key for deleting points
 			return;
 		}
@@ -2175,6 +2182,42 @@ function addUndo(toolPathschanged = false, svgPathsChanged = false, originChange
 
 }
 
+function doPaste() {
+	let paths = [];
+	for (var i = 0; i < svgpaths.length; i++)
+		if (svgpaths[i].selected && svgpaths[i].visible)
+			paths.push(svgpaths[i]);
+
+
+
+	if (paths.l) {
+		notify('Select a path to Paste');
+		return;
+	}
+	else {
+		unselectAll();
+		addUndo(false, true, false);
+		for (let i = 0; i < paths.length; i++) {
+			let path = paths[i];
+			let newPath = JSON.parse(JSON.stringify(path));
+			newPath.id = 'S' + svgpathId;
+			newPath.name = newPath.name + ' copy';
+			newPath.selected = 2; // Reset selection state for new path
+			newPath.path = newPath.path.map(pt => ({
+                x: pt.x + 10*viewScale,
+                y: pt.y + 10*viewScale
+            }));
+            newPath.bbox = boundingBox(newPath.path);
+			svgpaths.push(newPath);
+			addSvgPath(newPath.id, newPath.name);
+			svgpathId++;
+		}
+
+	}
+	doMove();
+	redraw();
+}
+
 function doUndo() {
 	if (undoList.length == 0) return;
 
@@ -2567,7 +2610,7 @@ function addCircles(path, r) {
 }
 
 
-function pushToolPath(paths, name, svgId) {
+function pushToolPath(paths, name, operation, svgId) {
 	addUndo(true, false, false);
 
 	// Create toolpath object with tool data
@@ -2575,7 +2618,8 @@ function pushToolPath(paths, name, svgId) {
 		id: "T" + toolpathId,
 		paths: paths,
 		visible: true,
-		operation: name,
+		operation: operation,
+		name: name,
 		tool: { ...currentTool },
 		svgId: svgId
 	};
@@ -2637,7 +2681,7 @@ function doOutside() {
 			}
 
 		}
-		pushToolPath(paths, name, svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
 	}
 	unselectAll();
 }
@@ -2684,7 +2728,7 @@ function doInside() {
 				paths.push({ path: circles, tpath: tpath });
 			}
 		}
-		pushToolPath(paths, name, svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
 	}
 	unselectAll();
 }
@@ -2719,7 +2763,7 @@ function doCenter() {
 			paths.push({ path: circles, tpath: tpath });
 		}
 
-		pushToolPath(paths, name, svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
 	}
 	unselectAll();
 
@@ -2742,7 +2786,7 @@ function doMove() {
 }
 
 function doEditPoints() {
-	cncController.setMode("Edit Points");
+	cncController.setMode("Edit");
 }
 
 function doBoolean() {
@@ -2758,10 +2802,6 @@ function doPen() {
 	unselectAll();
 }
 
-function doPolygon() {
-	cncController.setMode("Polygon");
-	unselectAll();
-}
 
 function doShape() {
 	cncController.setMode("Shape");
@@ -2807,7 +2847,7 @@ function makeHole(pt) {
 				// Track toolpath count before creation
 				const beforeCount = toolpaths.length;
 
-				pushToolPath(paths, name, null);
+				pushToolPath(paths, name, 'Drill', null);
 
 				// Mark the newly created drill path as active
 				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
@@ -2833,7 +2873,7 @@ function makeHole(pt) {
 	// Track toolpath count before creation
 	const beforeCount = toolpaths.length;
 
-	pushToolPath(paths, name, null);
+	pushToolPath(paths, name, 'Drill', null);
 
 	// Mark the newly created drill path as active
 	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
@@ -2963,7 +3003,7 @@ function doPocket() {
 	}
 
 
-	pushToolPath(paths, name, 100);
+	pushToolPath(paths, name, 'Pocket', 100);
 }
 function olddoPocket() {
 	setMode("Pocket");
@@ -3052,7 +3092,7 @@ function olddoPocket() {
 
 
 		}
-		pushToolPath(paths, name, svgpaths[i].id);
+		pushToolPath(paths, name, 'Pocket', svgpaths[i].id);
 	}
 	unselectAll();
 
@@ -3117,7 +3157,7 @@ function medialAxis(name, path, holes, svgId) {
 	};
 	let intermediate_debug_data = null;
 
-	maxRadius = vbitRadius(currentTool)*viewScale;
+	maxRadius = vbitRadius(currentTool) * viewScale;
 
 	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
 	var circles = [];
@@ -3133,11 +3173,11 @@ function medialAxis(name, path, holes, svgId) {
 	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 	var tpath = findBestPath(segments).toolpath;
-	for(p of tpath) {
+	for (p of tpath) {
 		p.r = Math.min(p.r, maxRadius)
 	}
 	var paths = [{ path: circles, tpath: tpath }];
-	pushToolPath(paths, name, svgId);
+	pushToolPath(paths, name, 'Vcarve', svgId);
 }
 
 function compute(outside, name) {
@@ -3231,7 +3271,7 @@ function oldcompute(outside, name) {
 			}
 		}
 
-		pushToolPath(paths, name, svgpaths[i].id);
+		pushToolPath(paths, name, 'Vcarve', svgpaths[i].id);
 
 	}
 
@@ -4476,7 +4516,7 @@ function drawMaterialRemoval() {
 	for (let i = 0; i < materialRemovalPoints.length; i++) {
 		const point = materialRemovalPoints[i];
 		var pt = worldToScreen(point.x, point.y);
-	
+
 		ctx.beginPath();
 		ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
 		if (point.isActualGcodePoint) {

@@ -1,14 +1,14 @@
 var makerjs = require('makerjs');
 
 var AVAILABLE_SHAPES = [
-{ value: 'Belt', label: "Belt" },
-{ value: 'Circle', label: "Circle" },
-{ value: 'Ellipse', label: "Ellipse" },
-{ value: 'Heart', label: "Heart" },
-{ value: 'Polygon', label: "Polygon" },
-{ value: 'Rectangle', label: "Rentangle" },
-{ value: 'RoundRectangle', label: "Round Rentangle" },
-{ value: 'Star', label: "Star" }
+    { value: 'Belt', label: "Belt" },
+    { value: 'Circle', label: "Circle" },
+    { value: 'Ellipse', label: "Ellipse" },
+    { value: 'Heart', label: "Heart" },
+    { value: 'Polygon', label: "Polygon" },
+    { value: 'Rectangle', label: "Rentangle" },
+    { value: 'RoundRectangle', label: "Round Rentangle" },
+    { value: 'Star', label: "Star" }
 ]
 
 function Heart(r, a2) {
@@ -43,8 +43,9 @@ function Heart(r, a2) {
 
 class Shape extends Operation {
     constructor() {
-        super('Shape', 'fa fa-pencil');
+        super('Shape', 'pentagon', 'Create basic shapes (circle, rectangle, polygon, star, etc.)');
         this.defaults = {};
+        this.oldShape = null;
 
         for (let shape of AVAILABLE_SHAPES) {
             let meta = null;
@@ -57,8 +58,8 @@ class Shape extends Operation {
                     meta = makerjs.models.Belt.metaParameters;
                     break;
                 case "Circle":
-                        meta = [{ title: 'radius', value: 20, min: 1, max: 100 }
-                                ];
+                    meta = [{ title: 'radius', value: 20, min: 1, max: 100 }
+                    ];
                     break;
                 case "Ellipse":
                     meta = makerjs.models.Ellipse.metaParameters;
@@ -76,7 +77,7 @@ class Shape extends Operation {
                     break;
                 case "Heart":
                     meta = [{ title: 'radius', value: 20, min: 1, max: 100 },
-                            { title: "angle", value: 90, min: 60, max: 120 },
+                    { title: "angle", value: 90, min: 60, max: 120 },
                     ];
                     break;
             }
@@ -86,53 +87,42 @@ class Shape extends Operation {
 
         }
 
-        this.properties.shape = "Polygon";
+        this.properties = {};
     }
 
-    isDimension(key)
-    {
-        let dimension =["radius","distance","width","height","left","right","inner","outer"];
+    isDimension(key) {
+        let dimension = ["radius", "distance", "width", "height", "left", "right", "inner", "outer", "radiusX", "radiusY"];
         let tokens = key.split("_");
-        if(tokens.length > 1)
-        {
+        if (tokens.length > 1) {
             let param = tokens[1];
-            if(dimension.includes(param))
+            if (dimension.includes(param))
                 return true;
         }
         return false;
     }
 
-    getArgs(shape, data)
-    {
+    getArgs(shape, data) {
         let param = this.defaults[shape];
-
         let arg = [];
         for (let i = 0; i < param.length; i++) {
-            let name = shape + '_' + param[i].title.split(" ")[0];
-            if(data != null){
-                arg[i] = data[name];
+            let name = param[i].paramName;
+            if(this.isDimension(name)){
+                let value = this.getProperty(name);
+                arg[i] = parseDimension(value);
             }
-            else if (this.properties[name] !== undefined){
-                arg[i] = this.properties[name]
-            }
-            else{
-                arg[i] = param[i].value;
-            }
+            else    
+                arg[i] = this.getProperty(name);
         }
         return arg;
     }
 
-    //todo need to store create params in mm
-    toInternal(value)
-    {
-        //const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-        //let valueInMM =  useInches ? parseFloat(value) * 25.4 : parseFloat(value);
+
+    toInternal(value) {
         return value * viewScale;
     }
-    makeShape(x, y, svgPath, data) {
 
-        let shape = this.properties.shape;
-        if(svgPath != null) shape = svgPath.creationProperties.shape;
+    makeShape(shape, x, y, svgPath, data) {
+
         let arg = this.getArgs(shape, data);
 
         switch (shape) {
@@ -165,10 +155,10 @@ class Shape extends Operation {
         }
 
         this.model.origin = [x, y];
-        if(shape == "Rectangle" || shape == "RoundRectangle")
-            this.model.origin = [x - this.toInternal(arg[0])/2, y - this.toInternal(arg[1])/2];
+        if (shape == "Rectangle" || shape == "RoundRectangle")
+            this.model.origin = [x - this.toInternal(arg[0]) / 2, y - this.toInternal(arg[1]) / 2];
         var chain = makerjs.model.findSingleChain(this.model);
-        if(!chain) return;
+        if (!chain) return;
 
         this.points = makerjs.chain.toKeyPoints(chain, 1 * viewScale);
 
@@ -179,10 +169,17 @@ class Shape extends Operation {
 
         path.push(path[0]);
 
+        let oldId = null;
+        let oldsvgpathId = null;
+        if (svgPath != null) {
+            oldId = svgPath.id;
+            oldsvgpathId = svgPath.svgpathId;
+        }
         if (svgPath == null) {
             addUndo(false, true, false);
             svgPath = {
-                id: shape + svgpathId,
+                svgpathId: svgpathId,
+                id: shape + '_' + svgpathId,
                 type: 'path',
                 name: shape + ' ' + svgpathId,
                 selected: false,
@@ -193,55 +190,126 @@ class Shape extends Operation {
                 creationTool: 'Shape',
                 creationProperties: {
                     shape: shape,
-                    param: this.defaults[shape],
-                    arg:arg,
+                    properties: { ...this.properties },
                     center: { x: x, y: y }
                 }
             };
             svgpaths.push(svgPath);
-            addSvgPath(svgPath.id, svgPath.name);
 
-            // Auto-select the newly created polygon
-            svgPath.selected = 1;
             selectSidebarNode(svgPath.id);
             this.currentPath = svgPath;
 
 
             svgpathId++;
         }
-        else{
+        else {
             svgPath.path = path;
+            svgPath.id = shape + '_' + oldsvgpathId;
+            svgPath.name = shape + ' ' + oldsvgpathId;
             svgPath.bbox = boundingBox(path);
-            svgPath.creationProperties.arg = arg;
+            svgPath.creationProperties.shape = shape;
+            svgPath.creationProperties.properties = { ...this.properties };
         }
+
+        addOrReplaceSvgPath(oldId, svgPath.id, svgPath.name);
+        unselectAll();
+        svgPath.selected = 1;
+  
+        const title = document.getElementById('tool-properties-title');
+        title.textContent = `Edit ${shape} - ${svgPath.name}`;
+        
         redraw();
     }
 
-    stop()
-    {
+    stop() {
         this.currentPath = null;
     }
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
-
-        this.makeShape(mouse.x, mouse.y, null, null);
+        let shape = this.getShape();
+        this.makeShape(shape, mouse.x, mouse.y, null, null);
 
     }
 
     updateInPlace(svgPath, data) {
         var props = svgPath.creationProperties;
-        for (let key in data) {
-            let value = parseFloat(data[key]);
-            if (!isNaN(value)){
-                data[key] = value;
-                if(this.isDimension(key)){
-                    this.properties[key] = parseDimension(value);
-                    data[key] = parseDimension(value);
+
+        this.makeShape(data.shape, props.center.x, props.center.y, svgPath, data);
+    }
+
+    getValueForProperty(shape, name) {
+        let value = 0;
+        if (this.currentPath && this.currentPath.creationProperties.properties[name] !== undefined) {
+            value = this.currentPath.creationProperties.properties[name];
+        }
+        else if (this.properties && this.properties[name] !== undefined)
+            value = this.properties[name];
+        else {
+            let def = this.defaults[shape];
+            for (let i = 0; i < def.length; i++) {
+                if (name === def[i].paramName) {
+                    value = def[i].value;
+                    break;
                 }
             }
         }
+        if (this.isDimension(name)) {
+            value = formatDimension(value, true);
+        }
+        return value;
+    }
 
-        this.makeShape(props.center.x, props.center.y, svgPath, data);
+    getShape() {
+        return document.getElementById('shape-select').value;
+    }
+
+    getCurrentShape() {
+        if (this.currentPath) {
+            return this.currentPath.creationProperties.shape;
+        }
+        else if (this.properties && this.properties.shape) {
+            return this.properties.shape;
+        }
+        else {
+            return "Polygon";
+        }
+    }
+
+    showProperties(shape) {
+        for (let i = 0; i < AVAILABLE_SHAPES.length; i++) {
+            let s = AVAILABLE_SHAPES[i].value;
+            let display = (s === shape) ? 'block' : 'none';
+            document.getElementById(`${s}-properties`).style.display = display;
+        }
+    }
+
+    getHtmlForProperties() {
+        let html = '';
+        for (let i = 0; i < AVAILABLE_SHAPES.length; i++) {
+            let shape = AVAILABLE_SHAPES[i].value;
+            let def = this.defaults[shape];
+            let display = (shape === this.getCurrentShape()) ? 'block' : 'none';
+            html += `<div id="${shape}-properties" style="display: ${display};"><h5 class="mt-3 mb-2">${shape} Properties</h5>`;
+            for (let j = 0; j < def.length; j++) {
+                let prop = def[j];
+                let paramName = shape + '_' + prop.title.split(" ")[0];
+                def[j].paramName = paramName;
+                prop.type = "number";
+                if (this.isDimension(paramName)) {
+                    prop.type = "text";
+                }
+                html += `<label for="${paramName}" class="form-label small"><strong>${prop.title}:</strong></label>
+                <input type="${prop.type}"
+                       class="form-control form-control-sm"
+                       id="${paramName}"
+                       name="${paramName}"
+                       min="${prop.min}"
+                       max="${prop.max}"
+                       value="${this.getValueForProperty(shape, paramName)}">`;
+            }
+            html += `</div>`;
+        }
+        return html;
     }
 
 
@@ -249,30 +317,13 @@ class Shape extends Operation {
         return this.getPropertiesHTML(path);
     }
 
+
+
     getPropertiesHTML(path) {
-        // Get current values from UI if available, otherwise use properties
-        let type = this.properties.shape;
-        let arg = this.getArgs(type);
-        if(path)
-        {
-            type = path.creationProperties.shape;
-            arg = [...path.creationProperties.arg];
-        }
-        let param = this.defaults[type];
-        
-       for(let i = 0;i<param.length;i++){
-            param[i].name = type + '_' + param[i].title.split(" ")[0]
-            if(this.isDimension(param[i].name))
-            {
-                if(path)
-                    arg[i] = formatDimension(arg[i]);
-                else
-                    arg[i] = Math.round(formatDimension(arg[i])*2)/2;
-            }
-        }
 
+
+        let type = this.getCurrentShape();
         return `
-
             <div class="mb-3">
                 <label for="shape-select" class="form-label small"><strong>Shape:</strong></label>
                 <select class="form-select form-select-sm" id="shape-select" name="shape">
@@ -281,119 +332,58 @@ class Shape extends Operation {
                 </select>
             </div>
 
-            <div class="mb-3">
+            ${this.getHtmlForProperties()}
 
-                ${param.map((prop, index) =>
-                `<label for="${prop.name}" class="form-label small"><strong>${prop.title}:</strong></label>
-                <input type="number"
-                       class="form-control form-control-sm"
-                       id="${prop.name}"
-                       name="${prop.name}"
-                       min="${prop.min}"
-                       max="${prop.max}"
-                       value="${arg[index]}">`).join('\n                    ')}
-            </div>
-
-            ${this.centerPoint ? `
-            <div class="alert alert-info">
-                <i data-lucide="info"></i>
-                Center point set at (0, 0)
-            </div>
-            ` : ''}
-
-            ${this.isDrawing ? `
-            <div class="alert alert-warning">
-                <i data-lucide="mouse"></i>
-                Drag to set radius, then release to create polygon
-            </div>
-            ` : ''}
         `;
+
     }
 
-    
+    setEditPath(path) {
+        this.currentPath = path;
+        let shape = path.creationProperties.shape;
+        this.showProperties(shape);
+        this.properties = { ...this.properties, ...path.creationProperties.properties };
+    }
 
+    updateProperty(key, value) {
+        document.getElementById(key).value = value;
+    }
+
+    getProperty(key){
+        return document.getElementById(key).value;
+    }
 
     onPropertiesChanged(data) {
-        // Prevent infinite recursion when updating HTML
-        if (this._isUpdatingHTML) {
-            return;
-        }
 
-        // Update our properties with the new values
-        let oldShape = this.properties.shape || 'Star';
+        let shape = data.shape;
+        this.showProperties(shape);
+
         this.properties = { ...this.properties, ...data };
 
         for (let key in this.properties) {
-            let value = parseFloat(this.properties[key]);
-            if (!isNaN(value)){
-                this.properties[key] = value;
-                if(this.isDimension(key)){
-                    this.properties[key] = parseDimension(value);
-                    data[key] = parseDimension(value);
+            let value = this.properties[key];
+
+            if (this.isDimension(key)) {
+                this.properties[key] = parseDimension(value);
+                data[key] = parseDimension(value);
+                this.updateProperty(key, formatDimension(this.properties[key],true));
+            }
+            else {
+                value = parseFloat(value);
+                if (!isNaN(value)) {
+                    this.properties[key] = value;
+                    data[key] = value;
+                }
+                else {
+                    data[key] = this.properties[key];
                 }
             }
         }
 
-        // Only update HTML if shape type changed
-        if (oldShape !== this.properties.shape) {
-            this.currentPath = null;
-            this._isUpdatingHTML = true;
-
-            const form = document.getElementById('tool-properties-form');
-            form.innerHTML = this.getPropertiesHTML();
-
-            // Re-attach event listeners after HTML replacement
-            this._attachPropertyListeners();
-
-            // Re-initialize Lucide icons
-            if (typeof lucide !== 'undefined' && lucide.createIcons) {
-                lucide.createIcons();
-            }
-
-            this._isUpdatingHTML = false;
+        if (this.currentPath) {
+            this.updateInPlace(this.currentPath, data);
         }
-        if(this.currentPath)
-        {
-            var props = this.currentPath.creationProperties;
-            this.makeShape(props.center.x, props.center.y, this.currentPath, data);
-        }
-
-        super.onPropertiesChanged(data);
     }
 
-    _attachPropertyListeners() {
-        const form = document.getElementById('tool-properties-form');
-        if (!form) return;
-
-        const inputs = form.querySelectorAll('input, select, textarea');
-
-        inputs.forEach(input => {
-            const handleInputChange = () => {
-                // Prevent handler from running during HTML updates
-                if (this._isUpdatingHTML) return;
-
-                // Gather all form data
-                const formData = {};
-                form.querySelectorAll('input, select, textarea').forEach(inp => {
-                    if (inp.name) {
-                        if (inp.type === 'checkbox') {
-                            formData[inp.name] = inp.checked;
-                        } else if (inp.type === 'number' || inp.type === 'range') {
-                            formData[inp.name] = parseFloat(inp.value) || 0;
-                        } else {
-                            formData[inp.name] = inp.value;
-                        }
-                    }
-                });
-
-                // Call this operation's update method directly
-                this.updateFromProperties(formData);
-            };
-
-            // Add both change and input events for real-time updates
-            input.addEventListener('change', handleInputChange);
-            input.addEventListener('input', handleInputChange);
-        });
-    }
 
 }

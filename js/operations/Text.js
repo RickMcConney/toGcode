@@ -1,16 +1,15 @@
 
 class Text extends Operation {
     constructor() {
-        super('Text', 'fa fa-font');
+        super('Text', 'type', 'Create text paths using TTF fonts');
 
-        this.getProperties();
         this.currentPath = null;
     }
 
     getProperties() {
         const useInches = getOption('Inches');
         const defaultGridSize = getOption("gridSize") || 10;
-        const defaultFontSize = useInches ? (defaultGridSize) : (defaultGridSize * 2); // 2 inches or 2x grid
+        const defaultFontSize = useInches ? 25.4 : (defaultGridSize * 2); // 2 inches or 2x grid
         const savedFontSize = getOption("textFontSize");
         const finalFontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
         const savedFont = getOption("textFont") || 'fonts/Roboto-Regular.ttf';
@@ -62,8 +61,7 @@ class Text extends Operation {
 
     _generateFontSizeSlider(fontSize) {
         const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-        const unitLabel = useInches ? 'in' : 'mm';
-        const fontSizeValue = parseFloat(fontSize || (useInches ? 25.4 : 20));
+        const fontSizeValue = parseDimension(parseFloat(useInches ? 1 : 20));
         const displaySize = formatDimension(fontSizeValue, true);
 
         // Dynamic max based on workpiece size
@@ -76,7 +74,7 @@ class Text extends Operation {
 
         return `
             <div class="mb-3">
-                <label for="font-size" class="form-label">Font Size: <span id="font-size-value">${displaySize}</span>${unitLabel}</label>
+                <label for="font-size" class="form-label">Font Size: <span id="font-size-value">${displaySize}</span></label>
                 <input type="range"
                        class="form-range"
                        id="font-size"
@@ -94,11 +92,10 @@ class Text extends Operation {
         let positionHTML = '';
         if (position) {
             const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-            const unitLabel = useInches ? 'in' : 'mm';
             const pos = toMM(position.x, position.y);
             const displayX = formatDimension(pos.x, true);
             const displayY = formatDimension(pos.y, true);
-            positionHTML = `Position: (${displayX}, ${displayY}) ${unitLabel}`;
+            positionHTML = `Position: (${displayX}, ${displayY})`;
         } else {
             positionHTML = 'Position: ( , )';
         }
@@ -116,10 +113,6 @@ class Text extends Operation {
             ${this._generateFontSelect(font)}
             ${this._generateFontSizeSlider(fontSize)}
 
-            <div class="alert alert-info">
-                <i data-lucide="info"></i>
-                ${positionHTML}
-            </div>
         `;
     }
 
@@ -154,6 +147,7 @@ class Text extends Operation {
 
         // Store the converted fontSize back to properties (always in mm)
         this.properties.fontSize = sizeInMM;
+        data.fontSize = sizeInMM;
 
         // Save properties for future text instances
         this._saveTextOptions(data.text, data.font, sizeInMM);
@@ -163,7 +157,7 @@ class Text extends Operation {
             // Edit mode: update existing text
             this.updateTextInPlace(this.currentPath);
         } 
-        super.onPropertiesChanged(data);
+        //super.onPropertiesChanged(data);
     }
 
     // Options Management Helper Method

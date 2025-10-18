@@ -208,7 +208,7 @@ class StepWiseHelpSystem {
                 'Hold Shift while dragging to scale uniformly or constrain movement',
                 'All selected paths will move/scale/rotate together'
             ],
-            'Edit Points': [
+            'Edit': [
                 'Click on a path to select it for editing',
                 'Drag the circular handles to move individual points',
                 'Hold Alt and click on a line segment to add a new point',

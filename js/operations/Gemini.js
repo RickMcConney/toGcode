@@ -109,7 +109,7 @@ function applyGemini() {
 
 class Gemini extends Operation {
     constructor() {
-        super('Gemini', 'fa fa-pencil');
+        super('Gemini', 'brain', 'Generate SVG paths from text prompt using Gemini AI');
     }
 
         getEditPropertiesHTML(path) {

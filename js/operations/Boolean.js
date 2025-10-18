@@ -94,8 +94,10 @@ function applyBooleanOperation() {
 
 class BooleanOpp extends Select {
     constructor() {
-        super();
+        super('Boolean', 'squares-unite');
         this.name = 'Boolean';
+        this.icon = 'squares-unite';
+        this.tooltip = 'Perform boolean operations (union, intersect, subtract) on selected paths';
     }
 
     getEditPropertiesHTML(path) {

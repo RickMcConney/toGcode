@@ -7,20 +7,15 @@ class ToolpathPropertiesManager {
     constructor() {
         // Define operation configurations
         this.operationConfigs = {
-            'Inside': {
-                compatibleBits: ['End Mill'],
-                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
-                description: 'Cut inside the selected closed path'
+            'Drill': {
+                compatibleBits: ['Drill'],
+                fields: ['tool', 'depth', 'step'],
+                description: 'Drill holes at selected points'
             },
             'Profile': {
                 compatibleBits: ['End Mill', 'VBit'],
                 fields: ['tool', 'depth', 'step', 'inside', 'direction'],
                 description: 'Cut along the profile of the selected path'
-            },
-            'Center': {
-                compatibleBits: ['End Mill', 'VBit'],
-                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
-                description: 'Cut along the center line of the path'
             },
             'Pocket': {
                 compatibleBits: ['End Mill'],
@@ -31,12 +26,8 @@ class ToolpathPropertiesManager {
                 compatibleBits: ['VBit'],
                 fields: ['tool', 'depth', 'inside'],
                 description: 'V-carve inside the path with tapered cuts'
-            },
-            'Drill': {
-                compatibleBits: ['Drill'],
-                fields: ['tool', 'depth', 'step'],
-                description: 'Drill holes at selected points'
             }
+
         };
 
         // Load defaults from localStorage
@@ -222,11 +213,13 @@ class ToolpathPropertiesManager {
             value = this.getDefaults(operationName).depth;
         }
 
+        value = formatDimension(value, true);
+
         let html = '<div class="mb-3">';
-        html += '<label for="depth-input" class="form-label small"><strong>Depth (mm):</strong></label>';
-        html += '<input type="number" class="form-control form-control-sm" id="depth-input" name="depth" ';
+        html += '<label for="depth-input" class="form-label small"><strong>Depth:</strong></label>';
+        html += '<input type="text" class="form-control form-control-sm" id="depth-input" name="depth" ';
         html += `value="${value}" step="0.1" min="0.1" required>`;
-        html += '<div class="form-text">Cutting depth in millimeters</div>';
+        html += '<div class="form-text">Cutting depth</div>';
         html += '</div>';
 
         return html;
@@ -240,11 +233,13 @@ class ToolpathPropertiesManager {
             value = this.getDefaults(operationName).step;
         }
 
+        value = formatDimension(value, true);
+
         let html = '<div class="mb-3">';
-        html += '<label for="step-input" class="form-label small"><strong>Step Down (mm):</strong></label>';
-        html += '<input type="number" class="form-control form-control-sm" id="step-input" name="step" ';
+        html += '<label for="step-input" class="form-label small"><strong>Step Down:</strong></label>';
+        html += '<input type="text" class="form-control form-control-sm" id="step-input" name="step" ';
         html += `value="${value}" step="0.1" min="0.1" required>`;
-        html += '<div class="form-text">Depth per pass in millimeters</div>';
+        html += '<div class="form-text">Depth per pass</div>';
         html += '</div>';
 
         return html;
@@ -348,10 +343,10 @@ class ToolpathPropertiesManager {
             data.direction = directionInput.value;
         }
         if (depthInput) {
-            data.depth = parseFloat(depthInput.value);
+            data.depth = parseDimension(depthInput.value);
         }
         if (stepInput) {
-            data.step = parseFloat(stepInput.value);
+            data.step = parseDimension(stepInput.value);
         }
         if (stepoverInput) {
             data.stepover = parseFloat(stepoverInput.value);

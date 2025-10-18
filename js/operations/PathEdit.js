@@ -1,8 +1,11 @@
 class PathEdit extends Select {
     constructor() {
-        super();
-        this.name = 'Edit Points';
-        this.icon = 'fa fa-edit';
+        super('Edit','edit');
+        this.name = 'Edit';
+        this.icon = 'edit';
+        this.tooltip = 'Edit individual points of a path (move, add, delete)';
+ 
+
         this.unselectOnMouseDown = false; // Don't auto-deselect when clicking
         this.handleSize = 8; // Size of point handles (in pixels)
         this.activeHandle = null;
