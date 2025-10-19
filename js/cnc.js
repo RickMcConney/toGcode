@@ -3,6 +3,7 @@ var zoomLevel = .5; // initial zoom
 var panX = 0; // will be calculated dynamically by centerWorkpiece()
 var panY = 0; // will be calculated dynamically by centerWorkpiece()
 var origin = { x: 0, y: 0 }; // origin in virtual coordinates
+const selectMgr = Select.getInstance();
 
 function worldToScreen(x, y) {
 	return {
@@ -443,8 +444,7 @@ document.addEventListener('keydown', function (evt) {
 		}
 
 		// Check if there are selected paths
-		const selectedPaths = svgpaths.filter(p => p.selected);
-		if (selectedPaths.length > 0) {
+		if (selectMgr.selectedPaths().length > 0) {
 			evt.preventDefault();
 			deleteSelected();
 			return;
@@ -462,15 +462,6 @@ function handleScroll(evt) {
 	return evt.preventDefault() && false;
 };
 
-
-
-function unselectAll() {
-	for (var i = 0; i < svgpaths.length; i++) {
-		svgpaths[i].selected = 0;
-
-	}
-	unselectSidebarNode(null);
-}
 
 function closestPath(pt, clear) {
 	var min = 100;
@@ -1532,21 +1523,28 @@ function drawNearby() {
 function drawSvgPaths() {
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (svgpaths[i].visible) {
-			svgpath = svgpaths[i];
-			var bbox = svgpath.bbox;
-			// drawBoundingBox(bbox);
-			// drawNearby();
-
-
-			if (svgpath.selected == 1)
-				drawSvgPath(svgpath, activeColor, 3);
-			else if (svgpath.selected > 0)
-				drawSvgPath(svgpath, selectColor, 3);
-			else if (svgpath.highlight)
-				drawSvgPath(svgpath, highlightColor, 3);
-			else
-				drawSvgPath(svgpath, lineColor, 0.5);
+			let path = svgpaths[i];
+			if (path.highlight)
+				drawSvgPath(path, highlightColor, 3);
+			else if (!selectMgr.isSelected(path))
+			{		
+				drawSvgPath(path, lineColor, 0.5);
+			}
 		}
+	}
+
+	let selectedPaths = selectMgr.selectedPaths();
+	for(let i = 0;i<selectedPaths.length;i++)
+	{
+		let path = selectedPaths[i];
+		if(!path.highlight)
+		{
+			if(i == 0)
+				drawSvgPath(path, activeColor, 3);
+			else
+				drawSvgPath(path, selectColor, 3);
+		}
+
 	}
 }
 
@@ -2113,7 +2111,7 @@ function doRemoveToolPath(id) {
 
 function deleteSelected() {
 	// Get all selected paths and delete them
-	const selectedPaths = svgpaths.filter(p => p.selected);
+	const selectedPaths = selectMgr.selectedPaths();
 	if (selectedPaths.length === 0) return;
 
 	// Add undo point before deleting
@@ -2124,6 +2122,7 @@ function deleteSelected() {
 		doRemoveToolPath(path.id);
 	});
 
+	selectMgr.unselectAll();
 	redraw();
 }
 
@@ -2183,26 +2182,20 @@ function addUndo(toolPathschanged = false, svgPathsChanged = false, originChange
 }
 
 function doPaste() {
-	let paths = [];
-	for (var i = 0; i < svgpaths.length; i++)
-		if (svgpaths[i].selected && svgpaths[i].visible)
-			paths.push(svgpaths[i]);
+	let paths = selectMgr.selectedPaths();
 
-
-
-	if (paths.l) {
+	if (paths.length === 0) {
 		notify('Select a path to Paste');
 		return;
 	}
 	else {
-		unselectAll();
+		selectMgr.unselectAll();
 		addUndo(false, true, false);
 		for (let i = 0; i < paths.length; i++) {
 			let path = paths[i];
 			let newPath = JSON.parse(JSON.stringify(path));
 			newPath.id = 'S' + svgpathId;
 			newPath.name = newPath.name + ' copy';
-			newPath.selected = 2; // Reset selection state for new path
 			newPath.path = newPath.path.map(pt => ({
                 x: pt.x + 10*viewScale,
                 y: pt.y + 10*viewScale
@@ -2211,6 +2204,7 @@ function doPaste() {
 			svgpaths.push(newPath);
 			addSvgPath(newPath.id, newPath.name);
 			svgpathId++;
+			selectMgr.selectPath(newPath);
 		}
 
 	}
@@ -2249,6 +2243,7 @@ function doUndo() {
 	}
 	if (project.svgpaths) {
 		clearSvgPaths();
+		selectMgr.unselectAll();
 		svgpaths = project.svgpaths;
 		svgpathId = 1;
 		for (var i in svgpaths) {
@@ -2290,6 +2285,7 @@ function doRedo() {
 	}
 	if (project.svgpaths) {
 		clearSvgPaths();
+		selectMgr.unselectAll();
 		svgpaths = project.svgpaths;
 		svgpathId = 1;
 		for (var i in svgpaths) {
@@ -2446,6 +2442,7 @@ function newProject() {
 	undoList = [];
 	clearToolPaths();
 	clearSvgPaths();
+	selectMgr.unselectAll();
 
 	// Center the workpiece in the canvas viewport
 	centerWorkpiece();
@@ -2470,8 +2467,8 @@ function doSelect(id) {
 	for (var i = 0; i < svgpaths.length; i++) {
 
 		if (svgpaths[i].id == id) {
-			if (svgpaths[i].selected == 0) svgpaths[i].selected = 1;
-			else svgpaths[i].selected = 0;
+			if (selectMgr.isSelected(svgpaths[i])) selectMgr.unselectPath(svgpaths[i]);
+			else selectMgr.selectPath(svgpaths[i]);
 			break;
 		}
 	}
@@ -2644,7 +2641,7 @@ function doProfile() {
 		doCenter();
 }
 function doOutside() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to Profile');
 		return;
 	}
@@ -2653,14 +2650,13 @@ function doOutside() {
 	var radius = toolRadius();
 	var name = 'Outside';
 
-	for (var i = 0; i < svgpaths.length; i++) {
+	let selectedPaths = selectMgr.selectedPaths();
+	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
-		var svgpath = svgpaths[i].path;
-		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
+		var svgpath = selectedPaths[i];
+		var path = svgpath.path;
 
-		nearbypaths = nearbyPaths(svgpaths[i], radius);
-
-		var offsetPaths = offsetPath(svgpath, radius, true);
+		var offsetPaths = offsetPath(path, radius, true);
 
 		for (var p = 0; p < offsetPaths.length; p++) {
 			var path = offsetPaths[p];
@@ -2681,9 +2677,9 @@ function doOutside() {
 			}
 
 		}
-		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 function reversePath(path) {
@@ -2694,7 +2690,7 @@ function reversePath(path) {
 }
 
 function doInside() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to Profile');
 		return;
 	}
@@ -2702,16 +2698,14 @@ function doInside() {
 
 	var radius = toolRadius();
 	var name = 'Inside';
-
-	for (var i = 0; i < svgpaths.length; i++) {
+	
+	let selectedPaths = selectMgr.selectedPaths();
+	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
-		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
+		var svgpath = selectedPaths[i];
+		var path = svgpath.path;
 
-		nearbypaths = nearbyPaths(svgpaths[i], 0);
-
-		var svgpath = svgpaths[i].path;
-
-		var offsetPaths = offsetPath(svgpath, radius, false);
+		var offsetPaths = offsetPath(path, radius, false);
 
 		for (var p = 0; p < offsetPaths.length; p++) {
 			var path = offsetPaths[p];
@@ -2728,13 +2722,13 @@ function doInside() {
 				paths.push({ path: circles, tpath: tpath });
 			}
 		}
-		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 function doCenter() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to center cut');
 		return;
 	}
@@ -2743,10 +2737,11 @@ function doCenter() {
 	var radius = toolRadius();
 	var name = 'Center';
 
-	for (var i = 0; i < svgpaths.length; i++) {
+	let selectedPaths = selectMgr.selectedPaths();
+	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
-		var path = svgpaths[i].path;
-		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
+		var svgpath = selectedPaths[i];
+		var path = svgpath.path;
 		//var subpath = subdividePath(path, 2);
 		var circles = addCircles(path, radius);
 		var tpath = path;
@@ -2763,9 +2758,9 @@ function doCenter() {
 			paths.push({ path: circles, tpath: tpath });
 		}
 
-		pushToolPath(paths, name, 'Profile', svgpaths[i].id);
+		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	unselectAll();
+	selectMgr.unselectAll();
 
 }
 
@@ -2799,18 +2794,18 @@ function doGemini() {
 
 function doPen() {
 	cncController.setMode("Pen");
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 
 function doShape() {
 	cncController.setMode("Shape");
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 function doText() {
 	cncController.setMode("Text");
-	//unselectAll();
+	//selectMgr.unselectAll();
 }
 
 function doDrill() {
@@ -2964,7 +2959,7 @@ function getUnionOfPaths(inputPaths) {
 
 function doPocket() {
 	setMode("Pocket");
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to pocket');
 		return;
 	}
@@ -2973,12 +2968,10 @@ function doPocket() {
 	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
 	var inputPaths = [];
-	for (var i = 0; i < svgpaths.length; i++) {
-		var path = svgpaths[i].path;
-		if (svgpaths[i].selected)
-			inputPaths.push(path);
-	}
-
+	
+	var selected =  selectMgr.selectedPaths();
+	for(let svgpath of selected)
+		inputPaths.push(svgpath.path);
 
 	var paths = [];
 	var offsetPaths = [];
@@ -3003,11 +2996,12 @@ function doPocket() {
 	}
 
 
-	pushToolPath(paths, name, 'Pocket', 100);
+	pushToolPath(paths, name, 'Pocket', selectMgr.firstSelected().id);
+	selectMgr.unselectAll();
 }
 function olddoPocket() {
 	setMode("Pocket");
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to pocket');
 		return;
 	}
@@ -3017,15 +3011,14 @@ function olddoPocket() {
 	var finishingStepover = radius * 0.20; // 10% of diameter (20% of radius) for finishing pass
 	var name = 'Pocket';
 
-	for (var i = 0; i < svgpaths.length; i++) {
+	let selectedPaths = selectMgr.selectedPaths();
+	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
-
-		var path = svgpaths[i].path;
-		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
+		var svgpath = selectedPaths[i].path;
 
 		nearbypaths = nearbyPaths(svgpaths[i], radius);
 
-		var offsetPaths = offsetPath(path, radius, false);
+		var offsetPaths = offsetPath(svgpath, radius, false);
 		var isFirstOffset = true; // Track if this is the first offset from the outer wall
 
 		while (offsetPaths.length > 0) {
@@ -3092,9 +3085,9 @@ function olddoPocket() {
 
 
 		}
-		pushToolPath(paths, name, 'Pocket', svgpaths[i].id);
+		pushToolPath(paths, name, 'Pocket', svgpath.id);
 	}
-	unselectAll();
+	selectMgr.unselectAll();
 
 }
 function doVcarve() {
@@ -3108,40 +3101,33 @@ function doVcarve() {
 	}
 }
 function doVcarveCenter() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to VCarve');
 		return;
 	}
 	setMode("VCarve In");
 	compute(false, 'VCarve In');
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 function doVcarveIn() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to VCarve');
 		return;
 	}
 	setMode("VCarve In");
 	oldcompute(false, 'VCarve In');
-	unselectAll();
+	selectMgr.unselectAll();
 }
 
 function doVcarveOut() {
-	if (getSelectedPath() == null) {
+	if (selectMgr.noSelection()) {
 		notify('Select a path to VCarve');
 		return;
 	}
 	setMode("VCarve Out");
 	oldcompute(true, 'VCarve Out');
-	unselectAll();
-}
-function getSelectedPath() {
-	var path = [];
-	for (var i = 0; i < svgpaths.length; i++)
-		if (svgpaths[i].selected && svgpaths[i].visible)
-			return svgpaths[i].path;
-	return null;
+	selectMgr.unselectAll();
 }
 
 function medialAxis(name, path, holes, svgId) {
@@ -3181,14 +3167,8 @@ function medialAxis(name, path, holes, svgId) {
 }
 
 function compute(outside, name) {
-	var selected = [];
+	var selected = selectMgr.selectedPaths();
 	var paths = [];
-	for (var i = 0; i < svgpaths.length; i++) {
-
-		var path = svgpaths[i].path;
-		if (svgpaths[i].selected)
-			selected.push(svgpaths[i]);
-	}
 
 	for (var i in selected) {
 		if (selected[i].hole) continue;
@@ -3225,7 +3205,7 @@ function oldcompute(outside, name) {
 
 
 
-		if (!svgpaths[i].selected || !svgpaths[i].visible) continue;
+		if (!selectMgr.isSelected(svgpaths[i]) || !svgpaths[i].visible) continue;
 
 		//medialAxis(name, path, [], svgpaths[i].id);
 		//continue;

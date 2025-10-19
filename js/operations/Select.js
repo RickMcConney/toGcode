@@ -1,18 +1,86 @@
 
 class Select extends Operation {
+    static instance;
+
     constructor() {
         super('Select', null);
         this.unselectOnMouseDown = true;
-        this.selectionOrder = []; // Track order of path selection
         this.selectionId = 2;
+        this.selected = [];
     }
 
+    static getInstance(){
+        if(!Select.instance)
+            Select.instance = new Select();
+        return Select.instance;
+    }
 
-    onMouseUp(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
-        if (this.selectBox) {
-            selectPathsInRect(this.selectBox);
-            this.selectBox = null;
+    noSelection()
+    {
+        return this.selected.length === 0;
+    }
+
+    isSelected(path)
+    {
+        if(this.selected.length === 0) return false;
+        let index = this.selected.indexOf(path);
+        return index >= 0;
+    }
+
+    selectPath(path)
+    {
+        this.selected.push(path);
+        selectSidebarNode(path.id);
+        path.highlight = false;
+    }
+
+    unselectPath(path)
+    {
+        let index = this.selected.indexOf(path);
+        if (index !== -1) { 
+            this.selected.splice(index, 1); 
+        }
+        path.highlight = false;
+        unselectSidebarNode(path.id);    
+    }
+
+    unselectAll()
+    {
+        if(this.selected.length > 0)
+        {
+            for(let path of this.selected)
+            {
+                unselectSidebarNode(path.id);
+                path.highlight = false;
+            }
+        }
+        this.selected = [];
+    }
+
+    firstSelected()
+    {
+        if(this.selected.length > 0)
+            return this.selected[0];
+        return null;
+    }
+
+    selectedPaths()
+    {
+        return this.selected;
+    }
+
+    selectPathsInRect(selectBox,addToSelection) {
+        for (var i = 0; i < svgpaths.length; i++) {
+            if (!svgpaths[i].visible) continue;
+
+            for (var j = 0; j < svgpaths[i].path.length; j++) {
+                if(!addToSelection)
+                    this.unselectPath(svgpaths[i]);
+                var pt = svgpaths[i].path[j];
+                if (pointInBoundingBox(pt, selectBox)) {
+                    this.selectPath(svgpaths[i]);
+                }
+            }
         }
     }
 
@@ -25,128 +93,21 @@ class Select extends Operation {
         this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
         var selectedPath = closestPath(mouse, false);
         if (selectedPath) {
-            if (selectedPath.selected > 0) {
-                if(this.unselectOnMouseDown)
-                {
-                    selectedPath.selected = 0;
-                    unselectSidebarNode(selectedPath.id);
-
-                    // Remove from selection order
-                    this.selectionOrder = this.selectionOrder.filter(id => id !== selectedPath.id);
-
-                    // Check if any paths are still selected after deselecting this one
-                    const remainingSelectedPaths = svgpaths.filter(path => path.selected);
-                    if (remainingSelectedPaths.length === 0) {
-                        // Check if Move tool is currently active - if so, don't exit the tool
-                        const isMoveToolActive = window.cncController &&
-                                               window.cncController.operationManager &&
-                                               window.cncController.operationManager.currentOperation &&
-                                               window.cncController.operationManager.currentOperation.name === 'Move';
-
-                        if (!isMoveToolActive) {
-                            showToolsList();
-                        }
-                    } else {
-                        // Find the most recently selected path that's still selected
-                        let mostRecentPath = null;
-                        for (let i = this.selectionOrder.length - 1; i >= 0; i--) {
-                            const pathId = this.selectionOrder[i];
-                            mostRecentPath = svgpaths.find(path => path.id === pathId && path.selected > 0);
-                            if (mostRecentPath) break;
-                        }
-
-                        if (mostRecentPath) {
-                            const drawToolsTab = document.getElementById('draw-tools-tab');
-                            const isOnDrawToolsTab = drawToolsTab && drawToolsTab.classList.contains('active');
-
-                            // Check if Move tool is currently active - if so, don't show path properties
-                            const isMoveToolActive = window.cncController &&
-                                                   window.cncController.operationManager &&
-                                                   window.cncController.operationManager.currentOperation &&
-                                                   window.cncController.operationManager.currentOperation.name === 'Move';
-
-                            if (isOnDrawToolsTab && mostRecentPath.creationTool && mostRecentPath.creationProperties && !isMoveToolActive) {
-                                // Check if this is a draw tool that supports editing
-                                if (mostRecentPath.creationTool === 'Text' || mostRecentPath.creationTool === 'Shape') {
-                                    // Show properties editor for the most recently selected path
-                                    //showPathPropertiesEditor(mostRecentPath);
-                                }
-                            }
-                        }
-                    }
+            if (this.isSelected(selectedPath)) {
+                if (this.unselectOnMouseDown) {
+                    this.unselectPath(selectedPath);
                 }
             }
             else {
-                selectedPath.selected = this.selectionId++;
-                selectSidebarNode(selectedPath.id);
-
-                // Add to selection order (remove if already there, then add to end)
-                this.selectionOrder = this.selectionOrder.filter(id => id !== selectedPath.id);
-                this.selectionOrder.push(selectedPath.id);
-
-                // Check if we're on Operations tab and an operation tool is active
-                const operationsTab = document.getElementById('operations-tab');
-                const isOnOperationsTab = operationsTab && operationsTab.classList.contains('active');
-
-                if (isOnOperationsTab) {
-                    // Check if an operation properties editor is currently shown (operation is active)
-                    const operationPropertiesEditor = document.getElementById('operation-properties-editor');
-                    const isOperationActive = operationPropertiesEditor && operationPropertiesEditor.style.display !== 'none';
-
-                    if (isOperationActive) {
-                        // An operation is active - apply it to the newly selected path
-                        const activeOperationTitle = document.getElementById('operation-properties-title');
-                        if (activeOperationTitle) {
-                            const operationName = activeOperationTitle.textContent.replace(' Operation', '');
-                            // Apply the operation to the newly selected path
-                            applyOperationToPath(operationName, selectedPath);
-                        }
-                    }
-                } else {
-                    // We're on Draw Tools tab - show properties panel if appropriate
-                    const drawToolsTab = document.getElementById('draw-tools-tab');
-                    const isOnDrawToolsTab = drawToolsTab && drawToolsTab.classList.contains('active');
-
-                    // Check if Move tool is currently active - if so, don't show path properties
-                    const isMoveToolActive = window.cncController &&
-                                           window.cncController.operationManager &&
-                                           window.cncController.operationManager.currentOperation &&
-                                           window.cncController.operationManager.currentOperation.name === 'Move';
-
-                    if (isOnDrawToolsTab && selectedPath.creationTool && selectedPath.creationProperties && !isMoveToolActive) {
-                        // Check if this is a draw tool that supports editing
-                        if (selectedPath.creationTool === 'Text' || selectedPath.creationTool === 'Shape') {
-                            // Show properties editor for this path
-                            //showPathPropertiesEditor(selectedPath);
-                        }
-                    }
-                }
+                this.selectPath(selectedPath);
             }
 
         } else if (!evt.shiftKey && this.unselectOnMouseDown) {
-            unselectAll();
-            this.selectionOrder = []; // Clear selection order
-
-            // Clear active toolpaths when clicking on empty canvas
-            if (window.toolpaths) {
-                const hadActiveToolpaths = toolpaths.some(tp => tp.active);
-                toolpaths.forEach(tp => tp.active = false);
-                if (hadActiveToolpaths && typeof redraw === 'function') {
-                    redraw();
-                }
-            }
-
-            // Check if Move tool is currently active - if so, don't exit the tool
-            const isMoveToolActive = window.cncController &&
-                                   window.cncController.operationManager &&
-                                   window.cncController.operationManager.currentOperation &&
-                                   window.cncController.operationManager.currentOperation.name === 'Move';
-
-            if (!isMoveToolActive) {
-                showToolsList();
-            }
+            this.unselectAll();
         }
+        this.showSelection();
     }
+
     onMouseMove(canvas, evt, inHandle) {
 
         var mouse = this.normalizeEvent(canvas, evt);
@@ -176,61 +137,52 @@ class Select extends Operation {
     onMouseUp(canvas, evt) {
         this.mouseDown = false;
         if (this.selectBox) {
-            this.selectPathsInRect(this.selectBox,evt.shiftKey);
+            this.selectPathsInRect(this.selectBox, evt.shiftKey);
             this.selectBox = null;
-
-            // Update selection order for newly selected paths
-            const selectedPaths = svgpaths.filter(path => path.selected > 0);
-            selectedPaths.forEach(path => {
-                // Add to selection order if not already there
-                if (!this.selectionOrder.includes(path.id)) {
-                    this.selectionOrder.push(path.id);
-                }
-            });
-
-            // Remove unselected paths from selection order
-            this.selectionOrder = this.selectionOrder.filter(id =>
-                svgpaths.some(path => path.id === id && path.selected > 0)
-            );
-
-            // After drag selection, show properties panel for the selected paths if appropriate
-            if (selectedPaths.length > 0) {
-                // Find the most recently selected path for properties display
-                let pathToShow = null;
-                for (let i = this.selectionOrder.length - 1; i >= 0; i--) {
-                    const pathId = this.selectionOrder[i];
-                    pathToShow = svgpaths.find(path => path.id === pathId && path.selected > 0);
-                    if (pathToShow) break;
-                }
-
-                // If no path in selection order, use the first selected path
-                if (!pathToShow && selectedPaths.length > 0) {
-                    pathToShow = selectedPaths[0];
-                }
-
-                if (pathToShow) {
-                    const drawToolsTab = document.getElementById('draw-tools-tab');
-                    const isOnDrawToolsTab = drawToolsTab && drawToolsTab.classList.contains('active');
-
-                    // Check if Move tool is currently active - if so, don't show path properties
-                    const isMoveToolActive = window.cncController &&
-                                           window.cncController.operationManager &&
-                                           window.cncController.operationManager.currentOperation &&
-                                           window.cncController.operationManager.currentOperation.name === 'Move';
-
-                    if (isOnDrawToolsTab && pathToShow.creationTool && pathToShow.creationProperties && !isMoveToolActive) {
-                        // Check if this is a draw tool that supports editing
-                        if (pathToShow.creationTool === 'Text' || pathToShow.creationTool === 'Polygon') {
-                            // Show properties editor for this path
-                           // showPathPropertiesEditor(pathToShow);
-                        }
-                    }
-                }
-            }
         }
+        this.showSelection();
     }
 
+    doOperation() {
 
+        // Check if an operation properties editor is currently shown (operation is active)
+        const operationPropertiesEditor = document.getElementById('operation-properties-editor');
+        const isOperationActive = operationPropertiesEditor && operationPropertiesEditor.style.display !== 'none';
+
+        if (isOperationActive) {
+            generateToolpathForSelection();
+        }
+
+    }
+
+    showSelection() {
+        const operationsTab = document.getElementById('operations-tab');
+        const isOnOperationsTab = operationsTab && operationsTab.classList.contains('active');
+        const changePanel = !isOnOperationsTab && window.cncController.operationManager.currentOperation.name !== 'Move' &&
+            window.cncController.operationManager.currentOperation.name !== 'Boolean';
+
+
+        let pathToShow = this.firstSelected();
+
+        if (changePanel) {
+
+            if (pathToShow) {
+                showPathPropertiesEditor(pathToShow);
+            }
+            else {
+                showToolsList();
+            }
+        }
+
+        if (pathToShow)
+        {
+             pathToShow.selected = 1;
+            if (isOnOperationsTab)
+                this.doOperation();
+        }
+        redraw();
+
+    }
 
     draw(ctx) {
         if (this.selectBox) {

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-18";
+var APP_VERSION = "Ver 2025-10-19";
 
 var mode = "Select";
 var options = [];
@@ -13,6 +13,8 @@ var currentTool = null;
 var currentFileName = "none";
 var gcodeProfiles = [];
 var currentGcodeProfile = null;
+var currentOperationName = null;
+
 
 // Wood species database with cutting parameters
 var woodSpeciesDatabase = {
@@ -631,23 +633,28 @@ function createSidebar() {
 
         if (operation) {
             // First activate the operation (calls start() which loads saved properties)
-            handleOperationClick(operation);
+
+            
+            
 
             // Then show the properties editor (which calls getPropertiesHTML())
             const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
+                handleOperationClick(operation);
             } else {
                 showOperationPropertiesEditor(operation);
+                generateToolpathForSelection();
             }
+            
         } else if (pathId) {
             handlePathClick(pathId);
         }
 
         // Update selection
         sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
-        //unselectAll();
+        //selectMgr.unselectAll();
         if (item) item.classList.add('selected');
     });
 
@@ -951,6 +958,7 @@ function showToolPropertiesEditor(operationName) {
     toolsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
+    currentOperationName = operationName;
     // Update title
     title.textContent = `${operationName} Tool`;
 
@@ -1030,6 +1038,76 @@ function getActiveToolpaths() {
     return toolpaths.filter(tp => tp.active === true);
 }
 
+function generateToolpathForSelection() {
+    // Collect form data
+    if(currentOperationName == null) return;
+
+    const data = window.toolpathPropertiesManager.collectFormData();
+
+    // Validate
+    const errors = window.toolpathPropertiesManager.validateFormData(currentOperationName, data);
+    if (errors.length > 0) {
+        notify(errors.join(', '), 'error');
+        return null;
+    }
+
+    // Update defaults for this operation
+    window.toolpathPropertiesManager.updateDefaults(currentOperationName, data);
+
+    // Get the selected tool
+    const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+    if (!selectedTool) {
+        notify('Selected tool not found', 'error');
+        return null;
+    }
+
+    // Store current tool and temporarily replace it with the selected one
+    const originalTool = window.currentTool;
+    window.currentTool = {
+        ...selectedTool,
+        depth: data.depth,
+        step: data.step,
+        stepover: data.stepover,
+        inside: data.inside,
+        direction: data.direction
+    };
+
+    // Store the properties for later reference (to be used by pushToolPath)
+    window.currentToolpathProperties = { ...data };
+
+    // Store before toolpath count to detect ALL new toolpaths
+    const beforeCount = toolpaths.length;
+
+    // Execute the operation
+    try {
+        handleOperationClick(currentOperationName);
+    } finally {
+        // Restore original tool
+        window.currentTool = originalTool;
+    }
+
+    // Find ALL newly created toolpaths (not just the last one)
+    const afterCount = toolpaths.length;
+
+    if (afterCount > beforeCount) {
+        // Get all the newly created toolpaths
+        const newToolpaths = toolpaths.slice(beforeCount);
+
+        // Use centralized helper to set active state
+        setActiveToolpaths(newToolpaths);
+
+        // Clear the properties after successful generation
+        window.currentToolpathProperties = null;
+
+        return newToolpaths;
+    }
+
+    // Clear the properties even if generation failed
+    window.currentToolpathProperties = null;
+    redraw();
+    return null;
+}
+
 function showOperationPropertiesEditor(operationName) {
     const operationsList = document.getElementById('operations-list');
     const propertiesEditor = document.getElementById('operation-properties-editor');
@@ -1042,6 +1120,7 @@ function showOperationPropertiesEditor(operationName) {
     propertiesEditor.style.display = 'block';
 
     // Update title
+    currentOperationName = operationName;
     title.textContent = `${operationName} Operation`;
 
     // Check if this is a toolpath operation that should use the new properties manager
@@ -1055,86 +1134,7 @@ function showOperationPropertiesEditor(operationName) {
         // Store the active operation name for path selection handler
         window.activeToolpathOperation = operationName;
 
-        // Function to generate toolpath for current selection
-        function generateToolpathForSelection() {
-            // Collect form data
-            const data = window.toolpathPropertiesManager.collectFormData();
 
-            // Validate
-            const errors = window.toolpathPropertiesManager.validateFormData(operationName, data);
-            if (errors.length > 0) {
-                notify(errors.join(', '), 'error');
-                return null;
-            }
-
-            // Update defaults for this operation
-            window.toolpathPropertiesManager.updateDefaults(operationName, data);
-
-            // Get the selected tool
-            const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
-            if (!selectedTool) {
-                notify('Selected tool not found', 'error');
-                return null;
-            }
-
-            // Store current tool and temporarily replace it with the selected one
-            const originalTool = window.currentTool;
-            window.currentTool = {
-                ...selectedTool,
-                depth: data.depth,
-                step: data.step,
-                stepover: data.stepover,
-                inside: data.inside,
-                direction: data.direction
-            };
-
-            // Store the properties for later reference (to be used by pushToolPath)
-            window.currentToolpathProperties = { ...data };
-
-            // Store before toolpath count to detect ALL new toolpaths
-            const beforeCount = toolpaths.length;
-
-            // Execute the operation
-            try {
-                handleOperationClick(operationName);
-            } finally {
-                // Restore original tool
-                window.currentTool = originalTool;
-            }
-
-            // Find ALL newly created toolpaths (not just the last one)
-            const afterCount = toolpaths.length;
-
-            if (afterCount > beforeCount) {
-                // Get all the newly created toolpaths
-                const newToolpaths = toolpaths.slice(beforeCount);
-
-                // Use centralized helper to set active state
-                setActiveToolpaths(newToolpaths);
-
-                // Clear the properties after successful generation
-                window.currentToolpathProperties = null;
-
-                return newToolpaths;
-            }
-
-            // Clear the properties even if generation failed
-            window.currentToolpathProperties = null;
-            return null;
-        }
-
-        // Store function globally so it can be called when paths are selected
-        window.generateToolpathForSelection = generateToolpathForSelection;
-/*
-        // Check if there are already selected paths - if so, generate toolpath after DOM updates
-        const hasSelectedPaths = svgpaths && svgpaths.some(p => p.selected && p.visible);
-        if (hasSelectedPaths) {
-            // Wait for DOM to be fully rendered, then use the same function as click-to-select
-            setTimeout(() => {
-                generateToolpathForSelection();
-            }, 10); // Small delay to ensure DOM is ready
-        }
-*/
         // Set up the "Update Toolpath" button using the shared handler
         setupToolpathUpdateButton(operationName);
     } else {
@@ -1170,7 +1170,7 @@ function showOperationPropertiesEditor(operationName) {
 
                 // Add both change and input events for real-time updates
                 input.addEventListener('change', handleInputChange);
-               // input.addEventListener('input', handleInputChange);
+                // input.addEventListener('input', handleInputChange);
             });
         } else {
             form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
@@ -1297,8 +1297,8 @@ function setupToolpathUpdateButton(operationName) {
         }
 
         // Select all the original paths
-        unselectAll();
-        svgPathsToRegenerate.forEach(p => p.selected = true);
+        selectMgr.unselectAll();
+        svgPathsToRegenerate.forEach(p => selectMgr.selectPath(p));
 
         // Store current tool and temporarily replace it
         const originalTool = window.currentTool;
@@ -1372,6 +1372,7 @@ function showToolpathPropertiesEditor(toolpath) {
     operationsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
+    currentOperationName = toolpath.operation;
     // Update title
     title.textContent = `Edit ${toolpath.operation} Toolpath`;
 
@@ -1423,6 +1424,7 @@ function autoCloseToolProperties(reason) {
 }
 
 function showToolsList() {
+    currentOperationName = null;
     const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
 
     if (activeTab && activeTab.id === 'draw-tools-tab') {
@@ -1439,20 +1441,11 @@ function showToolsList() {
         propertiesEditor.style.display = 'none';
     }
 
-    // Clear selection
-    document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
-
-    // Deselect all paths
-    if (typeof unselectAll === 'function') {
-        unselectAll();
-    } else {
-        // Fallback path deselection
-        if (window.svgpaths) {
-            window.svgpaths.forEach(path => {
-                path.selected = 0;
-            });
-        }
+    selectMgr.unselectAll();
+    if (window.toolpaths) {
+        toolpaths.forEach(tp => tp.active = false);
     }
+
 
     // Return to Select mode
     if (window.cncController) {
@@ -1461,35 +1454,6 @@ function showToolsList() {
     }
 }
 
-// Apply or remove operation to/from a newly selected path when operation is active
-function applyOperationToPath(operationName, path) {
-    // All operations in the operations panel now use the properties-based approach
-    if (window.generateToolpathForSelection) {
-        window.generateToolpathForSelection();
-    }
-
-    // Redraw to show the changes
-    redraw();
-}
-
-// Apply a new operation to a path
-function applyNewOperationToPath(operationName, path) {
-    // All operations in the operations panel now use the properties-based approach
-    if (window.generateToolpathForSelection) {
-        // Store original selections
-        const originalSelections = svgpaths.map(p => p.selected > 0);
-
-        // Deselect all paths except the current one
-        svgpaths.forEach(p => p.selected = 0);
-        path.selected = 2;
-
-        // Generate toolpath using current properties from panel
-        window.generateToolpathForSelection();
-
-        // Restore original selections (keep the path selected)
-        path.selected = 2;
-    }
-}
 
 // Path Properties Editor for editing existing paths
 function showPathPropertiesEditor(path) {
@@ -1505,6 +1469,7 @@ function showPathPropertiesEditor(path) {
     propertiesEditor.style.flexDirection = 'column';
 
     // Update title
+    currentOperationName = path.creationTool;
     title.textContent = `Edit ${path.creationTool} - ${path.name}`;
 
     // Get properties HTML from the operation
@@ -1513,14 +1478,14 @@ function showPathPropertiesEditor(path) {
 
     // Set the edit context before getting properties HTML
     if (operation && typeof operation.setEditPath === 'function') {
-        
+
         //operation.onPropertiesChanged(path.creationProperties.properties); // Ensure properties are synced
     }
 
     // Now get the properties HTML (works for both edit and creation modes)
     if (operation && typeof operation.getPropertiesHTML === 'function') {
         propertiesHTML = operation.getPropertiesHTML(path);
-        
+
     } else {
         // Fallback for operations without properties
         propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
@@ -2660,6 +2625,7 @@ function handleOperationClick(operation) {
             break;
         case 'Boolean':
             doBoolean();
+            setMode("Select");
             break;
         case 'Gemini':
             doGemini();
@@ -3249,9 +3215,9 @@ function addTextGroup(groupId, text, paths) {
         const textPaths = svgpaths.filter(p => p.textGroupId === groupId);
         if (textPaths.length > 0) {
             // Deselect all other paths
-            svgpaths.forEach(p => p.selected = 0);
+            selectMgr.unselectAll();
             // Select all paths in this text group
-            textPaths.forEach(p => p.selected = 1);
+            textPaths.forEach(p => selectMgr.selectPath(p));
             // Highlight the group header
             document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
             groupHeader.classList.add('selected');
@@ -3344,9 +3310,9 @@ function addSvgGroup(groupId, groupName, paths) {
         const svgPaths = svgpaths.filter(p => p.svgGroupId === groupId);
         if (svgPaths.length > 0) {
             // Deselect all other paths
-            svgpaths.forEach(p => p.selected = 0);
+            selectMgr.unselectAll();
             // Select all paths in this SVG group
-            svgPaths.forEach(p => p.selected = 1);
+            svgPaths.forEach(p => selectMgr.selectPath(p));
             // Highlight the group header
             document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
             groupHeader.classList.add('selected');

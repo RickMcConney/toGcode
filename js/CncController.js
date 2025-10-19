@@ -7,7 +7,8 @@ class CncController {
     this.operationManager = new OperationManager();
     
     // Register all operations
-    this.operationManager.registerOperation(new Select());
+    let select = Select.getInstance();
+    this.operationManager.registerOperation(select);
     this.operationManager.registerOperation(new Workpiece());
     //this.operationManager.registerOperation(new Origin());
     // Pan tool removed - use middle mouse button to pan

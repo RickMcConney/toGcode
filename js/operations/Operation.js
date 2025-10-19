@@ -125,19 +125,5 @@ class Operation {
         }
     }
 
-    selectPathsInRect(selectBox,addToSelection) {
-        for (var i = 0; i < svgpaths.length; i++) {
-            if (!svgpaths[i].visible) continue;
 
-            for (var j = 0; j < svgpaths[i].path.length; j++) {
-                if(!addToSelection)
-                    svgpaths[i].selected = 0;
-                var pt = svgpaths[i].path[j];
-                if (pointInBoundingBox(pt, selectBox)) {
-                    svgpaths[i].selected = this.selectionId++;
-                    continue;
-                }
-            }
-        }
-    }
 }

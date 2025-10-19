@@ -212,8 +212,8 @@ class Shape extends Operation {
         }
 
         addOrReplaceSvgPath(oldId, svgPath.id, svgPath.name);
-        unselectAll();
-        svgPath.selected = 1;
+        selectMgr.unselectAll();
+        selectMgr.selectPath(svgPath);
   
         const title = document.getElementById('tool-properties-title');
         title.textContent = `Edit ${shape} - ${svgPath.name}`;

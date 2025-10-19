@@ -103,11 +103,11 @@ class Text extends Operation {
         return `
             <div class="mb-3">
                 <label for="text-input" class="form-label">Text</label>
-                <textarea class="form-control"
+                <input type="text" class="form-control"
                          id="text-input"
                          name="text"
                          rows="3"
-                         placeholder="Enter your text here...">${text}</textarea>
+                         value="${text}"</input>
             </div>
 
             ${this._generateFontSelect(font)}
@@ -365,7 +365,7 @@ class Text extends Operation {
             // Add created paths to svgpaths array
             createdPaths.forEach(svgPath => {
                 svgpaths.push(svgPath);
-                svgPath.selected = 1;
+                selectMgr.selectPath(svgPath);
             });
 
             // Move to next character position
@@ -428,11 +428,12 @@ class Text extends Operation {
         const textGroupId = textPaths[0].textGroupId || ('TextGroup' + Date.now());
         const originalPaths = textPaths.map(p => ({
             id: p.id,
-            name: p.name,
-            selected: p.selected
+            name: p.name
+
         }));
 
         // Remove existing text paths from sidebar and array
+        selectMgr.unselectAll();
         textPaths.forEach(textPath => {
             const pathIndex = svgpaths.findIndex(p => p.id === textPath.id);
             if (pathIndex !== -1) {
@@ -467,8 +468,9 @@ class Text extends Operation {
 
             // Add created paths to svgpaths array
             createdPaths.forEach(svgPath => {
-                svgPath.selected = 1;
+                
                 svgpaths.push(svgPath);
+                selectMgr.selectPath(svgPath);
                 this.currentPath = svgPath;
                 pathIdCounter++;
             });
