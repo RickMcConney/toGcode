@@ -281,6 +281,7 @@ class Shape extends Operation {
             let display = (s === shape) ? 'block' : 'none';
             document.getElementById(`${s}-properties`).style.display = display;
         }
+        document.getElementById('shape-select').value = shape;
     }
 
     getHtmlForProperties() {
@@ -340,6 +341,11 @@ class Shape extends Operation {
 
     setEditPath(path) {
         this.currentPath = path;
+
+    }
+
+    update(path)
+    {
         let shape = path.creationProperties.shape;
         this.showProperties(shape);
         this.properties = { ...this.properties, ...path.creationProperties.properties };

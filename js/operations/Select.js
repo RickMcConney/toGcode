@@ -1,12 +1,12 @@
 
 class Select extends Operation {
     static instance;
+    static selected = [];
 
     constructor() {
         super('Select', null);
         this.unselectOnMouseDown = true;
         this.selectionId = 2;
-        this.selected = [];
     }
 
     static getInstance(){
@@ -17,28 +17,28 @@ class Select extends Operation {
 
     noSelection()
     {
-        return this.selected.length === 0;
+        return Select.selected.length === 0;
     }
 
     isSelected(path)
     {
-        if(this.selected.length === 0) return false;
-        let index = this.selected.indexOf(path);
+        if(Select.selected.length === 0) return false;
+        let index = Select.selected.indexOf(path);
         return index >= 0;
     }
 
     selectPath(path)
     {
-        this.selected.push(path);
+        Select.selected.push(path);
         selectSidebarNode(path.id);
         path.highlight = false;
     }
 
     unselectPath(path)
     {
-        let index = this.selected.indexOf(path);
+        let index = Select.selected.indexOf(path);
         if (index !== -1) { 
-            this.selected.splice(index, 1); 
+            Select.selected.splice(index, 1); 
         }
         path.highlight = false;
         unselectSidebarNode(path.id);    
@@ -46,27 +46,34 @@ class Select extends Operation {
 
     unselectAll()
     {
-        if(this.selected.length > 0)
+        if(Select.selected.length > 0)
         {
-            for(let path of this.selected)
+            for(let path of Select.selected)
             {
                 unselectSidebarNode(path.id);
                 path.highlight = false;
             }
         }
-        this.selected = [];
+        Select.selected = [];
     }
 
     firstSelected()
     {
-        if(this.selected.length > 0)
-            return this.selected[0];
+        if(Select.selected.length > 0)
+            return Select.selected[0];
+        return null;
+    }
+
+    lastSelected()
+    {
+        if(Select.selected.length > 0)
+            return Select.selected[Select.selected.length-1];
         return null;
     }
 
     selectedPaths()
     {
-        return this.selected;
+        return Select.selected;
     }
 
     selectPathsInRect(selectBox,addToSelection) {
@@ -162,12 +169,13 @@ class Select extends Operation {
             window.cncController.operationManager.currentOperation.name !== 'Boolean';
 
 
-        let pathToShow = this.firstSelected();
+        let pathToShow = this.lastSelected();
 
         if (changePanel) {
 
-            if (pathToShow) {
-                showPathPropertiesEditor(pathToShow);
+            if (pathToShow){
+                if (pathToShow.creationTool == "Shape" || pathToShow.creationTool == "Text") 
+                    showPathPropertiesEditor(pathToShow);
             }
             else {
                 showToolsList();
@@ -176,7 +184,6 @@ class Select extends Operation {
 
         if (pathToShow)
         {
-             pathToShow.selected = 1;
             if (isOnOperationsTab)
                 this.doOperation();
         }

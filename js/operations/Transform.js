@@ -40,7 +40,7 @@ class Transform extends Select {
 
             // Store original path positions
             this.originalPaths = svgpaths.map(path => {
-                if (path.selected) {
+                if (selectMgr.isSelected(path)) {
                     return {
                         id: path.id,
                         path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
@@ -52,6 +52,8 @@ class Transform extends Select {
             // Update display when starting
             this.updateCenterDisplay();
         }
+        else
+            this.transformBox = null;
 
         // Refresh properties panel to show the right state
         this.refreshPropertiesPanel();
@@ -91,7 +93,7 @@ class Transform extends Select {
                 // Also store original path positions if missing
                 if (this.originalPaths.length === 0) {
                     this.originalPaths = svgpaths.map(path => {
-                        if (path.selected) {
+                        if (selectMgr.isSelected(path)) {
                             return {
                                 id: path.id,
                                 path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
@@ -133,7 +135,7 @@ class Transform extends Select {
 
                 // Store original path positions for transformation reference
                 this.originalPaths = svgpaths.map(path => {
-                    if (path.selected) {
+                    if (selectMgr.isSelected(path)) {
                         return {
                             id: path.id,
                             path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
@@ -185,7 +187,7 @@ class Transform extends Select {
             if (this.activeHandle.type === 'translate') {
                 // Handle translation
                 svgpaths.forEach(path => {
-                    if (path.selected) {
+                    if (selectMgr.isSelected(path)) {
                         path.path = path.path.map(pt => ({
                             x: pt.x + dx,
                             y: pt.y + dy
@@ -239,7 +241,7 @@ class Transform extends Select {
                 this.scaleY = scaleY;
 
                 svgpaths.forEach(path => {
-                    if (path.selected) {
+                    if (selectMgr.isSelected(path)) {
                         const originalPath = this.originalPaths.find(p => p.id === path.id);
                         if (originalPath) {
                             path.path = originalPath.path.map(pt => {
@@ -294,7 +296,7 @@ class Transform extends Select {
 
                 // Rotate all selected paths from their original positions
                 svgpaths.forEach(path => {
-                    if (path.selected) {
+                    if (selectMgr.isSelected(path)) {
                         const originalPath = this.originalPaths.find(p => p.id === path.id);
                         if (originalPath) {
                             path.path = originalPath.path.map(pt => {
@@ -348,7 +350,7 @@ class Transform extends Select {
 
                 // Store original path positions
                 this.originalPaths = svgpaths.map(path => {
-                    if (path.selected) {
+                    if (selectMgr.isSelected(path)) {
                         return {
                             id: path.id,
                             path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
@@ -368,7 +370,7 @@ class Transform extends Select {
         if (this.activeHandle) {
             // Update final positions
             svgpaths.forEach(path => {
-                if (path.selected) {
+                if (selectMgr.isSelected(path)) {
                     path.bbox = boundingBox(path.path);
                 }
             });
@@ -392,7 +394,7 @@ class Transform extends Select {
 
 
     hasSelectedPaths() {
-        return svgpaths.some(path => path.selected);
+        return !selectMgr.noSelection();
     }
 
     createTransformBox(paths) {
@@ -401,7 +403,7 @@ class Transform extends Select {
 
         // Calculate bounding box for all selected paths
         paths.forEach(path => {
-            if (path.selected) {
+            if (selectMgr.isSelected(path)) {
                 minX = Math.min(minX, path.bbox.minx);
                 minY = Math.min(minY, path.bbox.miny);
                 maxX = Math.max(maxX, path.bbox.maxx);
@@ -732,7 +734,7 @@ class Transform extends Select {
 
         // Apply transformation to all selected paths
         svgpaths.forEach(path => {
-            if (path.selected) {
+            if (selectMgr.isSelected(path)) {
                 const originalPath = this.originalPaths.find(p => p.id === path.id);
                 if (originalPath) {
                     // Apply translation, scale, and rotation from properties
@@ -778,7 +780,7 @@ class Transform extends Select {
     updateCreationProperties() {
         // Update creation properties for all selected paths to reflect their new positions
         svgpaths.forEach(path => {
-            if (path.selected && path.creationProperties) {
+            if (selectMgr.isSelected(path) && path.creationProperties) {
                 if (path.creationTool === 'Text' && path.creationProperties.position) {
                     // For text, calculate the new position based on the transformation
                     const bbox = path.bbox;

@@ -2067,19 +2067,11 @@ function setVisibility(id, visible) {
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (svgpaths[i].id == id) {
 			svgpaths[i].visible = visible;
-			if (visible)
-				setHidden(id, false);
-			else
-				setHidden(id, true);
 		}
 	}
 	for (var i = 0; i < toolpaths.length; i++) {
 		if (toolpaths[i].id == id) {
 			toolpaths[i].visible = visible;
-			if (visible)
-				setHidden(id, false);
-			else
-				setHidden(id, true);
 		}
 	}
 	redraw();

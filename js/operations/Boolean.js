@@ -8,28 +8,22 @@ function applyBooleanOperation() {
     const clipper = new ClipperLib.Clipper();
     let operation = document.getElementById("boolean-select").value;
     var inputPaths = [];
-    let min = Infinity;
-    let firstPath = null;
-    let firstPathIndex = 0;
-    let count = 0;
-    for (var i = 0; i < svgpaths.length; i++) {
-        var path = svgpaths[i].path;
-        if (svgpaths[i].selected > 0)
-        {
-            inputPaths.push(path);
-            if(min > svgpaths[i].selected){
-                min = svgpaths[i].selected;
-                firstPath = path;
-                firstPathIndex = count;
-            }
-            count++;
-        }
-    }
 
-    if (inputPaths.length < 2) {
+    if (selectMgr.selectedPaths().length < 2) {
         notify("Need at least two paths selected");
         return;
     }
+    let firstPath = selectMgr.firstSelected().path;
+
+    for (var i = 0; i < svgpaths.length; i++) {
+        var path = svgpaths[i].path;
+        if (selectMgr.isSelected(svgpaths[i]))
+        {
+            inputPaths.push(path);
+        }
+    }
+
+
     const solutionPaths = new ClipperLib.Paths();
 
     if (operation == "Union") {
@@ -43,7 +37,8 @@ function applyBooleanOperation() {
     }
     else if (operation == "Intersect") {
         clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
-        inputPaths.splice(firstPathIndex, 1);
+        let index = inputPaths.indexOf(firstPath);
+        if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
             ClipperLib.ClipType.ctIntersection, // Perform a intersection operation
@@ -54,7 +49,8 @@ function applyBooleanOperation() {
     }
     else if (operation == "Subtract") {
         clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
-        inputPaths.splice(firstPathIndex, 1);
+        let index = inputPaths.indexOf(firstPath);
+        if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
             ClipperLib.ClipType.ctDifference, // Perform a intersection operation
@@ -70,7 +66,6 @@ function applyBooleanOperation() {
         id: operation + svgpathId,
         type: 'path',
         name: operation + ' ' + svgpathId,
-        selected: 0,
         visible: true,
         path: solutionPaths[0],
         bbox: boundingBox(solutionPaths[0]),
@@ -84,8 +79,8 @@ function applyBooleanOperation() {
     addSvgPath(svgPath.id, svgPath.name);
 
     // Auto-select the newly created polygon
-    svgPath.selected = 1;
-    selectSidebarNode(svgPath.id);
+    selectMgr.unselectAll();
+    selectMgr.selectPath(svgPath);
 
     svgpathId++;
     redraw();

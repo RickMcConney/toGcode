@@ -303,6 +303,203 @@ fileOpen.addEventListener('change', function (e) {
     fileOpen.value = "";
 });
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Collect form data from input elements into an object
+ * @param {HTMLElement} form - The form or container element
+ * @returns {Object} Object with form field names as keys and values
+ */
+function collectFormData(form) {
+    const inputs = form.querySelectorAll('input, select, textarea');
+    const data = {};
+    inputs.forEach(input => {
+        if (input.name) {
+            if (input.type === 'checkbox') {
+                data[input.name] = input.checked;
+            } else if (input.type === 'radio') {
+                if (input.checked) {
+                    data[input.name] = input.value;
+                }
+            } else {
+                data[input.name] = input.value;
+            }
+        }
+    });
+    return data;
+}
+
+/**
+ * Replace event listener on an element by cloning it
+ * This removes all existing event listeners and adds a new one
+ * @param {HTMLElement} element - The element to update
+ * @param {string} eventType - The event type (e.g., 'click')
+ * @param {Function} handler - The new event handler
+ * @param {Object} options - Optional event listener options
+ * @returns {HTMLElement} The new cloned element
+ */
+function replaceEventListener(element, eventType, handler, options = {}) {
+    const newElement = element.cloneNode(true);
+    element.parentNode.replaceChild(newElement, element);
+    if (handler) {
+        newElement.addEventListener(eventType, handler, options);
+    }
+    return newElement;
+}
+
+/**
+ * Create a generic context menu
+ * @param {Event} event - The contextmenu event
+ * @param {Object} config - Configuration object
+ * @param {Array} config.items - Array of menu items {label, icon, action, danger, divider}
+ * @param {Function} config.onAction - Callback for menu actions (action, data)
+ * @param {*} config.data - Data to pass to the action handler
+ */
+function createContextMenu(event, config) {
+    event.preventDefault();
+
+    // Remove existing context menu
+    const existingMenu = document.querySelector('.context-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'dropdown-menu show context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = event.clientX + 'px';
+    menu.style.top = event.clientY + 'px';
+    menu.style.zIndex = '9999';
+
+    // Build menu items HTML
+    const itemsHtml = config.items.map(item => {
+        if (item.divider) {
+            return '<div class="dropdown-divider"></div>';
+        }
+        const dangerClass = item.danger ? 'text-danger' : '';
+        return `
+            <button class="dropdown-item ${dangerClass}" data-action="${item.action}">
+                <i data-lucide="${item.icon}"></i> ${item.label}
+            </button>
+        `;
+    }).join('');
+
+    menu.innerHTML = itemsHtml;
+    document.body.appendChild(menu);
+
+    // Add event handlers
+    menu.addEventListener('click', function (e) {
+        const button = e.target.closest('[data-action]');
+        if (button && config.onAction) {
+            const action = button.dataset.action;
+            config.onAction(action, config.data);
+        }
+        menu.remove();
+    });
+
+    // Remove menu when clicking elsewhere
+    setTimeout(() => {
+        document.addEventListener('click', function closeMenu() {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        });
+    }, 0);
+
+    lucide.createIcons();
+}
+
+/**
+ * Get nested property value from an object using dot notation
+ * @param {Object} obj - The object to get the value from
+ * @param {string} path - The property path (e.g., 'tool.name')
+ * @returns {*} The value at the path
+ */
+function getNestedValue(obj, path) {
+    return path.split('.').reduce((current, prop) => current?.[prop], obj);
+}
+
+/**
+ * Set visibility for items in a collection based on a filter
+ * @param {Array} collection - The array to filter (svgpaths or toolpaths)
+ * @param {string} filterKey - The property to filter on (supports dot notation like 'tool.name')
+ * @param {*} filterValue - The value to match
+ * @param {boolean} visible - Whether to show or hide
+ * @param {string} itemLabel - Label for notification (e.g., 'path(s)', 'toolpath(s)')
+ */
+function setGroupVisibility(collection, filterKey, filterValue, visible, itemLabel = 'item(s)') {
+    let changedCount = 0;
+    collection.forEach(function (item) {
+        if (getNestedValue(item, filterKey) === filterValue) {
+            item.visible = visible;
+            changedCount++;
+        }
+    });
+
+    if (changedCount > 0) {
+        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} ${itemLabel}`, 'success');
+        redraw();
+    }
+}
+
+/**
+ * Delete a group of items with confirmation
+ * @param {Object} config - Configuration object
+ * @param {Array} config.collection - The array to delete from
+ * @param {string} config.filterKey - The property to filter on (supports dot notation like 'tool.name')
+ * @param {*} config.filterValue - The value to match
+ * @param {string} config.title - Modal title
+ * @param {string} config.groupLabel - Label for the group (e.g., 'Tool Folder', 'SVG Group')
+ * @param {string} config.itemLabel - Label for items (e.g., 'toolpath(s)', 'path(s)')
+ * @param {string} config.selectorAttr - Attribute selector for DOM element (e.g., 'data-tool-name')
+ * @param {Function} config.onComplete - Optional callback after deletion
+ */
+function deleteGroup(config) {
+    const itemsToDelete = config.collection.filter(item => getNestedValue(item, config.filterKey) === config.filterValue);
+
+    if (itemsToDelete.length === 0) return;
+
+    showConfirmModal({
+        title: `Delete ${config.groupLabel}`,
+        message: `
+            <p>Are you sure you want to delete all <strong>${itemsToDelete.length}</strong> ${config.itemLabel} for <strong>"${config.filterValue}"</strong>?</p>
+            <p class="text-muted mb-0">This action cannot be undone.</p>
+        `,
+        confirmText: 'Delete All',
+        confirmClass: 'btn-danger',
+        headerClass: 'bg-danger text-white',
+        onConfirm: function () {
+            // Delete all items with this filter value
+            for (let i = config.collection.length - 1; i >= 0; i--) {
+                if (getNestedValue(config.collection[i], config.filterKey) === config.filterValue) {
+                    config.collection.splice(i, 1);
+                }
+            }
+
+            // Remove the DOM element if selector provided
+            if (config.selectorAttr) {
+                const element = document.querySelector(`[${config.selectorAttr}="${config.filterValue}"]`);
+                if (element) {
+                    element.remove();
+                }
+            }
+
+            // Call completion callback if provided
+            if (config.onComplete) {
+                config.onComplete();
+            }
+
+            notify(`Deleted ${itemsToDelete.length} ${config.itemLabel}`, 'success');
+            redraw();
+        }
+    });
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
 // Initialize layout
 function initializeLayout() {
     loadOptions();
@@ -634,9 +831,6 @@ function createSidebar() {
         if (operation) {
             // First activate the operation (calls start() which loads saved properties)
 
-            
-            
-
             // Then show the properties editor (which calls getPropertiesHTML())
             const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text'].includes(operation);
 
@@ -647,15 +841,15 @@ function createSidebar() {
                 showOperationPropertiesEditor(operation);
                 generateToolpathForSelection();
             }
-            
+
         } else if (pathId) {
             handlePathClick(pathId);
         }
 
         // Update selection
-        sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+        // sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
         //selectMgr.unselectAll();
-        if (item) item.classList.add('selected');
+        //if (item) item.classList.add('selected');
     });
 
     // Context menu for paths and tool folders
@@ -972,22 +1166,7 @@ function showToolPropertiesEditor(operationName) {
         inputs.forEach(input => {
             function handleInputChange() {
                 if (operation && typeof operation.updateFromProperties === 'function') {
-                    // Collect form data manually
-                    const allInputs = form.querySelectorAll('input, select, textarea');
-                    const data = {};
-                    allInputs.forEach(inp => {
-                        if (inp.name) {
-                            if (inp.type === 'checkbox') {
-                                data[inp.name] = inp.checked;
-                            } else if (inp.type === 'radio') {
-                                if (inp.checked) {
-                                    data[inp.name] = inp.value;
-                                }
-                            } else {
-                                data[inp.name] = inp.value;
-                            }
-                        }
-                    });
+                    const data = collectFormData(form);
                     operation.updateFromProperties(data);
                 }
             }
@@ -1040,7 +1219,7 @@ function getActiveToolpaths() {
 
 function generateToolpathForSelection() {
     // Collect form data
-    if(currentOperationName == null) return;
+    if (currentOperationName == null) return;
 
     const data = window.toolpathPropertiesManager.collectFormData();
 
@@ -1426,7 +1605,8 @@ function autoCloseToolProperties(reason) {
 function showToolsList() {
     currentOperationName = null;
     const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
-
+    const form = document.getElementById('tool-properties-form');
+    form.innerHTML = "";
     if (activeTab && activeTab.id === 'draw-tools-tab') {
         const toolsList = document.getElementById('draw-tools-list');
         const propertiesEditor = document.getElementById('tool-properties-editor');
@@ -1476,23 +1656,29 @@ function showPathPropertiesEditor(path) {
     let propertiesHTML = '';
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
 
-    // Set the edit context before getting properties HTML
-    if (operation && typeof operation.setEditPath === 'function') {
 
-        //operation.onPropertiesChanged(path.creationProperties.properties); // Ensure properties are synced
-    }
 
     // Now get the properties HTML (works for both edit and creation modes)
     if (operation && typeof operation.getPropertiesHTML === 'function') {
+        if (operation && typeof operation.setEditPath === 'function') {
+            operation.setEditPath(path);
+            //operation.onPropertiesChanged(path.creationProperties.properties); // Ensure properties are synced
+        }
         propertiesHTML = operation.getPropertiesHTML(path);
+        form.innerHTML = propertiesHTML;
+        
+        if (operation && typeof operation.update === 'function') {
+            operation.update(path);
+        }
+        // Set the edit context before getting properties HTML
 
     } else {
         // Fallback for operations without properties
         propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
     }
 
-    form.innerHTML = propertiesHTML;
-    operation.setEditPath(path);
+
+
 
     // Add event listeners directly to input elements for path editing
     const inputs = form.querySelectorAll('input, select, textarea');
@@ -1518,18 +1704,7 @@ function showPathPropertiesEditor(path) {
 
 // Function to update an existing path with new properties
 function updateExistingPath(path, form) {
-    // Collect form data manually since we're not using a proper form element
-    const inputs = form.querySelectorAll('input, select, textarea');
-    const data = {};
-    inputs.forEach(input => {
-        if (input.name) {
-            if (input.type === 'checkbox') {
-                data[input.name] = input.checked;
-            } else {
-                data[input.name] = input.value;
-            }
-        }
-    });
+    const data = collectFormData(form);
 
     if (path.creationTool === 'Text') {
         // For text, use the standard operation pattern
@@ -2562,13 +2737,6 @@ function performOptionsReset() {
     notify('Options reset to defaults', 'success');
 }
 
-// Function to refresh options display when loaded from project
-function refreshOptionsDisplay() {
-    // Options are stored in global options variable and accessed directly by the modal
-    // No need to refresh anything here as the options modal reads from the global variable
-    // when it's opened
-}
-
 // Function to refresh tools display when loaded from project
 function refreshToolsGrid() {
     // Re-render the tools table to reflect loaded tools
@@ -2715,43 +2883,17 @@ function handlePathClick(pathId) {
     }
 }
 
-// Context menu
+// Context menu for individual paths
 function showContextMenu(event, pathId) {
-    // Remove existing context menu
-    const existingMenu = document.querySelector('.context-menu');
-    if (existingMenu) {
-        existingMenu.remove();
-    }
-
-    const menu = document.createElement('div');
-    menu.className = 'dropdown-menu show context-menu';
-    menu.style.position = 'fixed';
-    menu.style.left = event.clientX + 'px';
-    menu.style.top = event.clientY + 'px';
-    menu.style.zIndex = '9999';
-
-    menu.innerHTML = `
-        <button class="dropdown-item" data-action="show" data-path-id="${pathId}">
-            <i data-lucide="eye"></i> Show
-        </button>
-        <button class="dropdown-item" data-action="hide" data-path-id="${pathId}">
-            <i data-lucide="eye-off"></i> Hide
-        </button>
-        <div class="dropdown-divider"></div>
-        <button class="dropdown-item text-danger" data-action="delete" data-path-id="${pathId}">
-            <i data-lucide="trash-2"></i> Delete
-        </button>
-    `;
-
-    document.body.appendChild(menu);
-
-    // Add event handlers
-    menu.addEventListener('click', function (e) {
-        const button = e.target.closest('[data-action]');
-        if (button) {
-            const action = button.dataset.action;
-            const pathId = button.dataset.pathId;
-
+    createContextMenu(event, {
+        items: [
+            { label: 'Show', icon: 'eye', action: 'show' },
+            { label: 'Hide', icon: 'eye-off', action: 'hide' },
+            { divider: true },
+            { label: 'Delete', icon: 'trash-2', action: 'delete', danger: true }
+        ],
+        data: pathId,
+        onAction: function (action, pathId) {
             switch (action) {
                 case 'show':
                     setVisibility(pathId, true);
@@ -2764,365 +2906,109 @@ function showContextMenu(event, pathId) {
                     break;
             }
         }
-        menu.remove();
     });
-
-    // Remove menu when clicking elsewhere
-    setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
-            menu.remove();
-            document.removeEventListener('click', closeMenu);
-        });
-    }, 0);
-
-    lucide.createIcons();
 }
 
 // Context menu for tool folders
 function showToolFolderContextMenu(event, toolName) {
-    // Remove existing context menu
-    const existingMenu = document.querySelector('.context-menu');
-    if (existingMenu) {
-        existingMenu.remove();
-    }
-
-    const menu = document.createElement('div');
-    menu.className = 'dropdown-menu show context-menu';
-    menu.style.position = 'fixed';
-    menu.style.left = event.clientX + 'px';
-    menu.style.top = event.clientY + 'px';
-    menu.style.zIndex = '9999';
-
-    menu.innerHTML = `
-        <button class="dropdown-item" data-action="show-all" data-tool-name="${toolName}">
-            <i data-lucide="eye"></i> Show All
-        </button>
-        <button class="dropdown-item" data-action="hide-all" data-tool-name="${toolName}">
-            <i data-lucide="eye-off"></i> Hide All
-        </button>
-        <div class="dropdown-divider"></div>
-        <button class="dropdown-item text-danger" data-action="delete-all" data-tool-name="${toolName}">
-            <i data-lucide="trash-2"></i> Delete All
-        </button>
-    `;
-
-    document.body.appendChild(menu);
-
-    // Add event handlers
-    menu.addEventListener('click', function (e) {
-        const button = e.target.closest('[data-action]');
-        if (button) {
-            const action = button.dataset.action;
-            const toolName = button.dataset.toolName;
-
+    createContextMenu(event, {
+        items: [
+            { label: 'Show All', icon: 'eye', action: 'show-all' },
+            { label: 'Hide All', icon: 'eye-off', action: 'hide-all' },
+            { divider: true },
+            { label: 'Delete All', icon: 'trash-2', action: 'delete-all', danger: true }
+        ],
+        data: toolName,
+        onAction: function (action, toolName) {
             switch (action) {
                 case 'show-all':
-                    setToolFolderVisibility(toolName, true);
+                    setGroupVisibility(toolpaths, 'tool.name', toolName, true, 'toolpath(s)');
                     break;
                 case 'hide-all':
-                    setToolFolderVisibility(toolName, false);
+                    setGroupVisibility(toolpaths, 'tool.name', toolName, false, 'toolpath(s)');
                     break;
                 case 'delete-all':
-                    deleteToolFolder(toolName);
+                    deleteGroup({
+                        collection: toolpaths,
+                        filterKey: 'tool.name',
+                        filterValue: toolName,
+                        groupLabel: 'Tool Folder',
+                        itemLabel: 'toolpath(s)',
+                        onComplete: refreshToolPathsDisplay
+                    });
                     break;
             }
         }
-        menu.remove();
-    });
-
-    // Remove menu when clicking elsewhere
-    setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
-            menu.remove();
-            document.removeEventListener('click', closeMenu);
-        });
-    }, 0);
-
-    lucide.createIcons();
-}
-
-// Set visibility for all toolpaths in a tool folder
-function setToolFolderVisibility(toolName, visible) {
-    let changedCount = 0;
-    toolpaths.forEach(function (toolpath) {
-        if (toolpath.tool.name === toolName) {
-            toolpath.visible = visible;
-            changedCount++;
-        }
-    });
-
-    if (changedCount > 0) {
-        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} toolpath(s)`, 'success');
-        redraw();
-    }
-}
-
-// Delete all toolpaths in a tool folder
-function deleteToolFolder(toolName) {
-    // Find all toolpaths with this tool name
-    const toolpathsToDelete = toolpaths.filter(tp => tp.tool.name === toolName);
-
-    if (toolpathsToDelete.length === 0) return;
-
-    // Show confirmation dialog
-    showConfirmModal({
-        title: 'Delete Tool Folder',
-        message: `
-            <p>Are you sure you want to delete all <strong>${toolpathsToDelete.length}</strong> toolpath(s) for <strong>"${toolName}"</strong>?</p>
-            <p class="text-muted mb-0">This action cannot be undone.</p>
-        `,
-        confirmText: 'Delete All',
-        confirmClass: 'btn-danger',
-        headerClass: 'bg-danger text-white',
-        onConfirm: function () {
-            // Delete all toolpaths with this tool name
-            for (let i = toolpaths.length - 1; i >= 0; i--) {
-                if (toolpaths[i].tool.name === toolName) {
-                    toolpaths.splice(i, 1);
-                }
-            }
-
-            // Refresh the display - this will automatically remove the empty folder
-            refreshToolPathsDisplay();
-
-            notify(`Deleted ${toolpathsToDelete.length} toolpath(s)`, 'success');
-            redraw();
-        }
     });
 }
+
 
 // Context menu for SVG group folders
 function showSvgGroupContextMenu(event, groupId) {
-    // Remove existing context menu
-    const existingMenu = document.querySelector('.context-menu');
-    if (existingMenu) {
-        existingMenu.remove();
-    }
-
-    const menu = document.createElement('div');
-    menu.className = 'dropdown-menu show context-menu';
-    menu.style.position = 'fixed';
-    menu.style.left = event.clientX + 'px';
-    menu.style.top = event.clientY + 'px';
-    menu.style.zIndex = '9999';
-
-    menu.innerHTML = `
-        <button class="dropdown-item" data-action="show-all" data-group-id="${groupId}">
-            <i data-lucide="eye"></i> Show All
-        </button>
-        <button class="dropdown-item" data-action="hide-all" data-group-id="${groupId}">
-            <i data-lucide="eye-off"></i> Hide All
-        </button>
-        <div class="dropdown-divider"></div>
-        <button class="dropdown-item text-danger" data-action="delete-all" data-group-id="${groupId}">
-            <i data-lucide="trash-2"></i> Delete All
-        </button>
-    `;
-
-    document.body.appendChild(menu);
-
-    // Add event handlers
-    menu.addEventListener('click', function (e) {
-        const button = e.target.closest('[data-action]');
-        if (button) {
-            const action = button.dataset.action;
-            const groupId = button.dataset.groupId;
-
+    createContextMenu(event, {
+        items: [
+            { label: 'Show All', icon: 'eye', action: 'show-all' },
+            { label: 'Hide All', icon: 'eye-off', action: 'hide-all' },
+            { divider: true },
+            { label: 'Delete All', icon: 'trash-2', action: 'delete-all', danger: true }
+        ],
+        data: groupId,
+        onAction: function (action, groupId) {
             switch (action) {
                 case 'show-all':
-                    setSvgGroupVisibility(groupId, true);
+                    setGroupVisibility(svgpaths, 'svgGroupId', groupId, true, 'path(s)');
                     break;
                 case 'hide-all':
-                    setSvgGroupVisibility(groupId, false);
+                    setGroupVisibility(svgpaths, 'svgGroupId', groupId, false, 'path(s)');
                     break;
                 case 'delete-all':
-                    deleteSvgGroup(groupId);
+                    deleteGroup({
+                        collection: svgpaths,
+                        filterKey: 'svgGroupId',
+                        filterValue: groupId,
+                        groupLabel: 'SVG Group',
+                        itemLabel: 'path(s)',
+                        selectorAttr: 'data-svg-group-id'
+                    });
                     break;
             }
         }
-        menu.remove();
     });
-
-    // Remove menu when clicking elsewhere
-    setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
-            menu.remove();
-            document.removeEventListener('click', closeMenu);
-        });
-    }, 0);
-
-    lucide.createIcons();
 }
 
 // Context menu for text group folders
 function showTextGroupContextMenu(event, groupId) {
-    // Remove existing context menu
-    const existingMenu = document.querySelector('.context-menu');
-    if (existingMenu) {
-        existingMenu.remove();
-    }
-
-    const menu = document.createElement('div');
-    menu.className = 'dropdown-menu show context-menu';
-    menu.style.position = 'fixed';
-    menu.style.left = event.clientX + 'px';
-    menu.style.top = event.clientY + 'px';
-    menu.style.zIndex = '9999';
-
-    menu.innerHTML = `
-        <button class="dropdown-item" data-action="show-all" data-group-id="${groupId}">
-            <i data-lucide="eye"></i> Show All
-        </button>
-        <button class="dropdown-item" data-action="hide-all" data-group-id="${groupId}">
-            <i data-lucide="eye-off"></i> Hide All
-        </button>
-        <div class="dropdown-divider"></div>
-        <button class="dropdown-item text-danger" data-action="delete-all" data-group-id="${groupId}">
-            <i data-lucide="trash-2"></i> Delete All
-        </button>
-    `;
-
-    document.body.appendChild(menu);
-
-    // Add event handlers
-    menu.addEventListener('click', function (e) {
-        const button = e.target.closest('[data-action]');
-        if (button) {
-            const action = button.dataset.action;
-            const groupId = button.dataset.groupId;
-
+    createContextMenu(event, {
+        items: [
+            { label: 'Show All', icon: 'eye', action: 'show-all' },
+            { label: 'Hide All', icon: 'eye-off', action: 'hide-all' },
+            { divider: true },
+            { label: 'Delete All', icon: 'trash-2', action: 'delete-all', danger: true }
+        ],
+        data: groupId,
+        onAction: function (action, groupId) {
             switch (action) {
                 case 'show-all':
-                    setTextGroupVisibility(groupId, true);
+                    setGroupVisibility(svgpaths, 'textGroupId', groupId, true, 'path(s)');
                     break;
                 case 'hide-all':
-                    setTextGroupVisibility(groupId, false);
+                    setGroupVisibility(svgpaths, 'textGroupId', groupId, false, 'path(s)');
                     break;
                 case 'delete-all':
-                    deleteTextGroup(groupId);
+                    deleteGroup({
+                        collection: svgpaths,
+                        filterKey: 'textGroupId',
+                        filterValue: groupId,
+                        groupLabel: 'Text Group',
+                        itemLabel: 'path(s)',
+                        selectorAttr: 'data-text-group-id'
+                    });
                     break;
             }
         }
-        menu.remove();
-    });
-
-    // Remove menu when clicking elsewhere
-    setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
-            menu.remove();
-            document.removeEventListener('click', closeMenu);
-        });
-    }, 0);
-
-    lucide.createIcons();
-}
-
-// Set visibility for all paths in an SVG group
-function setSvgGroupVisibility(groupId, visible) {
-    let changedCount = 0;
-    svgpaths.forEach(function (path) {
-        if (path.svgGroupId === groupId) {
-            path.visible = visible;
-            changedCount++;
-        }
-    });
-
-    if (changedCount > 0) {
-        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} path(s)`, 'success');
-        redraw();
-    }
-}
-
-// Set visibility for all paths in a text group
-function setTextGroupVisibility(groupId, visible) {
-    let changedCount = 0;
-    svgpaths.forEach(function (path) {
-        if (path.textGroupId === groupId) {
-            path.visible = visible;
-            changedCount++;
-        }
-    });
-
-    if (changedCount > 0) {
-        notify(`${visible ? 'Shown' : 'Hidden'} ${changedCount} path(s)`, 'success');
-        redraw();
-    }
-}
-
-// Delete all paths in an SVG group
-function deleteSvgGroup(groupId) {
-    const pathsToDelete = svgpaths.filter(p => p.svgGroupId === groupId);
-
-    if (pathsToDelete.length === 0) return;
-
-    showConfirmModal({
-        title: 'Delete SVG Group',
-        message: `
-            <p>Are you sure you want to delete all <strong>${pathsToDelete.length}</strong> path(s) in this SVG group?</p>
-            <p class="text-muted mb-0">This action cannot be undone.</p>
-        `,
-        confirmText: 'Delete All',
-        confirmClass: 'btn-danger',
-        headerClass: 'bg-danger text-white',
-        onConfirm: function () {
-            // Delete all paths with this group ID
-            for (let i = svgpaths.length - 1; i >= 0; i--) {
-                if (svgpaths[i].svgGroupId === groupId) {
-                    svgpaths.splice(i, 1);
-                }
-            }
-
-            // Remove the group from the sidebar
-            const groupElement = document.querySelector(`[data-svg-group-id="${groupId}"]`);
-            if (groupElement) {
-                groupElement.remove();
-            }
-
-            notify(`Deleted ${pathsToDelete.length} path(s)`, 'success');
-            redraw();
-        }
     });
 }
 
-// Delete all paths in a text group
-function deleteTextGroup(groupId) {
-    const pathsToDelete = svgpaths.filter(p => p.textGroupId === groupId);
-
-    if (pathsToDelete.length === 0) return;
-
-    showConfirmModal({
-        title: 'Delete Text Group',
-        message: `
-            <p>Are you sure you want to delete all <strong>${pathsToDelete.length}</strong> path(s) in this text group?</p>
-            <p class="text-muted mb-0">This action cannot be undone.</p>
-        `,
-        confirmText: 'Delete All',
-        confirmClass: 'btn-danger',
-        headerClass: 'bg-danger text-white',
-        onConfirm: function () {
-            // Delete all paths with this group ID
-            for (let i = svgpaths.length - 1; i >= 0; i--) {
-                if (svgpaths[i].textGroupId === groupId) {
-                    svgpaths.splice(i, 1);
-                }
-            }
-
-            // Remove the group from the sidebar
-            const groupElement = document.querySelector(`[data-text-group-id="${groupId}"]`);
-            if (groupElement) {
-                groupElement.remove();
-            }
-
-            notify(`Deleted ${pathsToDelete.length} path(s)`, 'success');
-            redraw();
-        }
-    });
-}
-
-function setHidden(id, hidden) {
-
-
-}
 
 function addOrReplaceSvgPath(oldId, id, name) {
     const section = document.getElementById('svg-paths-section');
@@ -3480,12 +3366,6 @@ function addOperation(name, icon, tooltip) {
 
 }
 
-// Compatibility function for CncController
-function addSidebarOperations() {
-    // Operations are already added statically in createSidebar()
-    // This function is kept for compatibility
-    //console.log('Sidebar operations already initialized');
-}
 
 // Helper functions
 function getPathIcon(name) {
