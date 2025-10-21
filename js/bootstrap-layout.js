@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-19";
+var APP_VERSION = "Ver 2025-10-21";
 
 var mode = "Select";
 var options = [];
@@ -676,7 +676,7 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="Pocket" data-bs-toggle="tooltip" data-bs-placement="right" title="Remove material inside the path">
                         <i data-lucide="target"></i>Pocket
                     </div>
-                    <div class="sidebar-item" data-operation="Vcarve" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside or outside the path">
+                    <div class="sidebar-item" data-operation="VCarve" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside or outside the path">
                         <i data-lucide="star"></i>V-Carve
                     </div>
                 </div>
@@ -2827,12 +2827,8 @@ function handleOperationClick(operation) {
             doPocket();
             setMode("Select");
             break;
-        case 'Vcarve':
+        case 'VCarve':
             doVcarve();
-            setMode("Select");
-            break;
-        case 'Vcarve Out':
-            doVcarveOut();
             setMode("Select");
             break;
         default:

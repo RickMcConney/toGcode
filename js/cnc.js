@@ -1047,7 +1047,7 @@ function drawSvgPath(svgpath, color, lineWidth) {
 		}
 	}
 	// Close the path if marked as closed
-	if (svgpath.closed) {
+	if (false && svgpath.closed) {
 		ctx.closePath();
 	}
 	ctx.lineWidth = lineWidth;
@@ -1539,7 +1539,7 @@ function drawSvgPaths() {
 		let path = selectedPaths[i];
 		if(!path.highlight)
 		{
-			if(i == 0)
+			if(i == selectedPaths.length-1)
 				drawSvgPath(path, activeColor, 3);
 			else
 				drawSvgPath(path, selectColor, 3);
@@ -3122,6 +3122,87 @@ function doVcarveOut() {
 	selectMgr.unselectAll();
 }
 
+function backmedialAxis(name, path, holes, svgId) {
+
+	let descritize_threshold = 1e-1;
+	let descritize_method = 2;
+	let filtering_angle = 3 * Math.PI / 4;
+	let pointpoint_segmentation_threshold = -1;
+	let number_usage = 0;
+	let debug_flags = {
+		no_parabola: false,
+		show_sites: false
+	};
+	let intermediate_debug_data = null;
+
+	maxRadius = vbitRadius(currentTool) * viewScale;
+
+	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
+	var circles = [];
+	for (seg in segments) {
+		seg = segments[seg];
+		var p = { x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) };
+		//if (pointInPolygon(p, path))
+		circles.push(p);
+		var p1 = { x: seg.point1.x, y: seg.point1.y, r: Math.min(seg.point1.radius, maxRadius) };
+		//if (pointInPolygon(p1, path))
+		circles.push(p1);
+	}
+	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
+
+	var tpath = findBestPath(segments).toolpath;
+
+	// Add interpolation points at radius transitions for better visualization
+	var tpathWithTransitions = [];
+	for (let i = 0; i < tpath.length; i++) {
+		var currentRadius = tpath[i].r;
+
+		tpathWithTransitions.push(tpath[i]);
+
+		// Check for transition to next point
+		if (i < tpath.length - 1) {
+			var nextRadius = tpath[i + 1].r;
+
+			// If transitioning from at-max-radius to below-max-radius
+			if (currentRadius >= maxRadius - 0.01 && nextRadius < maxRadius - 0.01) {
+				// Calculate interpolation factor where radius drops below maxRadius
+				var t = (maxRadius - currentRadius) / (nextRadius - currentRadius);
+				if (t > 0 && t < 1) {
+					// Insert transition point at the boundary
+					var transitionPoint = {
+						x: tpath[i].x + t * (tpath[i + 1].x - tpath[i].x),
+						y: tpath[i].y + t * (tpath[i + 1].y - tpath[i].y),
+						r: maxRadius
+					};
+					tpathWithTransitions.push(transitionPoint);
+				}
+			}
+			// If transitioning from below-max-radius to at-max-radius (reverse direction)
+			else if (currentRadius < maxRadius - 0.01 && nextRadius >= maxRadius - 0.01) {
+				// Calculate interpolation factor where radius rises above maxRadius
+				var t = (maxRadius - currentRadius) / (nextRadius - currentRadius);
+				if (t > 0 && t < 1) {
+					// Insert transition point at the boundary
+					var transitionPoint = {
+						x: tpath[i].x + t * (tpath[i + 1].x - tpath[i].x),
+						y: tpath[i].y + t * (tpath[i + 1].y - tpath[i].y),
+						r: maxRadius
+					};
+					tpathWithTransitions.push(transitionPoint);
+				}
+			}
+		}
+	}
+	tpath = tpathWithTransitions;
+
+	// Now clamp all radii to maxRadius
+	for (p of tpath) {
+		p.r = Math.min(p.r, maxRadius)
+	}
+	var paths = [{ path: circles, tpath: tpath }];
+	pushToolPath(paths, name, 'VCarve', svgId);
+}
+
 function medialAxis(name, path, holes, svgId) {
 
 	let descritize_threshold = 1e-1;
@@ -3151,11 +3232,56 @@ function medialAxis(name, path, holes, svgId) {
 	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
 
 	var tpath = findBestPath(segments).toolpath;
+
+	// Add interpolation points at radius transitions for better visualization
+	var tpathWithTransitions = [];
+	for (let i = 0; i < tpath.length; i++) {
+		var currentRadius = tpath[i].r;
+
+		tpathWithTransitions.push(tpath[i]);
+
+		// Check for transition to next point
+		if (i < tpath.length - 1) {
+			var nextRadius = tpath[i + 1].r;
+
+			// If transitioning from at-max-radius to below-max-radius
+			if (currentRadius >= maxRadius - 0.01 && nextRadius < maxRadius - 0.01) {
+				// Calculate interpolation factor where radius drops below maxRadius
+				var t = (maxRadius - currentRadius) / (nextRadius - currentRadius);
+				if (t > 0 && t < 1) {
+					// Insert transition point at the boundary
+					var transitionPoint = {
+						x: tpath[i].x + t * (tpath[i + 1].x - tpath[i].x),
+						y: tpath[i].y + t * (tpath[i + 1].y - tpath[i].y),
+						r: maxRadius
+					};
+					tpathWithTransitions.push(transitionPoint);
+				}
+			}
+			// If transitioning from below-max-radius to at-max-radius (reverse direction)
+			else if (currentRadius < maxRadius - 0.01 && nextRadius >= maxRadius - 0.01) {
+				// Calculate interpolation factor where radius rises above maxRadius
+				var t = (maxRadius - currentRadius) / (nextRadius - currentRadius);
+				if (t > 0 && t < 1) {
+					// Insert transition point at the boundary
+					var transitionPoint = {
+						x: tpath[i].x + t * (tpath[i + 1].x - tpath[i].x),
+						y: tpath[i].y + t * (tpath[i + 1].y - tpath[i].y),
+						r: maxRadius
+					};
+					tpathWithTransitions.push(transitionPoint);
+				}
+			}
+		}
+	}
+	tpath = tpathWithTransitions;
+
+	// Now clamp all radii to maxRadius
 	for (p of tpath) {
 		p.r = Math.min(p.r, maxRadius)
 	}
 	var paths = [{ path: circles, tpath: tpath }];
-	pushToolPath(paths, name, 'Vcarve', svgId);
+	pushToolPath(paths, name, 'VCarve', svgId);
 }
 
 function compute(outside, name) {
@@ -3214,6 +3340,7 @@ function oldcompute(outside, name) {
 
 
 		var subpath = subdividePath(path, 2); // max path length
+	
 
 		norms = makeNorms(subpath, path, cw, 1, outside);
 		drawNorms(norms)
@@ -3243,7 +3370,7 @@ function oldcompute(outside, name) {
 			}
 		}
 
-		pushToolPath(paths, name, 'Vcarve', svgpaths[i].id);
+		pushToolPath(paths, name, 'VCarve', svgpaths[i].id);
 
 	}
 
@@ -3726,7 +3853,7 @@ function toGcode() {
 		if (visible) {
 			var name = sortedToolpaths[i].id;
 			var operation = sortedToolpaths[i].operation;
-			var toolStep = sortedToolpaths[i].tool.step;
+			var toolStep = sortedToolpaths[i].tool.step || 0;
 			var bit = sortedToolpaths[i].tool.bit;
 			var radius = sortedToolpaths[i].tool.diameter / 2;
 			var depth = sortedToolpaths[i].tool.depth;
@@ -3870,14 +3997,14 @@ function toGcode() {
 							}
 						}
 					}
-					else if (operation == 'VCarve In' || operation == 'VCarve Out') {
+					else if (operation == 'VCarve In' || operation == 'VCarve Out' || operation == 'VCarve') {
 						z = 0;
 
 						for (var j = 0; j < path.length; j++) {
 
 							var p = toGcodeUnits(path[j].x, path[j].y, useInches);
 							var cz = toolDepth(angle, path[j].r);
-							var cz = -toGcodeUnitsZ(cz, useInches);
+							cz = -toGcodeUnitsZ(cz, useInches);
 
 							if (movingUp == false && lastZ < cz) movingUp = true;
 							else movingUp = false;

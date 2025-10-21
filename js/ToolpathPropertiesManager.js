@@ -22,7 +22,7 @@ class ToolpathPropertiesManager {
                 fields: ['tool', 'depth', 'step', 'stepover', 'direction'],
                 description: 'Remove all material inside the path'
             },
-            'Vcarve': {
+            'VCarve': {
                 compatibleBits: ['VBit'],
                 fields: ['tool', 'depth', 'inside'],
                 description: 'V-carve inside the path with tapered cuts'

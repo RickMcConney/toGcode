@@ -166,8 +166,10 @@ class Shape extends Operation {
         for (let p of this.points) {
             path.push({ x: p[0], y: p[1] });
         }
+        if(path[0].x == path[path.length-1].x && path[0].y == path[path.length-1].y )
+            path.pop();
 
-        path.push(path[0]);
+        path.push({...path[0]});
 
         let oldId = null;
         let oldsvgpathId = null;
@@ -178,6 +180,7 @@ class Shape extends Operation {
         if (svgPath == null) {
             addUndo(false, true, false);
             svgPath = {
+                closed:true,
                 svgpathId: svgpathId,
                 id: shape + '_' + svgpathId,
                 type: 'path',

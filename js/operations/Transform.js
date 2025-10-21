@@ -108,6 +108,13 @@ class Transform extends Select {
             //canvas.style.cursor = "grabbing";
             addUndo(false, true, false);
 
+            if (this.activeHandle.type === 'mirrorX') {
+                this.mirrorX();
+            }
+            else if (this.activeHandle.type === 'mirrorY') {
+                this.mirrorY();
+            }
+
             if (this.activeHandle.type === 'rotate') {
                 if (!this.initialTransformBox) {
                     return;
@@ -176,8 +183,7 @@ class Transform extends Select {
 
             if (evt.shiftKey) {
                 // constrained - use the larger delta
-                if(Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y))
-                {
+                if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
                     dy = 0;
                 } else {
                     dx = 0;
@@ -387,6 +393,32 @@ class Transform extends Select {
         }
     }
 
+    mirrorX() {
+        const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
+        let cx = 2*centerX;
+        svgpaths.forEach(path => {
+            if (selectMgr.isSelected(path)) {
+                for(let pt of path.path)
+                {
+                    pt.x = cx -pt.x;   
+                }           
+                path.bbox = boundingBox(path.path);
+            }
+        });
+    }
+
+    mirrorY() {
+        const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
+        let cy = 2*centerY;
+        svgpaths.forEach(path => {
+            if (selectMgr.isSelected(path)) {
+                for(let pt of path.path)
+                    pt.y = cy - pt.y                
+                path.bbox = boundingBox(path.path);
+            }
+        });
+    }
+
     draw(ctx) {
         super.draw(ctx);
         this.drawTransformBox(ctx);
@@ -430,6 +462,7 @@ class Transform extends Select {
 
     drawText() {
         if (!this.transformBox || !this.activeHandle) return;
+        if (this.activeHandle.type == 'mirrorX' || this.activeHandle.type == 'mirrorY') return;
 
         let text = '0'
         if (this.activeHandle.type == 'rotate')
@@ -438,16 +471,16 @@ class Transform extends Select {
             // Show current dimensions instead of scale factors
             const currentWidth = this.transformBox.width / viewScale;
             const currentHeight = this.transformBox.height / viewScale;
- 
- 
+
+
             text = formatDimension(currentWidth, true) + ' × ' + formatDimension(currentHeight, true);
         }
         else if (this.activeHandle.type == 'translate') {
             const deltaXmm = this.deltaX / viewScale;
             const deltaYmm = -this.deltaY / viewScale;
-  
- 
-            text = formatDimension(deltaXmm, true) +  ', ' + formatDimension(deltaYmm, true);
+
+
+            text = formatDimension(deltaXmm, true) + ', ' + formatDimension(deltaYmm, true);
         }
         let handle = this.getTransformHandles()[this.activeHandle.id - 1];
         let screenHandle = worldToScreen(handle.x, handle.y);
@@ -460,9 +493,46 @@ class Transform extends Select {
         ctx.restore();
     }
 
-    drawHandle(x, y, size, isActive, isHovered) {
+    drawHandle(handle) {
+        let screenHandle = worldToScreen(handle.x, handle.y);
+        let x = screenHandle.x; 
+        let y = screenHandle.y;
+        let size = this.handleSize;
+        let isActive = this.activeHandle?.id == handle.id;
+        let isHovered =  this.hoverHandle?.id == handle.id;
+        let type = handle.type;
+
         ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
+        if(type == 'mirrorX')
+        {
+            ctx.moveTo(x,y);
+            ctx.lineTo(x,y+size);
+            ctx.lineTo(x+size,y);
+            ctx.lineTo(x,y-size);
+            ctx.lineTo(x,y);
+
+            ctx.moveTo(x,y);
+            ctx.lineTo(x,y-size);
+            ctx.lineTo(x-size,y);
+            ctx.lineTo(x,y+size);
+            ctx.lineTo(x,y);
+        }
+        else if(type == 'mirrorY')
+        {
+            ctx.moveTo(x,y);
+            ctx.lineTo(x+size,y);
+            ctx.lineTo(x,y+size);
+            ctx.lineTo(x-size,y);
+            ctx.lineTo(x,y);
+
+            ctx.moveTo(x,y);
+            ctx.lineTo(x-size,y);
+            ctx.lineTo(x,y-size);
+            ctx.lineTo(x+size,y);
+            ctx.lineTo(x,y);
+        }
+        else
+            ctx.arc(x, y, size, 0, Math.PI * 2);
 
         // Color based on state
         if (isActive) {
@@ -512,9 +582,8 @@ class Transform extends Select {
 
         // Draw handles (convert handle positions to screen coordinates)
         const handles = this.getTransformHandles();
-        handles.forEach(handle => {
-            let screenHandle = worldToScreen(handle.x, handle.y);
-            this.drawHandle(screenHandle.x, screenHandle.y, this.handleSize, this.activeHandle?.id == handle.id, this.hoverHandle?.id == handle.id);
+        handles.forEach(handle => {            
+            this.drawHandle(handle);
         });
         this.drawText();
         ctx.restore();
@@ -531,7 +600,9 @@ class Transform extends Select {
             { id: 3, x: maxx, y: maxy, type: 'scale', corner: 'br' },
             { id: 4, x: minx, y: maxy, type: 'scale', corner: 'bl' },
             { id: 5, x: centerX, y: miny - 100, type: 'rotate' },
-            { id: 6, x: centerX, y: centerY, type: 'translate' }
+            { id: 6, x: centerX, y: centerY, type: 'translate' },
+            { id: 7, x: centerX, y: centerY + 50, type: 'mirrorY' },
+            { id: 8, x: centerX + 50, y: centerY, type: 'mirrorX' }
         ];
     }
 
@@ -540,7 +611,7 @@ class Transform extends Select {
         for (let handle of handles) {
             const dx = handle.x - point.x;
             const dy = handle.y - point.y;
-            if (Math.sqrt(dx * dx + dy * dy) <= this.handleSize*4) {
+            if (Math.sqrt(dx * dx + dy * dy) <= this.handleSize * 4) {
                 return handle;
             }
         }
@@ -665,7 +736,7 @@ class Transform extends Select {
             this.scaleY = originalHeight > 0 ? heightMM / originalHeight : 1;
         }
 
-        if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) ||0;
+        if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) || 0;
 
         // Apply transformation to paths based on current property values
         if (this.hasSelectedPaths()) {

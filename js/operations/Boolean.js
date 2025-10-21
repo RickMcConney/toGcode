@@ -13,7 +13,7 @@ function applyBooleanOperation() {
         notify("Need at least two paths selected");
         return;
     }
-    let firstPath = selectMgr.firstSelected().path;
+    let targetPath = selectMgr.lastSelected().path;
 
     for (var i = 0; i < svgpaths.length; i++) {
         var path = svgpaths[i].path;
@@ -36,8 +36,8 @@ function applyBooleanOperation() {
         );
     }
     else if (operation == "Intersect") {
-        clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
-        let index = inputPaths.indexOf(firstPath);
+        clipper.AddPath(targetPath, ClipperLib.PolyType.ptSubject, true);
+        let index = inputPaths.indexOf(targetPath);
         if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
@@ -48,8 +48,8 @@ function applyBooleanOperation() {
         );
     }
     else if (operation == "Subtract") {
-        clipper.AddPath(firstPath, ClipperLib.PolyType.ptSubject, true);
-        let index = inputPaths.indexOf(firstPath);
+        clipper.AddPath(targetPath, ClipperLib.PolyType.ptSubject, true);
+        let index = inputPaths.indexOf(targetPath);
         if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
