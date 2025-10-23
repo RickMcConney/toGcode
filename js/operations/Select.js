@@ -9,47 +9,40 @@ class Select extends Operation {
         this.selectionId = 2;
     }
 
-    static getInstance(){
-        if(!Select.instance)
+    static getInstance() {
+        if (!Select.instance)
             Select.instance = new Select();
         return Select.instance;
     }
 
-    noSelection()
-    {
+    noSelection() {
         return Select.selected.length === 0;
     }
 
-    isSelected(path)
-    {
-        if(Select.selected.length === 0) return false;
+    isSelected(path) {
+        if (Select.selected.length === 0) return false;
         let index = Select.selected.indexOf(path);
         return index >= 0;
     }
 
-    selectPath(path)
-    {
+    selectPath(path) {
         Select.selected.push(path);
         selectSidebarNode(path.id);
         path.highlight = false;
     }
 
-    unselectPath(path)
-    {
+    unselectPath(path) {
         let index = Select.selected.indexOf(path);
-        if (index !== -1) { 
-            Select.selected.splice(index, 1); 
+        if (index !== -1) {
+            Select.selected.splice(index, 1);
         }
         path.highlight = false;
-        unselectSidebarNode(path.id);    
+        unselectSidebarNode(path.id);
     }
 
-    unselectAll()
-    {
-        if(Select.selected.length > 0)
-        {
-            for(let path of Select.selected)
-            {
+    unselectAll() {
+        if (Select.selected.length > 0) {
+            for (let path of Select.selected) {
                 unselectSidebarNode(path.id);
                 path.highlight = false;
             }
@@ -57,31 +50,28 @@ class Select extends Operation {
         Select.selected = [];
     }
 
-    firstSelected()
-    {
-        if(Select.selected.length > 0)
+    firstSelected() {
+        if (Select.selected.length > 0)
             return Select.selected[0];
         return null;
     }
 
-    lastSelected()
-    {
-        if(Select.selected.length > 0)
-            return Select.selected[Select.selected.length-1];
+    lastSelected() {
+        if (Select.selected.length > 0)
+            return Select.selected[Select.selected.length - 1];
         return null;
     }
 
-    selectedPaths()
-    {
+    selectedPaths() {
         return Select.selected;
     }
 
-    selectPathsInRect(selectBox,addToSelection) {
+    selectPathsInRect(selectBox, addToSelection) {
         for (var i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
 
             for (var j = 0; j < svgpaths[i].path.length; j++) {
-                if(!addToSelection)
+                if (!addToSelection)
                     this.unselectPath(svgpaths[i]);
                 var pt = svgpaths[i].path[j];
                 if (pointInBoundingBox(pt, selectBox)) {
@@ -91,22 +81,15 @@ class Select extends Operation {
         }
     }
 
-    onMouseDown(canvas, evt) {
-        this.mouseDown = true;
-        var mouse = this.normalizeEvent(canvas, evt);
-        this.dragStartX = mouse.x;
-        this.dragStartY = mouse.y;
-        this.rawdragStartX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
-        this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
-        var selectedPath = closestPath(mouse, false);
-        if (selectedPath) {
-            if (this.isSelected(selectedPath)) {
+    toggleSelection(path, evt) {
+        if (path) {
+            if (this.isSelected(path)) {
                 if (this.unselectOnMouseDown) {
-                    this.unselectPath(selectedPath);
+                    this.unselectPath(path);
                 }
             }
             else {
-                this.selectPath(selectedPath);
+                this.selectPath(path);
             }
 
         } else if (!evt.shiftKey && this.unselectOnMouseDown) {
@@ -115,26 +98,84 @@ class Select extends Operation {
         this.showSelection();
     }
 
-    onMouseMove(canvas, evt, inHandle) {
+    onMouseDown(canvas, evt) {
+        this.mouseDown = true;
+        var mouse = this.normalizeEvent(canvas, evt);
+        this.dragStartX = mouse.x;
+        this.dragStartY = mouse.y;
+        this.initialMousePos = mouse;
+        this.rawdragStartX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+        this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+        this.dragPath = null;
+
+
+    }
+
+    pointInPath(pt) {
+        for (var i = 0; i < svgpaths.length; i++) {
+            if (!svgpaths[i].visible) continue;
+            var bbox = svgpaths[i].bbox;
+            if (pointInBoundingBox(pt, bbox)) {
+                return svgpaths[i];
+            }
+        }
+        return null;
+    }
+
+    onMouseMove(canvas, evt) {
 
         var mouse = this.normalizeEvent(canvas, evt);
+        if (this.mouseDown) {
+            if (Math.abs(this.dragStartX - mouse.x) > 8 || Math.abs(this.dragStartY - mouse.y) > 8) {
+                if (!this.selectBox) {
+                    if (this.dragPath) {
+                        var dx = mouse.x - this.dragStartX;
+                        var dy = mouse.y - this.dragStartY;
 
-        if (this.mouseDown && !inHandle) {
-            var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
-            var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
-            var dx = x - this.rawdragStartX;
-            var dy = y - this.rawdragStartY;
+                        if (evt.shiftKey) {
+                            // constrained - use the larger delta
+                            if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
+                                dy = 0;
+                            } else {
+                                dx = 0;
+                            }
+                        }
+                        this.deltaX += dx;
+                        this.deltaY += dy;
 
-            if (Math.abs(dx) < 10 || Math.abs(dy) < 10) return;
+                        if (this.noSelection())
+                            this.translate(this.dragPath, dx, dy);
+                        else
+                            this.translateSelected(dx, dy);
 
-            var sx = Math.min(this.dragStartX, mouse.x);
-            var ex = Math.max(this.dragStartX, mouse.x);
-            var sy = Math.min(this.dragStartY, mouse.y);
-            var ey = Math.max(this.dragStartY, mouse.y);
-            var rl = this.dragStartX < mouse.x;
 
-            this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
-            this.highlightPathsInRect(this.selectBox);
+                        this.dragStartX = mouse.x;
+                        this.dragStartY = mouse.y;
+                    }
+                    else {
+                        this.dragPath = closestPath(mouse, false);
+                        addUndo(false, true, false);
+                    }
+                }
+
+                if (!this.dragPath) {
+                    var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                    var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                    var dx = x - this.rawdragStartX;
+                    var dy = y - this.rawdragStartY;
+
+                    if (Math.abs(dx) < 10 || Math.abs(dy) < 10) return;
+
+                    var sx = Math.min(this.dragStartX, mouse.x);
+                    var ex = Math.max(this.dragStartX, mouse.x);
+                    var sy = Math.min(this.dragStartY, mouse.y);
+                    var ey = Math.max(this.dragStartY, mouse.y);
+                    var rl = this.dragStartX < mouse.x;
+
+                    this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
+                    this.highlightPathsInRect(this.selectBox);
+                }
+            }
         }
         else {
             closestPath(mouse, true);
@@ -142,7 +183,19 @@ class Select extends Operation {
     }
 
     onMouseUp(canvas, evt) {
+        var mouse = this.normalizeEvent(canvas, evt);
         this.mouseDown = false;
+
+        if (this.dragPath) {
+            this.dragPath = null;
+            return;
+        }
+
+        if (Math.abs(this.dragStartX - mouse.x) < 8 && Math.abs(this.dragStartY - mouse.y) < 8) {
+            let path = closestPath(mouse, false);
+            this.toggleSelection(path, evt);
+        }
+
         if (this.selectBox) {
             this.selectPathsInRect(this.selectBox, evt.shiftKey);
             this.selectBox = null;
@@ -173,8 +226,8 @@ class Select extends Operation {
 
         if (changePanel) {
 
-            if (pathToShow){
-                if (pathToShow.creationTool == "Shape" || pathToShow.creationTool == "Text") 
+            if (pathToShow) {
+                if (pathToShow.creationTool == "Shape" || pathToShow.creationTool == "Text")
                     showPathPropertiesEditor(pathToShow);
             }
             else {
@@ -182,8 +235,7 @@ class Select extends Operation {
             }
         }
 
-        if (pathToShow)
-        {
+        if (pathToShow) {
             if (isOnOperationsTab)
                 this.doOperation();
         }
@@ -191,9 +243,45 @@ class Select extends Operation {
 
     }
 
+    translateSelected(dx, dy) {
+        for (var i = 0; i < svgpaths.length; i++) {
+            if (!svgpaths[i].visible) continue;
+            let path = svgpaths[i];
+            if (this.isSelected(path)) {
+
+                path.path = path.path.map(pt => ({
+                    x: pt.x + dx,
+                    y: pt.y + dy
+                }));
+                path.bbox = boundingBox(path.path);
+            }
+        }
+        if(this.pivotCenter)
+        {
+            this.pivotCenter.x += dx;
+            this.pivotCenter.y += dy;
+        }
+    }
+
+    translate(path, dx, dy) {
+        path.path = path.path.map(pt => ({
+            x: pt.x + dx,
+            y: pt.y + dy
+        }));
+        path.bbox = boundingBox(path.path);
+        if(this.pivotCenter)
+        {
+            this.pivotCenter.x += dx;
+            this.pivotCenter.y += dy;
+        }      
+
+    }
+
     draw(ctx) {
         if (this.selectBox) {
             ctx.strokeStyle = selectionBoxColor;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]); // Dashed line
             let topLeft = worldToScreen(this.selectBox.minx, this.selectBox.miny);
             let bottomRight = worldToScreen(this.selectBox.maxx, this.selectBox.maxy);
             ctx.strokeRect(
@@ -202,6 +290,7 @@ class Select extends Operation {
                 bottomRight.x - topLeft.x,
                 bottomRight.y - topLeft.y
             );
+            ctx.setLineDash([]);
         }
     }
 

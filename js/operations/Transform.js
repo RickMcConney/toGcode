@@ -14,29 +14,37 @@ class Transform extends Select {
         this.deltaY = 0;
         this.scaleX = 1;
         this.scaleY = 1;
-        this.rotation = 0; // in degrees
+
         this.initialTransformBox = null;
+        this.pivotCenter = null;
+        this.rotation = 0; // in degrees
         this.originalPaths = [];
+        this.originalPivot = null;
     }
 
     start() {
         super.start();
         this.activeHandle = null;
         this.hoverHandle = null;
-        this.startAngle = 0;
-        this.currentAngle = 0;
-        this.transformStartPos = { x: 0, y: 0 };
+
 
         // Reset transform tracking values
         this.deltaX = 0;
         this.deltaY = 0;
         this.scaleX = 1;
         this.scaleY = 1;
+
+        this.pivotCenter = null;
         this.rotation = 0;
 
         if (this.hasSelectedPaths()) {
             this.transformBox = this.createTransformBox(svgpaths);
             this.initialTransformBox = { ...this.transformBox };
+            this.pivotCenter = {};
+            this.pivotCenter.x = this.transformBox.centerX;
+            this.pivotCenter.y = this.transformBox.centerY;
+            this.originalPivot = { ...this.pivotCenter };
+
 
             // Store original path positions
             this.originalPaths = svgpaths.map(path => {
@@ -87,24 +95,31 @@ class Transform extends Select {
         // If clicking on a handle, don't call parent (prevents deselection)
         if (this.activeHandle) {
             // Ensure initialTransformBox exists when clicking on handle
-            if (!this.initialTransformBox && this.transformBox) {
+            if (this.transformBox) {
                 this.initialTransformBox = { ...this.transformBox };
+                if (this.pivotCenter == null) {
+                    this.pivotCenter = {};
+                    this.pivotCenter.x = this.transformBox.centerX;
+                    this.pivotCenter.y = this.transformBox.centerY;
+                    this.originalPivot = { ...this.pivotCenter };
+                }
+
 
                 // Also store original path positions if missing
-                if (this.originalPaths.length === 0) {
-                    this.originalPaths = svgpaths.map(path => {
-                        if (selectMgr.isSelected(path)) {
-                            return {
-                                id: path.id,
-                                path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                            };
-                        }
-                        return null;
-                    }).filter(p => p !== null);
-                }
+
+                this.originalPaths = svgpaths.map(path => {
+                    if (selectMgr.isSelected(path)) {
+                        return {
+                            id: path.id,
+                            path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
+                        };
+                    }
+                    return null;
+                }).filter(p => p !== null);
+
             }
 
-            this.transformStartPos = { x: mouse.x, y: mouse.y };
+
             //canvas.style.cursor = "grabbing";
             addUndo(false, true, false);
 
@@ -115,17 +130,6 @@ class Transform extends Select {
                 this.mirrorY();
             }
 
-            if (this.activeHandle.type === 'rotate') {
-                if (!this.initialTransformBox) {
-                    return;
-                }
-                this.startAngle = Math.atan2(
-                    mouse.y - this.initialTransformBox.centerY,
-                    mouse.x - this.initialTransformBox.centerX
-                );
-                this.currentAngle = this.rotation * Math.PI / 180; // Convert from degrees
-            }
-
             // Store the initial mouse position for scaling/rotation calculations
 
             this.initialMousePos = { x: mouse.x, y: mouse.y };
@@ -133,12 +137,17 @@ class Transform extends Select {
         } else {
             // If not clicking on a handle, allow normal selection behavior
             super.onMouseDown(canvas, evt);
+            this.pivotCenter = null;
+            this.originalPivot = null;
+            this.rotation = 0;
+
 
             // Check if selection changed and update transform box accordingly
             const hadTransformBox = !!this.transformBox;
             if (this.hasSelectedPaths() && !this.transformBox) {
                 this.transformBox = this.createTransformBox(svgpaths);
                 this.initialTransformBox = { ...this.transformBox };
+
 
                 // Store original path positions for transformation reference
                 this.originalPaths = svgpaths.map(path => {
@@ -150,6 +159,7 @@ class Transform extends Select {
                     }
                     return null;
                 }).filter(p => p !== null);
+                this.originalPivot = { ...this.pivotCenter };
 
                 // Reset transform values when starting fresh
                 this.deltaX = 0;
@@ -163,62 +173,36 @@ class Transform extends Select {
                 this.transformBox = null;
                 this.initialTransformBox = null;
                 this.originalPaths = [];
+                this.originalPivot = null;
                 this.refreshPropertiesPanel();
+
             }
         }
     }
 
     onMouseMove(canvas, evt) {
-        super.onMouseMove(canvas, evt, this.activeHandle !== null);
+        super.onMouseMove(canvas, evt);
         var mouse = this.normalizeEvent(canvas, evt);
+        this.mouse = mouse;
         if (!this.mouseDown) {
             this.hoverHandle = this.getHandleAtPoint(mouse);
 
         }
 
         if (this.mouseDown && this.activeHandle) {
+            this.selectBox = null;
 
-            let dx = mouse.x - this.transformStartPos.x;
-            let dy = mouse.y - this.transformStartPos.y;
 
-            if (evt.shiftKey) {
-                // constrained - use the larger delta
-                if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
-                    dy = 0;
-                } else {
-                    dx = 0;
-                }
+            if (this.activeHandle.type === 'center') {
+
+                this.pivotCenter = mouse;
+                this.center();
+
             }
 
-            if (this.activeHandle.type === 'translate') {
-                // Handle translation
-                svgpaths.forEach(path => {
-                    if (selectMgr.isSelected(path)) {
-                        path.path = path.path.map(pt => ({
-                            x: pt.x + dx,
-                            y: pt.y + dy
-                        }));
-                        path.bbox = boundingBox(path.path);
-                    }
-                });
-                // Update transform box position
-                this.transformBox.minx += dx;
-                this.transformBox.maxx += dx;
-                this.transformBox.miny += dy;
-                this.transformBox.maxy += dy;
-                this.transformBox.centerX += dx;
-                this.transformBox.centerY += dy;
-
-                // Update tracked deltas
-                this.deltaX += dx;
-                this.deltaY += dy;
-            }
             else if (this.activeHandle.type === 'scale') {
-                // Check if initialTransformBox is available
-                if (!this.initialTransformBox) {
-                    return;
-                }
-
+                this.deltaX = 0;
+                this.deltaY = 0;
                 // Calculate scale factors based on mouse movement from initial position
                 const initialDistanceX = this.initialMousePos.x - this.initialTransformBox.centerX;
                 const initialDistanceY = this.initialMousePos.y - this.initialTransformBox.centerY;
@@ -246,100 +230,38 @@ class Transform extends Select {
                 this.scaleX = scaleX;
                 this.scaleY = scaleY;
 
-                svgpaths.forEach(path => {
-                    if (selectMgr.isSelected(path)) {
-                        const originalPath = this.originalPaths.find(p => p.id === path.id);
-                        if (originalPath) {
-                            path.path = originalPath.path.map(pt => {
-                                // Apply scale first, then rotation, then translation
-                                let newX = this.initialTransformBox.centerX + (pt.x - this.initialTransformBox.centerX) * scaleX;
-                                let newY = this.initialTransformBox.centerY + (pt.y - this.initialTransformBox.centerY) * scaleY;
-
-                                // Apply rotation if there is any
-                                if (this.rotation !== 0) {
-                                    const rotationRad = this.rotation * Math.PI / 180;
-                                    const dx = newX - this.initialTransformBox.centerX;
-                                    const dy = newY - this.initialTransformBox.centerY;
-                                    const cos = Math.cos(rotationRad);
-                                    const sin = Math.sin(rotationRad);
-                                    newX = this.initialTransformBox.centerX + (dx * cos - dy * sin);
-                                    newY = this.initialTransformBox.centerY + (dx * sin + dy * cos);
-                                }
-
-                                // Apply translation
-                                newX += this.deltaX;
-                                newY += this.deltaY;
-
-                                return { x: newX, y: newY };
-                            });
-                            path.bbox = boundingBox(path.path);
-                        }
-                    }
-                });
+                this.scale(scaleX, scaleY);
                 this.updateCreationProperties();
                 this.transformBox = this.createTransformBox(svgpaths);
             }
             else if (this.activeHandle.type === 'rotate') {
-                // Check if initialTransformBox is available
-                if (!this.initialTransformBox) {
-                    return;
-                }
-
+                this.deltaX = 0;
+                this.deltaY = 0;
                 // Calculate current angle from center to mouse
                 const currentAngle = Math.atan2(
-                    mouse.y - this.initialTransformBox.centerY,
-                    mouse.x - this.initialTransformBox.centerX
+                    mouse.x - this.pivotCenter.x,
+                    mouse.y - this.pivotCenter.y
                 );
 
                 // Calculate rotation difference
-                let rotationDelta = currentAngle - this.startAngle;
+                let rotationDelta = currentAngle;
 
                 // Apply snapping
                 rotationDelta = Math.round(rotationDelta / this.ROTATION_SNAP) * this.ROTATION_SNAP;
 
                 // Update tracked rotation value (convert to degrees)
-                this.rotation = (this.currentAngle + rotationDelta) * 180 / Math.PI;
+                this.rotation = (rotationDelta) * 180 / Math.PI;
 
-                // Rotate all selected paths from their original positions
-                svgpaths.forEach(path => {
-                    if (selectMgr.isSelected(path)) {
-                        const originalPath = this.originalPaths.find(p => p.id === path.id);
-                        if (originalPath) {
-                            path.path = originalPath.path.map(pt => {
-                                // Apply scale first, then rotation, then translation
-                                let newX = this.initialTransformBox.centerX + (pt.x - this.initialTransformBox.centerX) * this.scaleX;
-                                let newY = this.initialTransformBox.centerY + (pt.y - this.initialTransformBox.centerY) * this.scaleY;
-
-                                // Apply rotation around center
-                                const rotationRad = this.rotation * Math.PI / 180;
-                                const dx = newX - this.initialTransformBox.centerX;
-                                const dy = newY - this.initialTransformBox.centerY;
-                                const cos = Math.cos(rotationRad);
-                                const sin = Math.sin(rotationRad);
-                                newX = this.initialTransformBox.centerX + (dx * cos - dy * sin);
-                                newY = this.initialTransformBox.centerY + (dx * sin + dy * cos);
-
-                                // Apply translation
-                                newX += this.deltaX;
-                                newY += this.deltaY;
-
-                                return { x: newX, y: newY };
-                            });
-                            path.bbox = boundingBox(path.path);
-                        }
-                    }
-                });
+                this.rotate(this.rotation);
                 this.updateCreationProperties();
                 this.transformBox = this.createTransformBox(svgpaths);
             }
 
-            this.transformStartPos = { x: mouse.x, y: mouse.y };
-
-            // Update center display in real-time during move operations
-            this.updateCenterDisplay();
-
 
         }
+
+        if (this.mouseDown)
+            this.updateCenterDisplay();
         redraw();
     }
     onMouseUp(canvas, evt) {
@@ -349,22 +271,29 @@ class Transform extends Select {
         //canvas.style.cursor = "grab";
 
         if (this.hasSelectedPaths()) {
-            this.transformBox = this.createTransformBox(svgpaths);
-            // If we just completed a drag selection, ensure initialTransformBox is created
-            if (hadSelectBox && !this.initialTransformBox) {
-                this.initialTransformBox = { ...this.transformBox };
 
-                // Store original path positions
-                this.originalPaths = svgpaths.map(path => {
-                    if (selectMgr.isSelected(path)) {
-                        return {
-                            id: path.id,
-                            path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                        };
-                    }
-                    return null;
-                }).filter(p => p !== null);
+            this.transformBox = this.createTransformBox(svgpaths);
+            this.initialTransformBox = { ...this.transformBox };
+            if (this.pivotCenter == null) {
+                this.pivotCenter = {};
+                this.pivotCenter.x = this.transformBox.centerX;
+                this.pivotCenter.y = this.transformBox.centerY;
+                this.originalPivot = { ...this.pivotCenter };
             }
+
+
+            // Store original path positions
+            this.originalPaths = svgpaths.map(path => {
+                if (selectMgr.isSelected(path)) {
+                    return {
+                        id: path.id,
+                        path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
+                    };
+                }
+                return null;
+            }).filter(p => p !== null);
+            this.originalPivot = { ...this.pivotCenter };
+
             // Refresh properties panel after drag selection
             if (hadSelectBox) {
                 this.refreshPropertiesPanel();
@@ -380,28 +309,75 @@ class Transform extends Select {
                     path.bbox = boundingBox(path.path);
                 }
             });
-
-            // Reset transform state
-            if (this.activeHandle.type === 'rotate') {
-                this.currentAngle = this.transformBox.rotation;
-            }
             this.transformBox = this.createTransformBox(svgpaths);
+
+
             this.activeHandle = null;
-            this.transformStartPos = null;
-            // Update center display after completing move
-            this.updateCenterDisplay();
+
         }
+        this.updateCenterDisplay();
+        redraw();
+    }
+
+    center() {
+        svgpaths.forEach(path => {
+            if (selectMgr.isSelected(path)) {
+                const originalPath = this.originalPaths.find(p => p.id === path.id);
+                if (originalPath) {
+                    path.path = [...originalPath.path];
+                    path.bbox = boundingBox(path.path);
+                }
+            }
+        });
+    }
+
+    scale(scaleX, scaleY) {
+        svgpaths.forEach(path => {
+            if (selectMgr.isSelected(path)) {
+                const originalPath = this.originalPaths.find(p => p.id === path.id);
+                if (originalPath) {
+                    path.path = originalPath.path.map(pt => {
+                        let newX = this.initialTransformBox.centerX + (pt.x - this.initialTransformBox.centerX) * scaleX;
+                        let newY = this.initialTransformBox.centerY + (pt.y - this.initialTransformBox.centerY) * scaleY;
+                        return { x: newX, y: newY };
+                    });
+                    path.bbox = boundingBox(path.path);
+                }
+            }
+        });
+    }
+
+    rotate(angle) {
+        svgpaths.forEach(path => {
+            if (selectMgr.isSelected(path)) {
+                const originalPath = this.originalPaths.find(p => p.id === path.id);
+                if (originalPath) {
+                    path.path = originalPath.path.map(pt => {
+                        // Apply rotation around center
+                        const rotationRad = -angle * Math.PI / 180;
+                        const dx = pt.x - this.pivotCenter.x;
+                        const dy = pt.y - this.pivotCenter.y;
+                        const cos = Math.cos(rotationRad);
+                        const sin = Math.sin(rotationRad);
+                        let newX = this.pivotCenter.x + (dx * cos - dy * sin);
+                        let newY = this.pivotCenter.y + (dx * sin + dy * cos);
+
+                        return { x: newX, y: newY };
+                    });
+                    path.bbox = boundingBox(path.path);
+                }
+            }
+        });
     }
 
     mirrorX() {
         const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
-        let cx = 2*centerX;
+        let cx = 2 * centerX;
         svgpaths.forEach(path => {
             if (selectMgr.isSelected(path)) {
-                for(let pt of path.path)
-                {
-                    pt.x = cx -pt.x;   
-                }           
+                for (let pt of path.path) {
+                    pt.x = cx - pt.x;
+                }
                 path.bbox = boundingBox(path.path);
             }
         });
@@ -409,11 +385,11 @@ class Transform extends Select {
 
     mirrorY() {
         const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
-        let cy = 2*centerY;
+        let cy = 2 * centerY;
         svgpaths.forEach(path => {
             if (selectMgr.isSelected(path)) {
-                for(let pt of path.path)
-                    pt.y = cy - pt.y                
+                for (let pt of path.path)
+                    pt.y = cy - pt.y
                 path.bbox = boundingBox(path.path);
             }
         });
@@ -462,7 +438,7 @@ class Transform extends Select {
 
     drawText() {
         if (!this.transformBox || !this.activeHandle) return;
-        if (this.activeHandle.type == 'mirrorX' || this.activeHandle.type == 'mirrorY') return;
+        if (this.activeHandle.type == 'mirrorX' || this.activeHandle.type == 'mirrorY' || this.activeHandle.type == 'center') return;
 
         let text = '0'
         if (this.activeHandle.type == 'rotate')
@@ -482,8 +458,8 @@ class Transform extends Select {
 
             text = formatDimension(deltaXmm, true) + ', ' + formatDimension(deltaYmm, true);
         }
-        let handle = this.getTransformHandles()[this.activeHandle.id - 1];
-        let screenHandle = worldToScreen(handle.x, handle.y);
+        //let handle = this.getTransformHandles()[this.activeHandle.id - 1];
+        let screenHandle = worldToScreen(this.mouse.x, this.mouse.y);
         //const angle = Math.round((this.transformBox.rotation * 180 / Math.PI) % 360);
         let angle = this.rotation.toFixed(1)
         ctx.save();
@@ -495,44 +471,43 @@ class Transform extends Select {
 
     drawHandle(handle) {
         let screenHandle = worldToScreen(handle.x, handle.y);
-        let x = screenHandle.x; 
+        let x = screenHandle.x;
         let y = screenHandle.y;
         let size = this.handleSize;
         let isActive = this.activeHandle?.id == handle.id;
-        let isHovered =  this.hoverHandle?.id == handle.id;
+        let isHovered = this.hoverHandle?.id == handle.id;
         let type = handle.type;
 
         ctx.beginPath();
-        if(type == 'mirrorX')
-        {
-            ctx.moveTo(x,y);
-            ctx.lineTo(x,y+size);
-            ctx.lineTo(x+size,y);
-            ctx.lineTo(x,y-size);
-            ctx.lineTo(x,y);
+        if (type == 'mirrorX') {
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y - size);
+            ctx.lineTo(x, y);
 
-            ctx.moveTo(x,y);
-            ctx.lineTo(x,y-size);
-            ctx.lineTo(x-size,y);
-            ctx.lineTo(x,y+size);
-            ctx.lineTo(x,y);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y - size);
+            ctx.lineTo(x - size, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x, y);
         }
-        else if(type == 'mirrorY')
-        {
-            ctx.moveTo(x,y);
-            ctx.lineTo(x+size,y);
-            ctx.lineTo(x,y+size);
-            ctx.lineTo(x-size,y);
-            ctx.lineTo(x,y);
+        else if (type == 'mirrorY') {
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y + size);
+            ctx.lineTo(x - size, y);
+            ctx.lineTo(x, y);
 
-            ctx.moveTo(x,y);
-            ctx.lineTo(x-size,y);
-            ctx.lineTo(x,y-size);
-            ctx.lineTo(x+size,y);
-            ctx.lineTo(x,y);
+            ctx.moveTo(x, y);
+            ctx.lineTo(x - size, y);
+            ctx.lineTo(x, y - size);
+            ctx.lineTo(x + size, y);
+            ctx.lineTo(x, y);
         }
         else
             ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.closePath();
 
         // Color based on state
         if (isActive) {
@@ -554,7 +529,35 @@ class Transform extends Select {
         ctx.stroke();
     }
 
+
+
+    drawRotation(handle) {
+
+        let screenHandle = worldToScreen(this.mouse.x, this.mouse.y);
+        let screenCenter = worldToScreen(this.pivotCenter.x, this.pivotCenter.y);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(screenCenter.x, screenCenter.y);
+        ctx.lineTo(screenHandle.x, screenHandle.y);
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.fillStyle = handleHoverColor;
+        ctx.strokeStyle = handleHoverStroke;
+        ctx.beginPath();
+        ctx.arc(screenHandle.x, screenHandle.y, this.handleSize, 0, Math.PI * 2);
+        ctx.closePath();
+
+        ctx.stroke();
+        ctx.fill();
+
+    }
+
     drawTransformBox() {
+
+
         if (!this.transformBox) return;
 
         ctx.save();
@@ -572,19 +575,34 @@ class Transform extends Select {
         let p2 = worldToScreen(this.transformBox.maxx, this.transformBox.miny);
         let p3 = worldToScreen(this.transformBox.maxx, this.transformBox.maxy);
         let p4 = worldToScreen(this.transformBox.minx, this.transformBox.maxy);
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.lineTo(p4.x, p4.y);
-        ctx.closePath();
-        ctx.stroke();
+
+
+
+        if (!this.mouseDown) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.lineTo(p4.x, p4.y);
+            ctx.closePath();
+            ctx.stroke();
+        }
 
         // Draw handles (convert handle positions to screen coordinates)
         const handles = this.getTransformHandles();
-        handles.forEach(handle => {            
-            this.drawHandle(handle);
-        });
+        if (this.activeHandle && this.activeHandle.type === 'rotate')
+            this.drawRotation(handles[4]);
+
+        if (this.mouseDown && this.activeHandle && this.activeHandle.type === 'center')
+            this.drawHandle(handles[5]);
+
+        if (!this.mouseDown) {
+            handles.forEach(handle => {
+                this.drawHandle(handle);
+            });
+
+
+        }
         this.drawText();
         ctx.restore();
     }
@@ -593,14 +611,25 @@ class Transform extends Select {
         if (!this.transformBox) return [];
 
         const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
+        let pivotX = centerX;
+        let pivotY = centerY;
+        if (this.pivotCenter) {
+            pivotX = this.pivotCenter.x;
+            pivotY = this.pivotCenter.y;
+        }
+        const rotationRad = this.rotation * Math.PI / 180;
+        let ry = 300 * Math.cos(rotationRad);
+        let rx = 300 * Math.sin(rotationRad);
+
+
 
         return [
             { id: 1, x: minx, y: miny, type: 'scale', corner: 'tl' },
             { id: 2, x: maxx, y: miny, type: 'scale', corner: 'tr' },
             { id: 3, x: maxx, y: maxy, type: 'scale', corner: 'br' },
             { id: 4, x: minx, y: maxy, type: 'scale', corner: 'bl' },
-            { id: 5, x: centerX, y: miny - 100, type: 'rotate' },
-            { id: 6, x: centerX, y: centerY, type: 'translate' },
+            { id: 5, x: pivotX + rx, y: pivotY + ry, type: 'rotate' },
+            { id: 6, x: pivotX, y: pivotY, type: 'center' },
             { id: 7, x: centerX, y: centerY + 50, type: 'mirrorY' },
             { id: 8, x: centerX + 50, y: centerY, type: 'mirrorX' }
         ];
@@ -621,8 +650,8 @@ class Transform extends Select {
     // Properties Editor Interface
     getPropertiesHTML() {
         const hasSelectedPaths = this.hasSelectedPaths();
-        const disabled = hasSelectedPaths ? '' : 'disabled';
-
+        //const disabled = hasSelectedPaths ? '' : 'disabled';
+        const disabled = '';
         // Show center position only if we have a transform box
         let centerInfo = '';
         if (this.transformBox) {
@@ -644,7 +673,7 @@ class Transform extends Select {
                 <div class="alert alert-info mb-3">
                     <i data-lucide="info"></i>
                     <strong>Move Tool</strong><br>
-                    Select objects to see their center position and apply transformations.
+                    Select objects to apply transformations.
                 </div>
             `;
         }
@@ -725,15 +754,17 @@ class Transform extends Select {
         }
 
         // Handle width/height changes by calculating appropriate scale factors
-        if (data.width !== undefined && this.initialTransformBox) {
+        if (data.width !== undefined && this.transformBox) {
             const widthMM = parseDimension(data.width, useInches);
-            const originalWidth = this.initialTransformBox.width / viewScale;
+            const originalWidth = this.transformBox.width / viewScale;
             this.scaleX = originalWidth > 0 ? widthMM / originalWidth : 1;
+            this.scaleX = this.scaleX.toFixed(2);
         }
-        if (data.height !== undefined && this.initialTransformBox) {
+        if (data.height !== undefined && this.transformBox) {
             const heightMM = parseDimension(data.height, useInches);
-            const originalHeight = this.initialTransformBox.height / viewScale;
+            const originalHeight = this.transformBox.height / viewScale;
             this.scaleY = originalHeight > 0 ? heightMM / originalHeight : 1;
+            this.scaleY = this.scaleY.toFixed(2);
         }
 
         if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) || 0;
@@ -746,10 +777,21 @@ class Transform extends Select {
     }
 
     updateCenterDisplay() {
-        if (!this.transformBox) return;
+
+        let centerMM = { x: 0, y: 0 };
+        let currentWidth = 0;
+        let currentHeight = 0;
+        let rotation = 0;
+
+        if (this.transformBox) {
+            centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
+            currentWidth = this.transformBox.width / viewScale;
+            currentHeight = this.transformBox.height / viewScale;
+            rotation = this.rotation;
+        }
 
         // Convert center coordinates from pixels to mm
-        const centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
+
         const useInches = typeof getOption === 'function' && getOption('Inches');
 
         // Update the display elements if they exist, but avoid updating the currently focused element
@@ -778,25 +820,29 @@ class Transform extends Select {
 
         if (deltaXElement && deltaXElement !== activeElement) {
             deltaXElement.value = deltaXValue;
+
         }
         if (deltaYElement && deltaYElement !== activeElement) {
             deltaYElement.value = deltaYValue;
+
         }
 
         // Update width and height fields to show current dimensions
-        const currentWidth = this.transformBox.width / viewScale;
-        const currentHeight = this.transformBox.height / viewScale;
+
         const widthValue = useInches ? formatDimension(currentWidth, true) : currentWidth.toFixed(2);
         const heightValue = useInches ? formatDimension(currentHeight, true) : currentHeight.toFixed(2);
 
         if (widthElement && widthElement !== activeElement) {
             widthElement.value = widthValue;
+
         }
         if (heightElement && heightElement !== activeElement) {
             heightElement.value = heightValue;
+
         }
         if (rotationElement && rotationElement !== activeElement) {
-            rotationElement.value = this.rotation.toFixed(1);
+            rotationElement.value = rotation.toFixed(1);
+
         }
     }
 
@@ -820,17 +866,19 @@ class Transform extends Select {
 
                         // Rotate around center
                         if (rotationRad !== 0) {
-                            const dx = newX - centerX;
-                            const dy = newY - centerY;
+                            const dx = newX - this.pivotCenter.x;
+                            const dy = newY - this.pivotCenter.y;
                             const cos = Math.cos(rotationRad);
                             const sin = Math.sin(rotationRad);
-                            newX = centerX + (dx * cos - dy * sin);
-                            newY = centerY + (dx * sin + dy * cos);
+                            newX = this.pivotCenter.x + (dx * cos - dy * sin);
+                            newY = this.pivotCenter.y + (dx * sin + dy * cos);
                         }
 
                         // Translate
                         newX += this.deltaX;
                         newY += this.deltaY;
+
+
 
                         return { x: newX, y: newY };
                     });
@@ -844,7 +892,12 @@ class Transform extends Select {
         this.updateCreationProperties();
 
         // Update transform box
+        if (this.pivotCenter) {
+            this.pivotCenter.x = this.originalPivot.x + this.deltaX;
+            this.pivotCenter.y = this.originalPivot.y + this.deltaY;
+        }
         this.transformBox = this.createTransformBox(svgpaths);
+
         redraw();
     }
 
