@@ -83,20 +83,26 @@ class Select extends Operation {
      * @param {Object} selectBox - Bounding box {minx, miny, maxx, maxy, rl}
      * @param {Boolean} addToSelection - If true, add to existing selection; if false, replace selection
      */
-    selectPathsInRect(selectBox, addToSelection) {
-        for (let i = 0; i < svgpaths.length; i++) {
-            if (!svgpaths[i].visible) continue;
-            if (!addToSelection)
-                this.unselectPath(svgpaths[i]);
 
-            for (let j = 0; j < svgpaths[i].path.length; j++) {
-                const pt = svgpaths[i].path[j];
-                if (pointInBoundingBox(pt, selectBox)) {
-                    this.selectPath(svgpaths[i]);
-                }
-            }
-        }
-    }
+    selectPathsInRect(selectBox, addToSelection) {
+      const selectedInThisBox = new Set();  // Track which paths we've processed
+
+      for (let i = 0; i < svgpaths.length; i++) {
+          if (!svgpaths[i].visible) continue;
+          if (!addToSelection)
+              this.unselectPath(svgpaths[i]);
+
+          for (let j = 0; j < svgpaths[i].path.length; j++) {
+              const pt = svgpaths[i].path[j];
+              if (pointInBoundingBox(pt, selectBox)) {
+                  if (!selectedInThisBox.has(svgpaths[i].id)) {
+                      this.selectPath(svgpaths[i]);
+                      selectedInThisBox.add(svgpaths[i].id);
+                  }
+              }
+          }
+      }
+  }
 
     toggleSelection(path, evt) {
         if (path) {
