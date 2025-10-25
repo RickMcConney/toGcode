@@ -7,11 +7,21 @@ class Transform extends Select {
     static SCALING = 3;
     static ROTATING = 4;
     static DRAGGING = 5;
-    static SElECTING = 6;
+    static SELECTING = 6;
     static MIRRORING = 7;
 
     static state = Transform.IDLE;
 
+    // Magic number constants
+    static DRAG_THRESHOLD = 8;              // pixels before drag is detected
+    static HANDLE_SIZE = 8;                 // radius of transform handles
+    static HANDLE_HIT_RADIUS = 32;          // clickable radius (4x handle size)
+    static MIN_BOX_DIMENSION = 2;           // minimum transform box dimension
+    static SCALE_MIN = 0.1;                 // minimum scale factor
+    static SCALE_MAX = 10;                  // maximum scale factor
+    static ROTATION_LINE_LENGTH = 300;      // length of rotation reference line
+    static MIRROR_BUTTON_OFFSET = 50;       // offset for mirror buttons from center
+    static MIN_DISTANCE_CHECK = 10;         // minimum pixels to register distance
 
     constructor() {
         super('Move', 'move');
@@ -19,7 +29,7 @@ class Transform extends Select {
         this.icon = 'move';
         this.tooltip = 'Move, scale, and rotate selected objects';
         this.transformBox = null;
-        this.handleSize = 8;
+        this.handleSize = Transform.HANDLE_SIZE;
         this.ROTATION_SNAP = Math.PI / 36; // 5 degree snapping
         this.unselectOnMouseDown = true;
 
@@ -74,7 +84,7 @@ class Transform extends Select {
     setupTransformBox() {
         this.transformBox = this.createTransformBox(svgpaths);
         this.initialTransformBox = { ...this.transformBox };
-        console.log("setup " + this.initialTransformBox);
+ 
         if (this.pivotCenter == null) {
             this.pivotCenter = {
                 x: this.transformBox.centerX,
@@ -168,7 +178,7 @@ class Transform extends Select {
                 // Selection was lost, clear transform state
                 this.transformBox = null;
                 this.initialTransformBox = null;
-                console.log("nulled initial");
+
                 this.pivotCenter = null;
                 this.originalPivot = null;
                 this.refreshPropertiesPanel();
@@ -183,95 +193,30 @@ class Transform extends Select {
         }
     }
 
+    /**
+     * Handle mouse move event with state-based transformation logic
+     * @param {HTMLCanvasElement} canvas - The canvas element
+     * @param {MouseEvent} evt - The mouse event
+     */
     onMouseMove(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
+        const mouse = this.normalizeEvent(canvas, evt);
         this.mouse = mouse;
 
-        // Handle hover detection when mouse is not down
+        // Update hover detection when not dragging
         if (!this.mouseDown) {
-            this.hoverHandle = this.getHandleAtPoint(mouse);
-            if (this.hoverHandle) {
-                Transform.state = Transform.HOVERING;
-
-            } else if (Transform.state == Transform.HOVERING) {
-                Transform.state = Transform.IDLE;
-
-            }
+            this.handleHoverDetection(mouse);
         }
 
         // Handle state-specific transformations when mouse is down
         if (this.mouseDown) {
             if (Transform.state == Transform.ADJUSTING_PIVOT) {
-                // Center handle: move pivot point
-                this.pivotCenter = mouse;
-                this.center(); // Reset paths to original, not translated
-                this.updateCenterDisplay();
+                this.handlePivotAdjustment(mouse);
             }
             else if (Transform.state == Transform.SCALING) {
-                // Corner handle: apply scaling
-                this.deltaX = 0;
-                this.deltaY = 0;
-
-                // Calculate scale factors based on mouse movement from initial position
-                if (this.initialTransformBox == null) {
-                    console.log("initialTransformBox is null");
-                    return;
-                }
-                const initialDistanceX = this.initialMousePos.x - this.initialTransformBox.centerX;
-                const initialDistanceY = this.initialMousePos.y - this.initialTransformBox.centerY;
-                const currentDistanceX = mouse.x - this.initialTransformBox.centerX;
-                const currentDistanceY = mouse.y - this.initialTransformBox.centerY;
-
-                let scaleX = 1;
-                let scaleY = 1;
-
-                if (Math.abs(initialDistanceX) > 1) {
-                    scaleX = Math.max(0.1, Math.min(10, currentDistanceX / initialDistanceX));
-                }
-                if (Math.abs(initialDistanceY) > 1) {
-                    scaleY = Math.max(0.1, Math.min(10, currentDistanceY / initialDistanceY));
-                }
-
-                if (evt.shiftKey) {
-                    // Uniform scaling - use the larger scale factor
-                    const avgScale = Math.max(Math.abs(scaleX), Math.abs(scaleY));
-                    scaleX = scaleX < 0 ? -avgScale : avgScale;
-                    scaleY = scaleY < 0 ? -avgScale : avgScale;
-                }
-
-                // Update tracked scale values
-                this.scaleX = scaleX;
-                this.scaleY = scaleY;
-
-                this.scale(scaleX, scaleY);
-                this.updateCreationProperties();
-                this.transformBox = this.createTransformBox(svgpaths);
-                this.updateCenterDisplay();
+                this.handleScaling(mouse, evt);
             }
             else if (Transform.state == Transform.ROTATING) {
-                // Rotation handle: apply rotation
-                this.deltaX = 0;
-                this.deltaY = 0;
-
-                // Calculate current angle from center to mouse
-                const currentAngle = Math.atan2(
-                    mouse.x - this.pivotCenter.x,
-                    mouse.y - this.pivotCenter.y
-                );
-
-                // Calculate rotation difference
-                let rotationDelta = currentAngle;
-
-                // Apply snapping
-                rotationDelta = Math.round(rotationDelta / this.ROTATION_SNAP) * this.ROTATION_SNAP;
-
-                // Update tracked rotation value (convert to degrees)
-                this.rotation = (rotationDelta) * 180 / Math.PI;
-
-                this.rotate(this.rotation);
-                this.updateCreationProperties();
-                this.transformBox = this.createTransformBox(svgpaths);
-                this.updateCenterDisplay();
+                this.handleRotation(mouse);
             }
             else {
                 super.onMouseMove(canvas, evt);
@@ -282,6 +227,99 @@ class Transform extends Select {
             super.onMouseMove(canvas, evt);
 
         redraw();
+    }
+
+    /**
+     * Handle hover detection for transform handles
+     * @param {Object} mouse - Mouse position {x, y}
+     */
+    handleHoverDetection(mouse) {
+        this.hoverHandle = this.getHandleAtPoint(mouse);
+        if (this.hoverHandle) {
+            Transform.state = Transform.HOVERING;
+        } else if (Transform.state == Transform.HOVERING) {
+            Transform.state = Transform.IDLE;
+        }
+    }
+
+    /**
+     * Handle pivot point adjustment (center handle)
+     * @param {Object} mouse - Mouse position {x, y}
+     */
+    handlePivotAdjustment(mouse) {
+        this.pivotCenter = mouse;
+        this.center(); // Reset paths to original, not translated
+        this.updateCenterDisplay();
+    }
+
+    /**
+     * Handle scaling transformation
+     * @param {Object} mouse - Mouse position {x, y}
+     * @param {MouseEvent} evt - The mouse event (for shift key checking)
+     */
+    handleScaling(mouse, evt) {
+        this.deltaX = 0;
+        this.deltaY = 0;
+
+        // Calculate scale factors based on mouse movement from initial position
+        if (this.initialTransformBox == null) {
+            return;
+        }
+
+        const initialDistanceX = this.initialMousePos.x - this.initialTransformBox.centerX;
+        const initialDistanceY = this.initialMousePos.y - this.initialTransformBox.centerY;
+        const currentDistanceX = mouse.x - this.initialTransformBox.centerX;
+        const currentDistanceY = mouse.y - this.initialTransformBox.centerY;
+
+        let scaleX = 1;
+        let scaleY = 1;
+
+        if (Math.abs(initialDistanceX) > 1) {
+            scaleX = Math.max(Transform.SCALE_MIN, Math.min(Transform.SCALE_MAX, currentDistanceX / initialDistanceX));
+        }
+        if (Math.abs(initialDistanceY) > 1) {
+            scaleY = Math.max(Transform.SCALE_MIN, Math.min(Transform.SCALE_MAX, currentDistanceY / initialDistanceY));
+        }
+
+        // Apply uniform scaling if shift key is pressed
+        if (evt.shiftKey) {
+            const avgScale = Math.max(Math.abs(scaleX), Math.abs(scaleY));
+            scaleX = scaleX < 0 ? -avgScale : avgScale;
+            scaleY = scaleY < 0 ? -avgScale : avgScale;
+        }
+
+        // Update and apply scale
+        this.scaleX = scaleX;
+        this.scaleY = scaleY;
+        this.scale(scaleX, scaleY);
+        this.updateCreationProperties();
+        this.transformBox = this.createTransformBox(svgpaths);
+        this.updateCenterDisplay();
+    }
+
+    /**
+     * Handle rotation transformation
+     * @param {Object} mouse - Mouse position {x, y}
+     */
+    handleRotation(mouse) {
+        this.deltaX = 0;
+        this.deltaY = 0;
+
+        // Calculate current angle from pivot center to mouse
+        const currentAngle = Math.atan2(
+            mouse.x - this.pivotCenter.x,
+            mouse.y - this.pivotCenter.y
+        );
+
+        // Apply rotation snapping to nearest 5-degree increment
+        const rotationDelta = Math.round(currentAngle / this.ROTATION_SNAP) * this.ROTATION_SNAP;
+
+        // Convert to degrees and apply rotation
+        this.rotation = rotationDelta * 180 / Math.PI;
+        this.rotate(this.rotation);
+        this.updateCreationProperties();
+        this.transformBox = this.createTransformBox(svgpaths);
+        this.updateCenterDisplay();
     }
     onMouseUp(canvas, evt) {
         const hadSelectBox = this.selectBox; // Check if we were doing drag selection
@@ -381,17 +419,23 @@ class Transform extends Select {
         });
     }
 
+    /**
+     * Apply scaling transformation to selected paths
+     * Scales around the transform box center
+     * @param {Number} scaleX - Horizontal scale factor
+     * @param {Number} scaleY - Vertical scale factor
+     */
     scale(scaleX, scaleY) {
         const cx = this.initialTransformBox.centerX;
         const cy = this.initialTransformBox.centerY;
 
         let selected = selectMgr.selectedPaths();
         selected.forEach(path => {
-            const originalPath = path.originalPath
+            const originalPath = path.originalPath;
             if (originalPath) {
                 path.path = originalPath.map(pt => {
-                    let newX = cx + (pt.x - cx) * scaleX;
-                    let newY = cy + (pt.y - cy) * scaleY;
+                    const newX = cx + (pt.x - cx) * scaleX;
+                    const newY = cy + (pt.y - cy) * scaleY;
                     return { x: newX, y: newY };
                 });
                 path.bbox = boundingBox(path.path);
@@ -399,6 +443,11 @@ class Transform extends Select {
         });
     }
 
+    /**
+     * Apply rotation transformation to selected paths
+     * Rotates around the pivot center point
+     * @param {Number} angle - Rotation angle in degrees
+     */
     rotate(angle) {
         const rotationRad = -angle * Math.PI / 180;
         const cos = Math.cos(rotationRad);
@@ -408,15 +457,14 @@ class Transform extends Select {
 
         let selected = selectMgr.selectedPaths();
         selected.forEach(path => {
-            const originalPath = path.originalPath
+            const originalPath = path.originalPath;
             if (originalPath) {
                 path.path = originalPath.map(pt => {
-
                     const dx = pt.x - px;
                     const dy = pt.y - py;
 
-                    let newX = px + (dx * cos - dy * sin);
-                    let newY = py + (dx * sin + dy * cos);
+                    const newX = px + (dx * cos - dy * sin);
+                    const newY = py + (dx * sin + dy * cos);
 
                     return { x: newX, y: newY };
                 });
@@ -425,9 +473,12 @@ class Transform extends Select {
         });
     }
 
+    /**
+     * Mirror selected paths horizontally (flip left-right)
+     */
     mirrorX() {
         const { centerX } = this.transformBox;
-        let cx = 2 * centerX;
+        const cx = 2 * centerX;
         let selected = selectMgr.selectedPaths();
         selected.forEach(path => {
             for (let pt of path.path) {
@@ -437,13 +488,17 @@ class Transform extends Select {
         });
     }
 
+    /**
+     * Mirror selected paths vertically (flip top-bottom)
+     */
     mirrorY() {
         const { centerY } = this.transformBox;
-        let cy = 2 * centerY;
+        const cy = 2 * centerY;
         let selected = selectMgr.selectedPaths();
         selected.forEach(path => {
-            for (let pt of path.path)
-                pt.y = cy - pt.y
+            for (let pt of path.path) {
+                pt.y = cy - pt.y;
+            }
             path.bbox = boundingBox(path.path);
         });
     }
@@ -474,8 +529,8 @@ class Transform extends Select {
 
         if (minX === Infinity) return null; // No selected paths
 
-        if (maxX - minX < 2) { maxX++; minX--; }
-        if (maxY - minY < 2) { maxY++; minY--; }
+        if (maxX - minX < Transform.MIN_BOX_DIMENSION) { maxX++; minX--; }
+        if (maxY - minY < Transform.MIN_BOX_DIMENSION) { maxY++; minY--; }
         return {
             minx: minX,
             miny: minY,
@@ -489,7 +544,7 @@ class Transform extends Select {
         };
     }
 
-    drawText() {
+    drawText(ctx) {
         // Only draw info text when actively transforming
         if (!this.transformBox) return;
         if (!(Transform.state == Transform.SCALING || Transform.state == Transform.ROTATING)) return;
@@ -514,7 +569,7 @@ class Transform extends Select {
         ctx.restore();
     }
 
-    drawHandle(handle) {
+    drawHandle(ctx, handle) {
         let screenHandle = worldToScreen(handle.x, handle.y);
         let x = screenHandle.x;
         let y = screenHandle.y;
@@ -576,7 +631,7 @@ class Transform extends Select {
 
 
 
-    drawRotation(handle) {
+    drawRotation(ctx, handle) {
         // Guard: only draw if pivot center exists
         if (!this.pivotCenter || !this.mouse) return;
 
@@ -601,7 +656,7 @@ class Transform extends Select {
         ctx.fill();
     }
 
-    drawTransformBox() {
+    drawTransformBox(ctx) {
         if (!this.transformBox) return;
 
         ctx.save();
@@ -636,22 +691,22 @@ class Transform extends Select {
 
         // Show rotation reference line during rotation
         if (Transform.state == Transform.ROTATING) {
-            this.drawRotation(handles[4]);
+            this.drawRotation(ctx, handles[4]);
         }
 
         // Show center handle during pivot adjustment
         if (Transform.state == Transform.ADJUSTING_PIVOT) {
-            this.drawHandle(handles[5]);
+            this.drawHandle(ctx, handles[5]);
         }
 
         // Show all handles when not actively dragging/transforming
         if (!this.mouseDown || Transform.state == Transform.ADJUSTING_PIVOT) {
             handles.forEach(handle => {
-                this.drawHandle(handle);
+                this.drawHandle(ctx, handle);
             });
         }
 
-        this.drawText();
+        this.drawText(ctx);
         ctx.restore();
     }
 
@@ -666,8 +721,8 @@ class Transform extends Select {
             pivotY = this.pivotCenter.y;
         }
         const rotationRad = this.rotation * Math.PI / 180;
-        let ry = 300 * Math.cos(rotationRad);
-        let rx = 300 * Math.sin(rotationRad);
+        let ry = Transform.ROTATION_LINE_LENGTH * Math.cos(rotationRad);
+        let rx = Transform.ROTATION_LINE_LENGTH * Math.sin(rotationRad);
 
 
 
@@ -678,8 +733,8 @@ class Transform extends Select {
             { id: 4, x: minx, y: maxy, type: 'scale', corner: 'bl' },
             { id: 5, x: pivotX + rx, y: pivotY + ry, type: 'rotate' },
             { id: 6, x: pivotX, y: pivotY, type: 'center' },
-            { id: 7, x: centerX, y: centerY + 50, type: 'mirrorY' },
-            { id: 8, x: centerX + 50, y: centerY, type: 'mirrorX' }
+            { id: 7, x: centerX, y: centerY + Transform.MIRROR_BUTTON_OFFSET, type: 'mirrorY' },
+            { id: 8, x: centerX + Transform.MIRROR_BUTTON_OFFSET, y: centerY, type: 'mirrorX' }
         ];
     }
 
@@ -688,7 +743,7 @@ class Transform extends Select {
         for (let handle of handles) {
             const dx = handle.x - point.x;
             const dy = handle.y - point.y;
-            if (Math.sqrt(dx * dx + dy * dy) <= this.handleSize * 4) {
+            if (Math.sqrt(dx * dx + dy * dy) <= Transform.HANDLE_HIT_RADIUS) {
                 return handle;
             }
         }

@@ -9,6 +9,10 @@ class Select extends Operation {
 
     static state = Select.IDLE;
 
+    // Magic number constants
+    static DRAG_THRESHOLD = 8;              // pixels before drag is detected
+    static MIN_DISTANCE_CHECK = 10;         // minimum pixels to register distance
+
     constructor() {
         super('Select', null);
         this.unselectOnMouseDown = true;
@@ -74,14 +78,19 @@ class Select extends Operation {
         return Select.selected;
     }
 
+    /**
+     * Select paths that have points within the given bounding box
+     * @param {Object} selectBox - Bounding box {minx, miny, maxx, maxy, rl}
+     * @param {Boolean} addToSelection - If true, add to existing selection; if false, replace selection
+     */
     selectPathsInRect(selectBox, addToSelection) {
-        for (var i = 0; i < svgpaths.length; i++) {
+        for (let i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
+            if (!addToSelection)
+                this.unselectPath(svgpaths[i]);
 
-            for (var j = 0; j < svgpaths[i].path.length; j++) {
-                if (!addToSelection)
-                    this.unselectPath(svgpaths[i]);
-                var pt = svgpaths[i].path[j];
+            for (let j = 0; j < svgpaths[i].path.length; j++) {
+                const pt = svgpaths[i].path[j];
                 if (pointInBoundingBox(pt, selectBox)) {
                     this.selectPath(svgpaths[i]);
                 }
@@ -106,9 +115,15 @@ class Select extends Operation {
         this.showSelection();
     }
 
+    /**
+     * Handle mouse down event - prepare for potential drag/select operations
+     * State transitions happen in onMouseMove once drag threshold is exceeded
+     * @param {HTMLCanvasElement} canvas - The canvas element
+     * @param {MouseEvent} evt - The mouse event
+     */
     onMouseDown(canvas, evt) {
         this.mouseDown = true;
-        var mouse = this.normalizeEvent(canvas, evt);
+        const mouse = this.normalizeEvent(canvas, evt);
         this.dragStartX = mouse.x;
         this.dragStartY = mouse.y;
         this.initialMousePos = mouse;
@@ -117,13 +132,18 @@ class Select extends Operation {
         this.dragPath = null;
 
         // Don't change state yet - wait for onMouseMove to detect threshold crossing
-        // State will transition to DRAGGING or SELECTING when 8px threshold exceeded
+        // State will transition to DRAGGING or SELECTING when threshold exceeded
     }
 
+    /**
+     * Find a path that contains the given point within its bounding box
+     * @param {Object} pt - Point {x, y}
+     * @returns {Object|null} The path if found, null otherwise
+     */
     pointInPath(pt) {
-        for (var i = 0; i < svgpaths.length; i++) {
+        for (let i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
-            var bbox = svgpaths[i].bbox;
+            const bbox = svgpaths[i].bbox;
             if (pointInBoundingBox(pt, bbox)) {
                 return svgpaths[i];
             }
@@ -135,55 +155,55 @@ class Select extends Operation {
         var mouse = this.normalizeEvent(canvas, evt);
 
         if (this.mouseDown) {
-            const thresholdExceeded = Math.abs(this.dragStartX - mouse.x) > 8 || Math.abs(this.dragStartY - mouse.y) > 8;
+            const thresholdExceeded = Math.abs(this.dragStartX - mouse.x) > Select.DRAG_THRESHOLD || Math.abs(this.dragStartY - mouse.y) > Select.DRAG_THRESHOLD;
 
             if (thresholdExceeded) {
                 // Check if in DRAGGING state
                 if (Select.state == Select.DRAGGING) {
-                    var dx = mouse.x - this.dragStartX;
-                    var dy = mouse.y - this.dragStartY;
+                    let dragDeltaX = mouse.x - this.dragStartX;
+                    let dragDeltaY = mouse.y - this.dragStartY;
 
                     if (evt.shiftKey) {
-                        // constrained - use the larger delta
+                        // Constrain movement to primary axis (larger delta)
                         if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
-                            dy = 0;
+                            dragDeltaY = 0;  // Constrain to X axis
                         } else {
-                            dx = 0;
+                            dragDeltaX = 0;  // Constrain to Y axis
                         }
                     }
-                    this.deltaX += dx;
-                    this.deltaY += dy;
+                    this.deltaX += dragDeltaX;
+                    this.deltaY += dragDeltaY;
 
                     if (this.noSelection())
-                        this.translate(this.dragPath, dx, dy);
+                        this.translate(this.dragPath, dragDeltaX, dragDeltaY);
                     else
-                        this.translateSelected(dx, dy);
+                        this.translateSelected(dragDeltaX, dragDeltaY);
 
                     this.dragStartX = mouse.x;
                     this.dragStartY = mouse.y;
                 }
                 // Check if in SELECTING state
                 else if (Select.state == Select.SELECTING) {
-                    var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
-                    var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
-                    var dx = x - this.rawdragStartX;
-                    var dy = y - this.rawdragStartY;
+                    const screenX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                    const screenY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                    const screenDx = screenX - this.rawdragStartX;
+                    const screenDy = screenY - this.rawdragStartY;
 
-                    if (Math.abs(dx) < 10 || Math.abs(dy) < 10) return;
+                    if (Math.abs(screenDx) < Select.MIN_DISTANCE_CHECK || Math.abs(screenDy) < Select.MIN_DISTANCE_CHECK) return;
 
-                    var sx = Math.min(this.dragStartX, mouse.x);
-                    var ex = Math.max(this.dragStartX, mouse.x);
-                    var sy = Math.min(this.dragStartY, mouse.y);
-                    var ey = Math.max(this.dragStartY, mouse.y);
-                    var rl = this.dragStartX < mouse.x;
+                    const selectBoxMinX = Math.min(this.dragStartX, mouse.x);
+                    const selectBoxMaxX = Math.max(this.dragStartX, mouse.x);
+                    const selectBoxMinY = Math.min(this.dragStartY, mouse.y);
+                    const selectBoxMaxY = Math.max(this.dragStartY, mouse.y);
+                    const isLeftToRight = this.dragStartX < mouse.x;
 
-                    this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
+                    this.selectBox = { minx: selectBoxMinX, miny: selectBoxMinY, maxx: selectBoxMaxX, maxy: selectBoxMaxY, rl: isLeftToRight };
                     this.highlightPathsInRect(this.selectBox);
                 }
                 // Not yet in a drag state - detect which type of drag to start
                 else if (Select.state == Select.IDLE) {
                     // Try to find a path at the start position
-                    this.dragPath = closestPath(this.dragStartPos || mouse, false);
+                    this.dragPath = closestPath(mouse, false);
 
                     if (this.dragPath) {
                         if(selectMgr.isSelected(this.dragPath) || selectMgr.noSelection())
@@ -196,19 +216,19 @@ class Select extends Operation {
                         // Starting a selection box
                         Select.state = Select.SELECTING;
 
-                        var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
-                        var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
-                        var dx = x - this.rawdragStartX;
-                        var dy = y - this.rawdragStartY;
+                        const screenX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                        const screenY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                        const screenDx = screenX - this.rawdragStartX;
+                        const screenDy = screenY - this.rawdragStartY;
 
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                            var sx = Math.min(this.dragStartX, mouse.x);
-                            var ex = Math.max(this.dragStartX, mouse.x);
-                            var sy = Math.min(this.dragStartY, mouse.y);
-                            var ey = Math.max(this.dragStartY, mouse.y);
-                            var rl = this.dragStartX < mouse.x;
+                        if (Math.abs(screenDx) > Select.MIN_DISTANCE_CHECK || Math.abs(screenDy) > Select.MIN_DISTANCE_CHECK) {
+                            const selectBoxMinX = Math.min(this.dragStartX, mouse.x);
+                            const selectBoxMaxX = Math.max(this.dragStartX, mouse.x);
+                            const selectBoxMinY = Math.min(this.dragStartY, mouse.y);
+                            const selectBoxMaxY = Math.max(this.dragStartY, mouse.y);
+                            const isLeftToRight = this.dragStartX < mouse.x;
 
-                            this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
+                            this.selectBox = { minx: selectBoxMinX, miny: selectBoxMinY, maxx: selectBoxMaxX, maxy: selectBoxMaxY, rl: isLeftToRight };
                             this.highlightPathsInRect(this.selectBox);
                         }
                     }
