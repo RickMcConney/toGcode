@@ -3,6 +3,12 @@ class Select extends Operation {
     static instance;
     static selected = [];
 
+    static IDLE = 0;
+    static DRAGGING = 2;
+    static SELECTING = 3;
+
+    static state = Select.IDLE;
+
     constructor() {
         super('Select', null);
         this.unselectOnMouseDown = true;
@@ -37,6 +43,7 @@ class Select extends Operation {
             Select.selected.splice(index, 1);
         }
         path.highlight = false;
+        delete path.originalPath;
         unselectSidebarNode(path.id);
     }
 
@@ -45,6 +52,7 @@ class Select extends Operation {
             for (let path of Select.selected) {
                 unselectSidebarNode(path.id);
                 path.highlight = false;
+                delete path.originalPath;
             }
         }
         Select.selected = [];
@@ -108,7 +116,8 @@ class Select extends Operation {
         this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
         this.dragPath = null;
 
-
+        // Don't change state yet - wait for onMouseMove to detect threshold crossing
+        // State will transition to DRAGGING or SELECTING when 8px threshold exceeded
     }
 
     pointInPath(pt) {
@@ -123,42 +132,38 @@ class Select extends Operation {
     }
 
     onMouseMove(canvas, evt) {
-
         var mouse = this.normalizeEvent(canvas, evt);
+
         if (this.mouseDown) {
-            if (Math.abs(this.dragStartX - mouse.x) > 8 || Math.abs(this.dragStartY - mouse.y) > 8) {
-                if (!this.selectBox) {
-                    if (this.dragPath) {
-                        var dx = mouse.x - this.dragStartX;
-                        var dy = mouse.y - this.dragStartY;
+            const thresholdExceeded = Math.abs(this.dragStartX - mouse.x) > 8 || Math.abs(this.dragStartY - mouse.y) > 8;
 
-                        if (evt.shiftKey) {
-                            // constrained - use the larger delta
-                            if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
-                                dy = 0;
-                            } else {
-                                dx = 0;
-                            }
+            if (thresholdExceeded) {
+                // Check if in DRAGGING state
+                if (Select.state == Select.DRAGGING) {
+                    var dx = mouse.x - this.dragStartX;
+                    var dy = mouse.y - this.dragStartY;
+
+                    if (evt.shiftKey) {
+                        // constrained - use the larger delta
+                        if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
+                            dy = 0;
+                        } else {
+                            dx = 0;
                         }
-                        this.deltaX += dx;
-                        this.deltaY += dy;
-
-                        if (this.noSelection())
-                            this.translate(this.dragPath, dx, dy);
-                        else
-                            this.translateSelected(dx, dy);
-
-
-                        this.dragStartX = mouse.x;
-                        this.dragStartY = mouse.y;
                     }
-                    else {
-                        this.dragPath = closestPath(mouse, false);
-                        addUndo(false, true, false);
-                    }
+                    this.deltaX += dx;
+                    this.deltaY += dy;
+
+                    if (this.noSelection())
+                        this.translate(this.dragPath, dx, dy);
+                    else
+                        this.translateSelected(dx, dy);
+
+                    this.dragStartX = mouse.x;
+                    this.dragStartY = mouse.y;
                 }
-
-                if (!this.dragPath) {
+                // Check if in SELECTING state
+                else if (Select.state == Select.SELECTING) {
                     var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
                     var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
                     var dx = x - this.rawdragStartX;
@@ -175,10 +180,45 @@ class Select extends Operation {
                     this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
                     this.highlightPathsInRect(this.selectBox);
                 }
+                // Not yet in a drag state - detect which type of drag to start
+                else if (Select.state == Select.IDLE) {
+                    // Try to find a path at the start position
+                    this.dragPath = closestPath(this.dragStartPos || mouse, false);
+
+                    if (this.dragPath) {
+                        if(selectMgr.isSelected(this.dragPath) || selectMgr.noSelection())
+                        {
+                            // Starting a path drag
+                            Select.state = Select.DRAGGING;
+                            addUndo(false, true, false);
+                        }
+                    } else {
+                        // Starting a selection box
+                        Select.state = Select.SELECTING;
+
+                        var x = evt.offsetX || (evt.pageX - canvas.offsetLeft);
+                        var y = evt.offsetY || (evt.pageY - canvas.offsetTop);
+                        var dx = x - this.rawdragStartX;
+                        var dy = y - this.rawdragStartY;
+
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                            var sx = Math.min(this.dragStartX, mouse.x);
+                            var ex = Math.max(this.dragStartX, mouse.x);
+                            var sy = Math.min(this.dragStartY, mouse.y);
+                            var ey = Math.max(this.dragStartY, mouse.y);
+                            var rl = this.dragStartX < mouse.x;
+
+                            this.selectBox = { minx: sx, miny: sy, maxx: ex, maxy: ey, rl: rl };
+                            this.highlightPathsInRect(this.selectBox);
+                        }
+                    }
+                }
             }
         }
         else {
+            // Mouse not down - update hover state
             closestPath(mouse, true);
+            Select.state = Select.IDLE;
         }
     }
 
@@ -186,20 +226,25 @@ class Select extends Operation {
         var mouse = this.normalizeEvent(canvas, evt);
         this.mouseDown = false;
 
-        if (this.dragPath) {
-            this.dragPath = null;
-            return;
-        }
-
-        if (Math.abs(this.dragStartX - mouse.x) < 8 && Math.abs(this.dragStartY - mouse.y) < 8) {
+        // Only toggle selection if we stayed in IDLE (never crossed 8px threshold)
+        // If we transitioned to DRAGGING or SELECTING, don't change selection
+        if (Select.state == Select.IDLE ) {
             let path = closestPath(mouse, false);
             this.toggleSelection(path, evt);
         }
 
+        // Handle selection box (from SELECTING state)
         if (this.selectBox) {
             this.selectPathsInRect(this.selectBox, evt.shiftKey);
             this.selectBox = null;
         }
+
+        // Clear drag path reference
+        this.dragPath = null;
+
+        // Return to IDLE state
+        Select.state = Select.IDLE;
+
         this.showSelection();
     }
 
@@ -256,11 +301,7 @@ class Select extends Operation {
                 path.bbox = boundingBox(path.path);
             }
         }
-        if(this.pivotCenter)
-        {
-            this.pivotCenter.x += dx;
-            this.pivotCenter.y += dy;
-        }
+
     }
 
     translate(path, dx, dy) {
@@ -269,11 +310,7 @@ class Select extends Operation {
             y: pt.y + dy
         }));
         path.bbox = boundingBox(path.path);
-        if(this.pivotCenter)
-        {
-            this.pivotCenter.x += dx;
-            this.pivotCenter.y += dy;
-        }      
+     
 
     }
 

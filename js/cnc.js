@@ -1524,11 +1524,12 @@ function drawSvgPaths() {
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (svgpaths[i].visible) {
 			let path = svgpaths[i];
-			if (path.highlight)
-				drawSvgPath(path, highlightColor, 3);
-			else if (!selectMgr.isSelected(path))
-			{		
-				drawSvgPath(path, lineColor, 0.5);
+			if (!selectMgr.isSelected(path))
+			{
+				if (path.highlight)
+					drawSvgPath(path, highlightColor, 3);
+				else 	
+					drawSvgPath(path, lineColor, 0.5);
 			}
 		}
 	}
@@ -1537,14 +1538,11 @@ function drawSvgPaths() {
 	for(let i = 0;i<selectedPaths.length;i++)
 	{
 		let path = selectedPaths[i];
-		if(!path.highlight)
-		{
-			if(i == selectedPaths.length-1)
-				drawSvgPath(path, activeColor, 3);
-			else
-				drawSvgPath(path, selectColor, 3);
-		}
 
+		if(i == selectedPaths.length-1)
+			drawSvgPath(path, activeColor, 3);
+		else
+			drawSvgPath(path, selectColor, 3);		
 	}
 }
 
@@ -2187,10 +2185,11 @@ function doPaste() {
 			let path = paths[i];
 			let newPath = JSON.parse(JSON.stringify(path));
 			newPath.id = 'S' + svgpathId;
-			newPath.name = newPath.name + ' copy';
+			if(newPath.name.indexOf(' copy') == -1)
+				newPath.name = newPath.name + ' copy';
 			newPath.path = newPath.path.map(pt => ({
-                x: pt.x + 10*viewScale,
-                y: pt.y + 10*viewScale
+                x: pt.x + 0*viewScale,
+                y: pt.y + 0*viewScale
             }));
             newPath.bbox = boundingBox(newPath.path);
 			svgpaths.push(newPath);

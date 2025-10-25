@@ -1,4 +1,18 @@
 class Transform extends Select {
+    // Define state constants for Transform
+
+    static IDLE = 0;
+    static HOVERING = 1;
+    static ADJUSTING_PIVOT = 2;
+    static SCALING = 3;
+    static ROTATING = 4;
+    static DRAGGING = 5;
+    static SElECTING = 6;
+    static MIRRORING = 7;
+
+    static state = Transform.IDLE;
+
+
     constructor() {
         super('Move', 'move');
         this.name = 'Move';
@@ -18,7 +32,6 @@ class Transform extends Select {
         this.initialTransformBox = null;
         this.pivotCenter = null;
         this.rotation = 0; // in degrees
-        this.originalPaths = [];
         this.originalPivot = null;
     }
 
@@ -27,45 +40,58 @@ class Transform extends Select {
         this.activeHandle = null;
         this.hoverHandle = null;
 
-
         // Reset transform tracking values
-        this.deltaX = 0;
-        this.deltaY = 0;
-        this.scaleX = 1;
-        this.scaleY = 1;
+        this.resetTransformState();
 
-        this.pivotCenter = null;
-        this.rotation = 0;
-
+        // Initialize based on selection
         if (this.hasSelectedPaths()) {
-            this.transformBox = this.createTransformBox(svgpaths);
-            this.initialTransformBox = { ...this.transformBox };
-            this.pivotCenter = {};
-            this.pivotCenter.x = this.transformBox.centerX;
-            this.pivotCenter.y = this.transformBox.centerY;
-            this.originalPivot = { ...this.pivotCenter };
-
-
-            // Store original path positions
-            this.originalPaths = svgpaths.map(path => {
-                if (selectMgr.isSelected(path)) {
-                    return {
-                        id: path.id,
-                        path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                    };
-                }
-                return null;
-            }).filter(p => p !== null);
-
-            // Update display when starting
+            this.setupTransformBox();
             this.updateCenterDisplay();
-        }
-        else
+        } else {
             this.transformBox = null;
+        }
+
+        // Start in IDLE state
+        Transform.state = Transform.IDLE;
+
 
         // Refresh properties panel to show the right state
         this.refreshPropertiesPanel();
         redraw();
+    }
+
+    // Helper method to reset all transform accumulators (but not pivot center or transform box)
+    resetTransformState() {
+        this.deltaX = 0;
+        this.deltaY = 0;
+        this.scaleX = 1;
+        this.scaleY = 1;
+        this.rotation = 0;
+        // Note: Don't reset pivotCenter or initialTransformBox here - they're needed for transforms
+    }
+
+    // Helper method to setup transform box with pivot center
+    setupTransformBox() {
+        this.transformBox = this.createTransformBox(svgpaths);
+        this.initialTransformBox = { ...this.transformBox };
+        console.log("setup " + this.initialTransformBox);
+        if (this.pivotCenter == null) {
+            this.pivotCenter = {
+                x: this.transformBox.centerX,
+                y: this.transformBox.centerY
+            };
+        }
+        this.originalPivot = { ...this.pivotCenter };
+        this.storeOriginalPaths();
+    }
+
+    // Helper method to store original paths for transformation reference
+    storeOriginalPaths() {
+
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            path.originalPath = [...path.path];
+        });
     }
 
     refreshPropertiesPanel() {
@@ -92,118 +118,105 @@ class Transform extends Select {
         this.activeHandle = this.getHandleAtPoint(mouse);
         this.hoverHandle = null;
 
-        // If clicking on a handle, don't call parent (prevents deselection)
+        // If clicking on a handle, handle transformation
         if (this.activeHandle) {
-            // Ensure initialTransformBox exists when clicking on handle
-            if (this.transformBox) {
-                this.initialTransformBox = { ...this.transformBox };
-                if (this.pivotCenter == null) {
-                    this.pivotCenter = {};
-                    this.pivotCenter.x = this.transformBox.centerX;
-                    this.pivotCenter.y = this.transformBox.centerY;
-                    this.originalPivot = { ...this.pivotCenter };
-                }
 
-
-                // Also store original path positions if missing
-
-                this.originalPaths = svgpaths.map(path => {
-                    if (selectMgr.isSelected(path)) {
-                        return {
-                            id: path.id,
-                            path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                        };
-                    }
-                    return null;
-                }).filter(p => p !== null);
-
-            }
-
-
-            //canvas.style.cursor = "grabbing";
             addUndo(false, true, false);
 
+            // Handle mirror as special case - immediate apply, no state change
             if (this.activeHandle.type === 'mirrorX') {
                 this.mirrorX();
+                this.activeHandle = null; // Don't persist active handle for mirror
+                Transform.state = Transform.MIRRORING;
+                return;
             }
             else if (this.activeHandle.type === 'mirrorY') {
                 this.mirrorY();
+                Transform.state = Transform.MIRRORING;
+                this.activeHandle = null; // Don't persist active handle for mirror
+                return;
             }
 
-            // Store the initial mouse position for scaling/rotation calculations
-
+            // Store initial mouse position for scaling/rotation calculations
             this.initialMousePos = { x: mouse.x, y: mouse.y };
+
+            // Transition to appropriate transform state based on handle type
+            // At this point, transformBox, initialTransformBox, pivotCenter, and originalPaths are all guaranteed to exist
+            if (this.activeHandle.type === 'center') {
+                Transform.state = Transform.ADJUSTING_PIVOT;
+            } else if (this.activeHandle.type === 'scale') {
+                this.resetTransformState(); // Reset accumulators for clean scale
+                Transform.state = Transform.SCALING;
+
+            } else if (this.activeHandle.type === 'rotate') {
+                this.resetTransformState(); // Reset accumulators for clean rotation
+                Transform.state = Transform.ROTATING;
+            }
 
         } else {
             // If not clicking on a handle, allow normal selection behavior
             super.onMouseDown(canvas, evt);
-            this.pivotCenter = null;
-            this.originalPivot = null;
-            this.rotation = 0;
 
-
-            // Check if selection changed and update transform box accordingly
-            const hadTransformBox = !!this.transformBox;
-            if (this.hasSelectedPaths() && !this.transformBox) {
-                this.transformBox = this.createTransformBox(svgpaths);
-                this.initialTransformBox = { ...this.transformBox };
-
-
-                // Store original path positions for transformation reference
-                this.originalPaths = svgpaths.map(path => {
-                    if (selectMgr.isSelected(path)) {
-                        return {
-                            id: path.id,
-                            path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                        };
-                    }
-                    return null;
-                }).filter(p => p !== null);
-                this.originalPivot = { ...this.pivotCenter };
-
-                // Reset transform values when starting fresh
-                this.deltaX = 0;
-                this.deltaY = 0;
-                this.scaleX = 1;
-                this.scaleY = 1;
-                this.rotation = 0;
+            // After parent handles the click, check if selection changed
+            if (this.hasSelectedPaths()) {
+                // We have selected paths - need to update transform box
+                // This handles both new selections and adding to existing selections
+                this.setupTransformBox();
+                this.resetTransformState();
                 this.refreshPropertiesPanel();
-            } else if (!this.hasSelectedPaths() && this.transformBox && !this.activeHandle) {
-                // Only clear transform box if we're not in the middle of an active transformation
+            } else if (!this.hasSelectedPaths() && this.transformBox) {
+                // Selection was lost, clear transform state
                 this.transformBox = null;
                 this.initialTransformBox = null;
-                this.originalPaths = [];
+                console.log("nulled initial");
+                this.pivotCenter = null;
                 this.originalPivot = null;
                 this.refreshPropertiesPanel();
+            }
 
+            // Transition to appropriate state based on what parent did
+            if (Select.state == Select.DRAGGING) {
+                Transform.state = Transform.DRAGGING;
+            } else if (Select.state == Select.SELECTING) {
+                Transform.state = Transform.SElECTING;
             }
         }
     }
 
     onMouseMove(canvas, evt) {
-        super.onMouseMove(canvas, evt);
         var mouse = this.normalizeEvent(canvas, evt);
         this.mouse = mouse;
+
+        // Handle hover detection when mouse is not down
         if (!this.mouseDown) {
             this.hoverHandle = this.getHandleAtPoint(mouse);
+            if (this.hoverHandle) {
+                Transform.state = Transform.HOVERING;
 
-        }
-
-        if (this.mouseDown && this.activeHandle) {
-            this.selectBox = null;
-
-
-            if (this.activeHandle.type === 'center') {
-
-                this.pivotCenter = mouse;
-                this.center();
+            } else if (Transform.state == Transform.HOVERING) {
+                Transform.state = Transform.IDLE;
 
             }
+        }
 
-            else if (this.activeHandle.type === 'scale') {
+        // Handle state-specific transformations when mouse is down
+        if (this.mouseDown) {
+            if (Transform.state == Transform.ADJUSTING_PIVOT) {
+                // Center handle: move pivot point
+                this.pivotCenter = mouse;
+                this.center(); // Reset paths to original, not translated
+                this.updateCenterDisplay();
+            }
+            else if (Transform.state == Transform.SCALING) {
+                // Corner handle: apply scaling
                 this.deltaX = 0;
                 this.deltaY = 0;
+
                 // Calculate scale factors based on mouse movement from initial position
+                if (this.initialTransformBox == null) {
+                    console.log("initialTransformBox is null");
+                    return;
+                }
                 const initialDistanceX = this.initialMousePos.x - this.initialTransformBox.centerX;
                 const initialDistanceY = this.initialMousePos.y - this.initialTransformBox.centerY;
                 const currentDistanceX = mouse.x - this.initialTransformBox.centerX;
@@ -233,10 +246,13 @@ class Transform extends Select {
                 this.scale(scaleX, scaleY);
                 this.updateCreationProperties();
                 this.transformBox = this.createTransformBox(svgpaths);
+                this.updateCenterDisplay();
             }
-            else if (this.activeHandle.type === 'rotate') {
+            else if (Transform.state == Transform.ROTATING) {
+                // Rotation handle: apply rotation
                 this.deltaX = 0;
                 this.deltaY = 0;
+
                 // Calculate current angle from center to mouse
                 const currentAngle = Math.atan2(
                     mouse.x - this.pivotCenter.x,
@@ -255,143 +271,180 @@ class Transform extends Select {
                 this.rotate(this.rotation);
                 this.updateCreationProperties();
                 this.transformBox = this.createTransformBox(svgpaths);
+                this.updateCenterDisplay();
             }
-
-
+            else {
+                super.onMouseMove(canvas, evt);
+                this.updateCenterDisplay();
+            }
         }
+        if (Transform.state == Transform.IDLE)
+            super.onMouseMove(canvas, evt);
 
-        if (this.mouseDown)
-            this.updateCenterDisplay();
         redraw();
     }
     onMouseUp(canvas, evt) {
         const hadSelectBox = this.selectBox; // Check if we were doing drag selection
-        super.onMouseUp(canvas, evt);
+        const wasTransforming =
+            (Transform.state == Transform.ADJUSTING_PIVOT ||
+                Transform.state == Transform.SCALING ||
+                Transform.state == Transform.ROTATING ||
+                Transform.state == Transform.DRAGGING ||
+                Transform.state == Transform.MIRRORING
+
+            );
+
+        const wasDraggingPath = Transform.state == Transform.DRAGGING;
+
         this.mouseDown = false;
-        //canvas.style.cursor = "grab";
 
+        // Call parent to handle inherited Select behavior (may change selection)
+        if (!wasTransforming)
+            super.onMouseUp(canvas, evt);
+
+        // Update transform state after mouse up
         if (this.hasSelectedPaths()) {
-
-            this.transformBox = this.createTransformBox(svgpaths);
-            this.initialTransformBox = { ...this.transformBox };
-            if (this.pivotCenter == null) {
-                this.pivotCenter = {};
-                this.pivotCenter.x = this.transformBox.centerX;
-                this.pivotCenter.y = this.transformBox.centerY;
-                this.originalPivot = { ...this.pivotCenter };
-            }
-
-
-            // Store original path positions
-            this.originalPaths = svgpaths.map(path => {
-                if (selectMgr.isSelected(path)) {
-                    return {
-                        id: path.id,
-                        path: path.path.map(pt => ({ x: pt.x, y: pt.y }))
-                    };
-                }
-                return null;
-            }).filter(p => p !== null);
-            this.originalPivot = { ...this.pivotCenter };
-
-            // Refresh properties panel after drag selection
-            if (hadSelectBox) {
-                this.refreshPropertiesPanel();
-            }
-        }
-        else {
-            this.transformBox = null;
-        }
-        if (this.activeHandle) {
-            // Update final positions
+            // Update bboxes for all selected paths
             svgpaths.forEach(path => {
                 if (selectMgr.isSelected(path)) {
                     path.bbox = boundingBox(path.path);
                 }
             });
+
+            // Store the previous transform box center to detect selection changes
+            const prevCenter = this.transformBox ?
+                { x: this.transformBox.centerX, y: this.transformBox.centerY } : null;
+
+            // Always recalculate transform box to include all selected paths
+            // This handles clicks, drags, and multi-selections
             this.transformBox = this.createTransformBox(svgpaths);
-
-
+            this.initialTransformBox = { ...this.transformBox };
             this.activeHandle = null;
 
+            // Update original paths from current state for sequential transformations
+            // This ensures that scale + rotate works by applying rotate to scaled paths
+            this.storeOriginalPaths();
+
+            // Handle pivot point based on what just happened
+            const newCenter = { x: this.transformBox.centerX, y: this.transformBox.centerY };
+
+            if (prevCenter && this.pivotCenter) {
+                // If we were dragging a path, move the pivot by the exact amount the transform box moved
+                // This preserves the user's custom pivot point position relative to the shapes
+                const boxMovement = {
+                    x: newCenter.x - prevCenter.x,
+                    y: newCenter.y - prevCenter.y
+                };
+                this.pivotCenter.x += boxMovement.x;
+                this.pivotCenter.y += boxMovement.y;
+                this.originalPivot.x += boxMovement.x;
+                this.originalPivot.y += boxMovement.y;
+            } else {
+                // If selection changed or no custom pivot, reset to new transform box center
+                if (!prevCenter || prevCenter.x !== newCenter.x || prevCenter.y !== newCenter.y) {
+                    this.pivotCenter = { ...newCenter };
+                    this.originalPivot = { ...newCenter };
+                }
+            }
+
+            // Always reset accumulators after operation completes
+            this.resetTransformState();
+
+            // If we just finished a selection via drag, refresh properties
+            if (hadSelectBox) {
+                this.refreshPropertiesPanel();
+            }
+
+            // Transition back to IDLE state
+            Transform.state = Transform.IDLE;
         }
+        else {
+            // No selection, clear transform state
+            this.transformBox = null;
+            this.activeHandle = null;
+            // Transition to IDLE (without selection)
+            Transform.state = Transform.IDLE;
+        }
+
         this.updateCenterDisplay();
         redraw();
     }
 
     center() {
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                const originalPath = this.originalPaths.find(p => p.id === path.id);
-                if (originalPath) {
-                    path.path = [...originalPath.path];
-                    path.bbox = boundingBox(path.path);
-                }
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            const originalPath = path.originalPath;
+            if (originalPath) {
+                path.path = [...originalPath];
+                path.bbox = boundingBox(path.path);
             }
         });
     }
 
     scale(scaleX, scaleY) {
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                const originalPath = this.originalPaths.find(p => p.id === path.id);
-                if (originalPath) {
-                    path.path = originalPath.path.map(pt => {
-                        let newX = this.initialTransformBox.centerX + (pt.x - this.initialTransformBox.centerX) * scaleX;
-                        let newY = this.initialTransformBox.centerY + (pt.y - this.initialTransformBox.centerY) * scaleY;
-                        return { x: newX, y: newY };
-                    });
-                    path.bbox = boundingBox(path.path);
-                }
+        const cx = this.initialTransformBox.centerX;
+        const cy = this.initialTransformBox.centerY;
+
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            const originalPath = path.originalPath
+            if (originalPath) {
+                path.path = originalPath.map(pt => {
+                    let newX = cx + (pt.x - cx) * scaleX;
+                    let newY = cy + (pt.y - cy) * scaleY;
+                    return { x: newX, y: newY };
+                });
+                path.bbox = boundingBox(path.path);
             }
         });
     }
 
     rotate(angle) {
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                const originalPath = this.originalPaths.find(p => p.id === path.id);
-                if (originalPath) {
-                    path.path = originalPath.path.map(pt => {
-                        // Apply rotation around center
-                        const rotationRad = -angle * Math.PI / 180;
-                        const dx = pt.x - this.pivotCenter.x;
-                        const dy = pt.y - this.pivotCenter.y;
-                        const cos = Math.cos(rotationRad);
-                        const sin = Math.sin(rotationRad);
-                        let newX = this.pivotCenter.x + (dx * cos - dy * sin);
-                        let newY = this.pivotCenter.y + (dx * sin + dy * cos);
+        const rotationRad = -angle * Math.PI / 180;
+        const cos = Math.cos(rotationRad);
+        const sin = Math.sin(rotationRad);
+        const px = this.pivotCenter.x;
+        const py = this.pivotCenter.y;
 
-                        return { x: newX, y: newY };
-                    });
-                    path.bbox = boundingBox(path.path);
-                }
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            const originalPath = path.originalPath
+            if (originalPath) {
+                path.path = originalPath.map(pt => {
+
+                    const dx = pt.x - px;
+                    const dy = pt.y - py;
+
+                    let newX = px + (dx * cos - dy * sin);
+                    let newY = py + (dx * sin + dy * cos);
+
+                    return { x: newX, y: newY };
+                });
+                path.bbox = boundingBox(path.path);
             }
         });
     }
 
     mirrorX() {
-        const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
+        const { centerX } = this.transformBox;
         let cx = 2 * centerX;
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                for (let pt of path.path) {
-                    pt.x = cx - pt.x;
-                }
-                path.bbox = boundingBox(path.path);
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            for (let pt of path.path) {
+                pt.x = cx - pt.x;
             }
+            path.bbox = boundingBox(path.path);
         });
     }
 
     mirrorY() {
-        const { minx, miny, maxx, maxy, centerX, centerY } = this.transformBox;
+        const { centerY } = this.transformBox;
         let cy = 2 * centerY;
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                for (let pt of path.path)
-                    pt.y = cy - pt.y
-                path.bbox = boundingBox(path.path);
-            }
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
+            for (let pt of path.path)
+                pt.y = cy - pt.y
+            path.bbox = boundingBox(path.path);
         });
     }
 
@@ -437,31 +490,23 @@ class Transform extends Select {
     }
 
     drawText() {
-        if (!this.transformBox || !this.activeHandle) return;
-        if (this.activeHandle.type == 'mirrorX' || this.activeHandle.type == 'mirrorY' || this.activeHandle.type == 'center') return;
+        // Only draw info text when actively transforming
+        if (!this.transformBox) return;
+        if (!(Transform.state == Transform.SCALING || Transform.state == Transform.ROTATING)) return;
 
         let text = '0'
-        if (this.activeHandle.type == 'rotate')
+        if (Transform.state == Transform.ROTATING) {
             text = this.rotation.toFixed(1) + '°';
-        else if (this.activeHandle.type == 'scale') {
+        }
+        else if (Transform.state == Transform.SCALING) {
             // Show current dimensions instead of scale factors
             const currentWidth = this.transformBox.width / viewScale;
             const currentHeight = this.transformBox.height / viewScale;
 
-
             text = formatDimension(currentWidth, true) + ' × ' + formatDimension(currentHeight, true);
         }
-        else if (this.activeHandle.type == 'translate') {
-            const deltaXmm = this.deltaX / viewScale;
-            const deltaYmm = -this.deltaY / viewScale;
 
-
-            text = formatDimension(deltaXmm, true) + ', ' + formatDimension(deltaYmm, true);
-        }
-        //let handle = this.getTransformHandles()[this.activeHandle.id - 1];
         let screenHandle = worldToScreen(this.mouse.x, this.mouse.y);
-        //const angle = Math.round((this.transformBox.rotation * 180 / Math.PI) % 360);
-        let angle = this.rotation.toFixed(1)
         ctx.save();
         ctx.fillStyle = pointFillColor;
         ctx.font = '12px Arial';
@@ -532,6 +577,8 @@ class Transform extends Select {
 
 
     drawRotation(handle) {
+        // Guard: only draw if pivot center exists
+        if (!this.pivotCenter || !this.mouse) return;
 
         let screenHandle = worldToScreen(this.mouse.x, this.mouse.y);
         let screenCenter = worldToScreen(this.pivotCenter.x, this.pivotCenter.y);
@@ -552,12 +599,9 @@ class Transform extends Select {
 
         ctx.stroke();
         ctx.fill();
-
     }
 
     drawTransformBox() {
-
-
         if (!this.transformBox) return;
 
         ctx.save();
@@ -576,9 +620,8 @@ class Transform extends Select {
         let p3 = worldToScreen(this.transformBox.maxx, this.transformBox.maxy);
         let p4 = worldToScreen(this.transformBox.minx, this.transformBox.maxy);
 
-
-
-        if (!this.mouseDown) {
+        // Only draw box outline when not actively transforming
+        if (!this.mouseDown || Transform.state == Transform.ADJUSTING_PIVOT) {
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
@@ -590,19 +633,24 @@ class Transform extends Select {
 
         // Draw handles (convert handle positions to screen coordinates)
         const handles = this.getTransformHandles();
-        if (this.activeHandle && this.activeHandle.type === 'rotate')
+
+        // Show rotation reference line during rotation
+        if (Transform.state == Transform.ROTATING) {
             this.drawRotation(handles[4]);
+        }
 
-        if (this.mouseDown && this.activeHandle && this.activeHandle.type === 'center')
+        // Show center handle during pivot adjustment
+        if (Transform.state == Transform.ADJUSTING_PIVOT) {
             this.drawHandle(handles[5]);
+        }
 
-        if (!this.mouseDown) {
+        // Show all handles when not actively dragging/transforming
+        if (!this.mouseDown || Transform.state == Transform.ADJUSTING_PIVOT) {
             handles.forEach(handle => {
                 this.drawHandle(handle);
             });
-
-
         }
+
         this.drawText();
         ctx.restore();
     }
@@ -737,6 +785,12 @@ class Transform extends Select {
     }
 
     updateFromProperties(data) {
+        // Guard: only allow property changes if paths are selected AND not actively dragging
+        if (!this.transformBox || !(Transform.state == Transform.IDLE || Transform.state == Transform.HOVERING)) {
+            // Silently ignore changes when not in a safe state (actively transforming or no selection)
+            return;
+        }
+
         this.properties = { ...this.properties, ...data };
 
         // Check if in inch mode for unit conversion
@@ -847,56 +901,59 @@ class Transform extends Select {
     }
 
     applyTransformFromProperties() {
-        if (!this.initialTransformBox || this.originalPaths.length === 0) return;
+        if (!this.initialTransformBox) return;  
 
         // Apply transformation to all selected paths
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                const originalPath = this.originalPaths.find(p => p.id === path.id);
-                if (originalPath) {
-                    // Apply translation, scale, and rotation from properties
-                    const centerX = this.initialTransformBox.centerX;
-                    const centerY = this.initialTransformBox.centerY;
-                    const rotationRad = this.rotation * Math.PI / 180;
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(path => {
 
-                    path.path = originalPath.path.map(pt => {
-                        // Scale around center
-                        let newX = centerX + (pt.x - centerX) * this.scaleX;
-                        let newY = centerY + (pt.y - centerY) * this.scaleY;
+            const originalPath = path.originalPath;
+            if (originalPath) {
+                // Apply translation, scale, and rotation from properties
+                const centerX = this.initialTransformBox.centerX;
+                const centerY = this.initialTransformBox.centerY;
+                const rotationRad = this.rotation * Math.PI / 180;
 
-                        // Rotate around center
-                        if (rotationRad !== 0) {
-                            const dx = newX - this.pivotCenter.x;
-                            const dy = newY - this.pivotCenter.y;
-                            const cos = Math.cos(rotationRad);
-                            const sin = Math.sin(rotationRad);
-                            newX = this.pivotCenter.x + (dx * cos - dy * sin);
-                            newY = this.pivotCenter.y + (dx * sin + dy * cos);
-                        }
+                path.path = originalPath.map(pt => {
+                    // Scale around center
+                    let newX = centerX + (pt.x - centerX) * this.scaleX;
+                    let newY = centerY + (pt.y - centerY) * this.scaleY;
 
-                        // Translate
-                        newX += this.deltaX;
-                        newY += this.deltaY;
+                    // Rotate around center
+                    if (rotationRad !== 0) {
+                        const dx = newX - this.pivotCenter.x;
+                        const dy = newY - this.pivotCenter.y;
+                        const cos = Math.cos(rotationRad);
+                        const sin = Math.sin(rotationRad);
+                        newX = this.pivotCenter.x + (dx * cos - dy * sin);
+                        newY = this.pivotCenter.y + (dx * sin + dy * cos);
+                    }
+
+                    // Translate
+                    newX += this.deltaX;
+                    newY += this.deltaY;
 
 
 
-                        return { x: newX, y: newY };
-                    });
+                    return { x: newX, y: newY };
+                });
 
-                    path.bbox = boundingBox(path.path);
-                }
+                path.bbox = boundingBox(path.path);
             }
+
         });
 
         // Update creation properties to reflect new positions
         this.updateCreationProperties();
 
-        // Update transform box
-        if (this.pivotCenter) {
-            this.pivotCenter.x = this.originalPivot.x + this.deltaX;
-            this.pivotCenter.y = this.originalPivot.y + this.deltaY;
-        }
         this.transformBox = this.createTransformBox(svgpaths);
+        this.initialTransformBox = { ...this.transformBox };
+        this.storeOriginalPaths();
+
+        if (this.pivotCenter) {
+            this.pivotCenter.x += this.deltaX;
+            this.pivotCenter.y += this.deltaY;
+        }
 
         redraw();
     }

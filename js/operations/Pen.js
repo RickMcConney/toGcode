@@ -170,9 +170,9 @@ class Pen extends Operation {
             // Close the path by connecting back to the first point
             addUndo(false, true, false);
 
-            // Create a closed path without duplicating the first point
-            // The drawing system will automatically connect the last point to the first
+            // Create a closed path by duplicating first point
             const closedPath = this.drawingPoints.slice();
+            closedPath.push({...closedPath[0]});
 
             var svgPath = {
                 id: "Pen" + svgpathId,
