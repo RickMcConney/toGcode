@@ -1,7 +1,7 @@
 
 class Select extends Operation {
     static instance;
-    static selected = [];
+    static selected = new Set();  // Use Set to prevent duplicate selections
 
     static IDLE = 0;
     static DRAGGING = 2;
@@ -25,57 +25,94 @@ class Select extends Operation {
         return Select.instance;
     }
 
+    /**
+     * Check if there are no selected paths
+     * @returns {Boolean} True if no paths are selected
+     */
     noSelection() {
-        return Select.selected.length === 0;
+        return Select.selected.size === 0;
     }
 
+    /**
+     * Check if a path is currently selected
+     * @param {Object} path - The path to check
+     * @returns {Boolean} True if the path is selected
+     */
     isSelected(path) {
-        if (Select.selected.length === 0) return false;
-        let index = Select.selected.indexOf(path);
-        return index >= 0;
+        return Select.selected.has(path);
     }
 
+    /**
+     * Add a path to the selection set
+     * Detects and logs duplicate selection attempts
+     * @param {Object} path - The path to select
+     */
     selectPath(path) {
-        Select.selected.push(path);
+        if (Select.selected.has(path)) {
+
+            console.warn(`Duplicate selectPath() call for path: ${path.id}`, new Error().stack);
+
+            return;  // Path already selected, don't add again
+        }
+        Select.selected.add(path);
         selectSidebarNode(path.id);
         path.highlight = false;
     }
 
+    /**
+     * Remove a path from the selection set
+     * @param {Object} path - The path to deselect
+     */
     unselectPath(path) {
-        let index = Select.selected.indexOf(path);
-        if (index !== -1) {
-            Select.selected.splice(index, 1);
-        }
+        Select.selected.delete(path);
         path.highlight = false;
         delete path.originalPath;
         unselectSidebarNode(path.id);
     }
 
+    /**
+     * Deselect all currently selected paths
+     */
     unselectAll() {
-        if (Select.selected.length > 0) {
+        if (Select.selected.size > 0) {
             for (let path of Select.selected) {
                 unselectSidebarNode(path.id);
                 path.highlight = false;
                 delete path.originalPath;
             }
         }
-        Select.selected = [];
+        Select.selected.clear();
     }
 
+    /**
+     * Get the first selected path
+     * @returns {Object|null} The first selected path, or null if none selected
+     */
     firstSelected() {
-        if (Select.selected.length > 0)
-            return Select.selected[0];
+        if (Select.selected.size > 0) {
+            return [...Select.selected][0];
+        }
         return null;
     }
 
+    /**
+     * Get the last selected path
+     * @returns {Object|null} The last selected path, or null if none selected
+     */
     lastSelected() {
-        if (Select.selected.length > 0)
-            return Select.selected[Select.selected.length - 1];
+        if (Select.selected.size > 0) {
+            const arr = [...Select.selected];
+            return arr[arr.length - 1];
+        }
         return null;
     }
 
+    /**
+     * Get all selected paths as an array
+     * @returns {Array} Array of selected path objects
+     */
     selectedPaths() {
-        return Select.selected;
+        return [...Select.selected];
     }
 
     /**
