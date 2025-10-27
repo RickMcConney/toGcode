@@ -802,7 +802,7 @@ function newParseSvgContent(data, name) {
 		const groupedPaths = [];
 
 		for (var i = 0; i < paths.length; i++) {
-			paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
+			//paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
 			if (paths[i].geom.length > 0) {
 				let pathName = paths[i].name + ' ' + svgpathId;
 				let id = paths[i].name + svgpathId;
@@ -890,10 +890,7 @@ function newTransformFromPaperPath(paperPath, name) {
 
 		// Close the path if it's closed and has segments
 		if (flattenedPath.closed && segments.length > 0 && segments[0] && segments[0].point) {
-			geom.push({
-				x: segments[0].point.x * svgscale,
-				y: segments[0].point.y * svgscale
-			});
+			geom.push(geom[0]);
 		}
 
 		// Only add path if it has geometry

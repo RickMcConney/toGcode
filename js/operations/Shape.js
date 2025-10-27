@@ -169,7 +169,7 @@ class Shape extends Operation {
         if(path[0].x == path[path.length-1].x && path[0].y == path[path.length-1].y )
             path.pop();
 
-        path.push({...path[0]});
+        path.push(path[0]);
 
         let oldId = null;
         let oldsvgpathId = null;

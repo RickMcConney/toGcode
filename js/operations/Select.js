@@ -122,24 +122,24 @@ class Select extends Operation {
      */
 
     selectPathsInRect(selectBox, addToSelection) {
-      const selectedInThisBox = new Set();  // Track which paths we've processed
+        const selectedInThisBox = new Set();  // Track which paths we've processed
 
-      for (let i = 0; i < svgpaths.length; i++) {
-          if (!svgpaths[i].visible) continue;
-          if (!addToSelection)
-              this.unselectPath(svgpaths[i]);
+        for (let i = 0; i < svgpaths.length; i++) {
+            if (!svgpaths[i].visible) continue;
+            if (!addToSelection)
+                this.unselectPath(svgpaths[i]);
 
-          for (let j = 0; j < svgpaths[i].path.length; j++) {
-              const pt = svgpaths[i].path[j];
-              if (pointInBoundingBox(pt, selectBox)) {
-                  if (!selectedInThisBox.has(svgpaths[i].id)) {
-                      this.selectPath(svgpaths[i]);
-                      selectedInThisBox.add(svgpaths[i].id);
-                  }
-              }
-          }
-      }
-  }
+            for (let j = 0; j < svgpaths[i].path.length; j++) {
+                const pt = svgpaths[i].path[j];
+                if (pointInBoundingBox(pt, selectBox)) {
+                    if (!selectedInThisBox.has(svgpaths[i].id)) {
+                        this.selectPath(svgpaths[i]);
+                        selectedInThisBox.add(svgpaths[i].id);
+                    }
+                }
+            }
+        }
+    }
 
     toggleSelection(path, evt) {
         if (path) {
@@ -249,8 +249,7 @@ class Select extends Operation {
                     this.dragPath = closestPath(mouse, false);
 
                     if (this.dragPath) {
-                        if(selectMgr.isSelected(this.dragPath) || selectMgr.noSelection())
-                        {
+                        if (selectMgr.isSelected(this.dragPath) || selectMgr.noSelection()) {
                             // Starting a path drag
                             Select.state = Select.DRAGGING;
                             addUndo(false, true, false);
@@ -291,7 +290,7 @@ class Select extends Operation {
 
         // Only toggle selection if we stayed in IDLE (never crossed 8px threshold)
         // If we transitioned to DRAGGING or SELECTING, don't change selection
-        if (Select.state == Select.IDLE ) {
+        if (Select.state == Select.IDLE) {
             let path = closestPath(mouse, false);
             this.toggleSelection(path, evt);
         }
@@ -352,29 +351,31 @@ class Select extends Operation {
     }
 
     translateSelected(dx, dy) {
-        for (var i = 0; i < svgpaths.length; i++) {
-            if (!svgpaths[i].visible) continue;
-            let path = svgpaths[i];
-            if (this.isSelected(path)) {
-
-                path.path = path.path.map(pt => ({
-                    x: pt.x + dx,
-                    y: pt.y + dy
-                }));
-                path.bbox = boundingBox(path.path);
+        let selected = this.selectedPaths();
+        selected.forEach(svgpath => {
+        
+            let path = svgpath.path;
+            for (let i = 0; i < path.length; i++) {
+                let pt = path[i];
+                if (i != path.length - 1 || pt !== path[0]) {
+                    pt.x += dx;
+                    pt.y += dy;
+                }
             }
-        }
-
+            svgpath.bbox = boundingBox(path);
+        });
     }
 
-    translate(path, dx, dy) {
-        path.path = path.path.map(pt => ({
-            x: pt.x + dx,
-            y: pt.y + dy
-        }));
-        path.bbox = boundingBox(path.path);
-     
-
+    translate(svgpath, dx, dy) {
+        let path = svgpath.path;
+        for (let i = 0; i < path.length; i++) {
+            let pt = path[i];
+            if (i != path.length - 1 || pt !== path[0]) {
+                pt.x += dx;
+                pt.y += dy;
+            }
+        }
+        svgpath.bbox = boundingBox(path);
     }
 
     draw(ctx) {

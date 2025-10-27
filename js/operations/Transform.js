@@ -84,7 +84,7 @@ class Transform extends Select {
     setupTransformBox() {
         this.transformBox = this.createTransformBox(svgpaths);
         this.initialTransformBox = { ...this.transformBox };
- 
+
         if (this.pivotCenter == null) {
             this.pivotCenter = {
                 x: this.transformBox.centerX,
@@ -99,8 +99,11 @@ class Transform extends Select {
     storeOriginalPaths() {
 
         let selected = selectMgr.selectedPaths();
-        selected.forEach(path => {
-            path.originalPath = [...path.path];
+        selected.forEach(svgpath => {
+            let path = svgpath.path;
+            svgpath.originalPath = [];
+            for (let i = 0; i < path.length; i++)
+                svgpath.originalPath.push({ x: path[i].x, y: path[i].y });
         });
     }
 
@@ -430,15 +433,20 @@ class Transform extends Select {
         const cy = this.initialTransformBox.centerY;
 
         let selected = selectMgr.selectedPaths();
-        selected.forEach(path => {
-            const originalPath = path.originalPath;
-            if (originalPath) {
-                path.path = originalPath.map(pt => {
-                    const newX = cx + (pt.x - cx) * scaleX;
-                    const newY = cy + (pt.y - cy) * scaleY;
-                    return { x: newX, y: newY };
-                });
-                path.bbox = boundingBox(path.path);
+        selected.forEach(svgpath => {
+            const path = svgpath.originalPath;
+            if (path) {
+                for (let i = 0; i < path.length; i++) {
+                    let pt = path[i];
+                    if (i != path.length - 1 || pt !== path[0]) {
+
+                        const newX = cx + (pt.x - cx) * scaleX;
+                        const newY = cy + (pt.y - cy) * scaleY;
+                        svgpath.path[i].x = newX;
+                        svgpath.path[i].y = newY;
+                    }
+                }
+                svgpath.bbox = boundingBox(path);
             }
         });
     }
@@ -456,19 +464,23 @@ class Transform extends Select {
         const py = this.pivotCenter.y;
 
         let selected = selectMgr.selectedPaths();
-        selected.forEach(path => {
-            const originalPath = path.originalPath;
-            if (originalPath) {
-                path.path = originalPath.map(pt => {
-                    const dx = pt.x - px;
-                    const dy = pt.y - py;
+        selected.forEach(svgpath => {
+            const path = svgpath.originalPath;
+            if (path) {
+                for (let i = 0; i < path.length; i++) {
+                    let pt = path[i];
+                    if (i != path.length - 1 || pt !== path[0]) {
 
-                    const newX = px + (dx * cos - dy * sin);
-                    const newY = py + (dx * sin + dy * cos);
+                        const dx = pt.x - px;
+                        const dy = pt.y - py;
 
-                    return { x: newX, y: newY };
-                });
-                path.bbox = boundingBox(path.path);
+                        const newX = px + (dx * cos - dy * sin);
+                        const newY = py + (dx * sin + dy * cos);
+                        svgpath.path[i].x = newX;
+                        svgpath.path[i].y = newY;
+                    }
+                }
+                svgpath.bbox = boundingBox(svgpath.path);
             }
         });
     }
@@ -480,11 +492,16 @@ class Transform extends Select {
         const { centerX } = this.transformBox;
         const cx = 2 * centerX;
         let selected = selectMgr.selectedPaths();
-        selected.forEach(path => {
-            for (let pt of path.path) {
-                pt.x = cx - pt.x;
+        selected.forEach(svgpath => {
+            let path = svgpath.path;
+            for (let i = 0; i < path.length; i++) {
+                let pt = path[i];
+                if (i != path.length - 1 || pt !== path[0]) {
+                    pt.x = cx - pt.x;
+                }
             }
-            path.bbox = boundingBox(path.path);
+
+            svgpath.bbox = boundingBox(path);
         });
     }
 
@@ -495,11 +512,15 @@ class Transform extends Select {
         const { centerY } = this.transformBox;
         const cy = 2 * centerY;
         let selected = selectMgr.selectedPaths();
-        selected.forEach(path => {
-            for (let pt of path.path) {
-                pt.y = cy - pt.y;
+        selected.forEach(svgpath => {
+            let path = svgpath.path;
+            for (let i = 0; i < path.length; i++) {
+                let pt = path[i];
+                if (i != path.length - 1 || pt !== path[0]) {
+                    pt.y = cy - pt.y;
+                }
             }
-            path.bbox = boundingBox(path.path);
+            svgpath.bbox = boundingBox(path);
         });
     }
 
@@ -956,7 +977,7 @@ class Transform extends Select {
     }
 
     applyTransformFromProperties() {
-        if (!this.initialTransformBox) return;  
+        if (!this.initialTransformBox) return;
 
         // Apply transformation to all selected paths
         let selected = selectMgr.selectedPaths();

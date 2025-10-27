@@ -194,18 +194,18 @@ class Text extends Operation {
                     // Start new subpath
                     currentPathData = [];
                     firstPoint = { x: cmd.x, y: cmd.y };
+                    currentPathData.push(firstPoint);
 
-                    // Don't add first point for single-line fonts
-                    if (fontname.indexOf("SingleLine") === -1) {
-                        currentPathData.push({ x: cmd.x, y: cmd.y });
-                    }
 
                     lastX = cmd.x;
                     lastY = cmd.y;
                     break;
 
                 case 'L': // Line
-                    currentPathData.push({ x: cmd.x, y: cmd.y });
+                    if(firstPoint.x == cmd.x && firstPoint.y == cmd.y)
+                        currentPathData.push(firstPoint);
+                    else
+                        currentPathData.push({ x: cmd.x, y: cmd.y });
                     lastX = cmd.x;
                     lastY = cmd.y;
                     break;
@@ -249,7 +249,8 @@ class Text extends Operation {
 
                 case 'Z': // Close path
                     if (firstPoint && currentPathData.length > 0) {
-                        currentPathData.push({ x: firstPoint.x, y: firstPoint.y });
+                        if(firstPoint.x != currentPathData[currentPathData.length-1].x && firstPoint.y != currentPathData[currentPathData.length-1].y)
+                            currentPathData.push(firstPoint);
                     }
                     break;
             }
@@ -268,7 +269,7 @@ class Text extends Operation {
         let pathIdCounter = 0;
 
         allPaths.forEach((pathData, pathIndex) => {
-            pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
+            //pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
             if (pathData.length > 0) {
                 var pathType = pathIndex === 0 ? 'outer' : 'inner';
 

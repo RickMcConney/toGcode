@@ -172,7 +172,7 @@ class Pen extends Operation {
 
             // Create a closed path by duplicating first point
             const closedPath = this.drawingPoints.slice();
-            closedPath.push({...closedPath[0]});
+            closedPath.push(closedPath[0]);
 
             var svgPath = {
                 id: "Pen" + svgpathId,
