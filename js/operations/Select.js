@@ -115,6 +115,14 @@ class Select extends Operation {
         return [...Select.selected];
     }
 
+    selectHighlighted(addToSelection)
+    {
+        for (let i = 0; i < svgpaths.length; i++) {
+            if (!svgpaths[i].visible) continue;  
+            if( svgpaths[i].highlight )  
+                this.selectPath(svgpaths[i]); 
+        }
+    }
     /**
      * Select paths that have points within the given bounding box
      * @param {Object} selectBox - Bounding box {minx, miny, maxx, maxy, rl}
@@ -297,7 +305,8 @@ class Select extends Operation {
 
         // Handle selection box (from SELECTING state)
         if (this.selectBox) {
-            this.selectPathsInRect(this.selectBox, evt.shiftKey);
+            //this.selectPathsInRect(this.selectBox, evt.shiftKey);
+            this.selectHighlighted(evt.shiftKey);
             this.selectBox = null;
         }
 

@@ -269,7 +269,7 @@ class Text extends Operation {
         let pathIdCounter = 0;
 
         allPaths.forEach((pathData, pathIndex) => {
-            //pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
+            pathData = clipper.JS.Lighten(pathData, getOption("tolerance"));
             if (pathData.length > 0) {
                 var pathType = pathIndex === 0 ? 'outer' : 'inner';
 

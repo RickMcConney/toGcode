@@ -42,7 +42,7 @@ class PathEdit extends Select {
         this.originalPath = null;
 
         // Check if there's already a selected path
-        const selected = svgpaths.find(path => path.selected);
+        const selected = selectMgr.lastSelected();
         if (selected) {
             this.selectedPath = selected;
         }
@@ -108,17 +108,18 @@ class PathEdit extends Select {
         var clickedPath = closestPath(mouse, false);
         if (clickedPath) {
             // Deselect all other paths
-            svgpaths.forEach(path => {path.selected = 0; path.highlight = false; });
+
+            selectMgr.unselectAll();
 
             // Select the clicked path
-            clickedPath.selected = 2;
+            selectMgr.selectPath(clickedPath);
             this.selectedPath = clickedPath;
             this.originalPath = null;
 
             redraw();
         } else {
             // Clicked on empty space - deselect all
-            svgpaths.forEach(path => {path.selected = 0; path.highlight = false; });
+            selectMgr.unselectAll();
             this.selectedPath = null;
             this.originalPath = null;
             redraw();
@@ -129,7 +130,7 @@ class PathEdit extends Select {
         var mouse = this.normalizeEvent(canvas, evt);
 
         // Update selected path reference
-        this.selectedPath = svgpaths.find(path => path.selected);
+        this.selectedPath = selectMgr.lastSelected();
 
         if (this.mouseDown && this.activeHandle !== null && this.selectedPath) {
             // Update the point position
@@ -195,7 +196,7 @@ class PathEdit extends Select {
         super.draw(ctx);
 
         // Update selectedPath reference from svgpaths array
-        this.selectedPath = svgpaths.find(path => path.selected);
+        this.selectedPath = selectMgr.lastSelected();
 
         // Draw point handles for selected path
         if (this.selectedPath && this.selectedPath.visible) {
@@ -263,7 +264,7 @@ class PathEdit extends Select {
 
     getHandleAtPoint(point) {
         // Always get the current selected path from svgpaths
-        this.selectedPath = svgpaths.find(path => path.selected);
+        this.selectedPath = selectMgr.lastSelected();
 
         if (!this.selectedPath) return null;
 
@@ -382,7 +383,7 @@ class PathEdit extends Select {
     // Properties Editor Interface
     getPropertiesHTML() {
         // Update selected path reference
-        this.selectedPath = svgpaths.find(path => path.selected);
+        this.selectedPath = selectMgr.lastSelected();
 
         if (!this.selectedPath) {
             return `

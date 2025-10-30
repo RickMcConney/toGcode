@@ -119,7 +119,7 @@ class Operation {
                 var pt = svgpaths[i].path[j];
                 if (pointInBoundingBox(pt, selectBox)) {
                     svgpaths[i].highlight = true;
-                    continue;
+                    break;
                 }
             }
         }

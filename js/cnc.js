@@ -802,7 +802,7 @@ function newParseSvgContent(data, name) {
 		const groupedPaths = [];
 
 		for (var i = 0; i < paths.length; i++) {
-			//paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
+			paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
 			if (paths[i].geom.length > 0) {
 				let pathName = paths[i].name + ' ' + svgpathId;
 				let id = paths[i].name + svgpathId;

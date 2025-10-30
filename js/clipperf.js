@@ -5457,7 +5457,7 @@
 				}
 				else addlast = 0;
 				//rmcc
-				addlast=0;
+				//addlast=0;
 				rem = []; // Indexes of removed points
 				for (j = 0; j < plen - 2; j++)
 				{
@@ -5505,12 +5505,16 @@
 						y: poly[j].y,
 						r: poly[j].r // rmcc
 					});
-				poly2.push(
-				{
-					x: poly[plen - 1].x,
-					y: poly[plen - 1].y,
-					r: poly[plen -1].r // rmcc
-				});
+
+				if(poly[plen - 1].x == poly2[0].x && poly[plen - 1].y == poly2[0].y)
+					poly2.push(poly2[0]);
+				else
+					poly2.push(
+					{
+						x: poly[plen - 1].x,
+						y: poly[plen - 1].y,
+						r: poly[plen -1].r // rmcc
+					});
 				// if the first point was added to the end, remove it
 				if (addlast) poly.pop();
 				// break, if there was not anymore removed points
@@ -5520,7 +5524,7 @@
 			}
 			plen = poly2.length;
 			// remove duplicate from end, if needed
-			//rmcc do not remore duplicate
+			//rmcc do not remove duplicate
 			//if (poly2[plen - 1].x === poly2[0].x && poly2[plen - 1].y === poly2[0].y)
 			//{
 				//poly2.pop();
