@@ -211,6 +211,27 @@ function initThree() {
   renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);
 
+  // Setup ResizeObserver to watch actual container size changes
+  // This is more reliable than window resize events because it fires when the element actually changes size
+  let resizeObserverTimeoutId = null;
+  const resizeObserver = new ResizeObserver(() => {
+    // Debounce the resize callback to avoid multiple calls during a single resize operation
+    if (resizeObserverTimeoutId) {
+      clearTimeout(resizeObserverTimeoutId);
+    }
+
+    resizeObserverTimeoutId = setTimeout(() => {
+      // Give the browser a moment to finish layout calculations
+      requestAnimationFrame(() => {
+        // Use 50px padding to account for timing issues during rapid window resize
+        // During window resize events, container dimensions can be reported incorrectly
+        // before layout has fully settled. This padding provides a safety buffer.
+        doResize(50);
+      });
+    }, 50);  // Wait 50ms after last resize event before calling doResize
+  });
+  resizeObserver.observe(container);
+
   // Setup lighting
   setupLighting();
 
@@ -263,10 +284,10 @@ function initThree() {
   animate();
 
   // Handle window resize (only add listener once to prevent duplicates)
-  if (!resizeListenerAttached) {
-    window.addEventListener('resize', onWindowResize);
-    resizeListenerAttached = true;
-  }
+ //if (!resizeListenerAttached) {
+  //  window.addEventListener('resize', onWindowResize);
+  //  resizeListenerAttached = true;
+  //}
 
   // Mark as initialized
   initialized = true;
@@ -860,6 +881,7 @@ function animate() {
     window.timingStats.count++;
 
     // Report FPS every 300 frames using wall-clock timing (includes all overhead)
+    /*
     if (profileFrameCount % 300 === 0) {
       const now = performance.now();
       const elapsedSeconds = (now - profileStartTime) / 1000;
@@ -876,6 +898,7 @@ function animate() {
       window.timingStats.renderTotal = 0;
       window.timingStats.count = 0;
     }
+    */
   }
 }
 
@@ -890,22 +913,41 @@ function onWindowResize() {
 
   // Detect when resize ends and resume animation
   resizeTimeoutId = setTimeout(() => {
-    doResize();
-    isResizing = false;
-  }, 150);
+    // Wait for browser to complete layout recalculation before reading dimensions
+    requestAnimationFrame(() => {
+      doResize(0);
+      isResizing = false;
+    });
+  }, 200);
 
 }
 
-function doResize()
+  function doResize(padding = 0)
+  {
+      const container = document.getElementById('3d-canvas-container');
+      if (!container || !renderer || !camera) return;
+
+  
+      let newWidth = container.getBoundingClientRect().width - padding;
+      let newHeight = container.clientHeight;
+
+      if (newWidth > 0 && newHeight > 0) {
+          camera.aspect = newWidth / newHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(newWidth, newHeight);
+      }
+
+ 
+  }
+
+function olddoResize()
 {
     const container = document.getElementById('3d-canvas-container');
     if (!container || !renderer || !camera) return;
 
-    let newWidth = container.clientWidth;
+    let newWidth = container.clientWidth-10;
     let newHeight = container.clientHeight;
-    console.log(newWidth+ " " +newHeight);
-   // newWidth = Math.max(100, newWidth);
-   // newHeight = Math.max(100, newHeight);
+    console.log('doResize - Container dimensions:', newWidth, 'x', newHeight);
 
     if (newWidth > 0 && newHeight > 0) {
         camera.aspect = newWidth / newHeight;

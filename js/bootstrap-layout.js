@@ -1612,13 +1612,13 @@ function showToolsList() {
         const propertiesEditor = document.getElementById('tool-properties-editor');
 
         toolsList.style.display = 'block';
-        propertiesEditor.style.display = 'none';
+        propertiesEditor.style.setProperty('display', 'none', 'important');
     } else if (activeTab && activeTab.id === 'operations-tab') {
         const operationsList = document.getElementById('operations-list');
         const propertiesEditor = document.getElementById('operation-properties-editor');
 
         operationsList.style.display = 'block';
-        propertiesEditor.style.display = 'none';
+        propertiesEditor.style.setProperty('display', 'none', 'important');
     }
 
     selectMgr.unselectAll();

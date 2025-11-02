@@ -296,7 +296,7 @@ html, body {
     height: 16px;
 }
 
-/* Properties Editor Styles */
+/* Properties Editor Styles - default to hidden */
 #tool-properties-editor,
 #operation-properties-editor {
     background-color: var(--color-gray-100);
@@ -369,11 +369,28 @@ html, body {
     overflow-y: auto;
 }
 
-.tab-pane {
+/* Canvas tab panes only - sidebar tab panes should NOT have flex layout */
+#canvasTabContent .tab-pane {
     min-height: 0;
     height: 100%;
-    display: flex;
+    display: none;
     flex-direction: column;
+}
+
+/* Canvas tab panes when active - show as flex */
+#canvasTabContent .tab-pane.active {
+    display: flex;
+}
+
+/* Generic fallback for other tab-panes */
+.tab-pane {
+    min-height: 0;
+    display: none;
+}
+
+/* Only show active tab-pane (for sidebar tabs) */
+.sidebar-tab-content .tab-pane.active {
+    display: block;
 }
 
 #3d-canvas-container {
