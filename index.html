@@ -146,9 +146,30 @@
                         </nav>
                     </div>
 
-                    <!-- Canvas Area -->
-                    <div class="canvas-container border-bottom">
-                        <canvas id="canvas" width="2000" height="2000"></canvas>
+                    <!-- Canvas Area with Tabs -->
+                    <div class="canvas-container border-bottom d-flex flex-column">
+                        <!-- Tab Navigation -->
+                        <ul class="nav nav-tabs" id="canvasTabs" role="tablist" style="flex-shrink: 0;">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="2d-tab" data-bs-toggle="tab" data-bs-target="#2d-view" type="button" role="tab" aria-controls="2d-view" aria-selected="true">2D View</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="3d-tab" data-bs-toggle="tab" data-bs-target="#3d-view" type="button" role="tab" aria-controls="3d-view" aria-selected="false">3D View</button>
+                            </li>
+                        </ul>
+
+                        <!-- Tab Content -->
+                        <div class="tab-content flex-grow-1" id="canvasTabContent" style="min-height: 0;">
+                            <!-- 2D View Tab -->
+                            <div class="tab-pane fade show active h-100" id="2d-view" role="tabpanel" aria-labelledby="2d-tab">
+                                <canvas id="canvas" width="2000" height="2000" style="width: 100%; height: 100%; display: block;"></canvas>
+                            </div>
+
+                            <!-- 3D View Tab -->
+                            <div class="tab-pane fade h-100" id="3d-view" role="tabpanel" aria-labelledby="3d-tab">
+                                <div id="3d-canvas-container" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Vertical Resize Handle -->
@@ -168,7 +189,7 @@
                         <div id="status"
                             class="bg-light border-top p-2 text-muted d-flex align-items-center justify-content-between">
                             <span>Tool: Select</span>
-                            <span class="small">Ver 2025-10-30</span>
+                            <span class="small">Ver 2025-11-02</span>
                         </div>
                     </div>
                 </div>
@@ -176,6 +197,8 @@
         </div>
     </div>
     <canvas id="paper-canvas" style="display: none;" width="1000" height="1000"></canvas>
+
+
 </body>
 
 
@@ -215,6 +238,16 @@
 
 <script type="text/javascript" src="js/cnc.js"></script>
 <script src="js/opentype.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
 
+  }
+}
+</script>
+
+
+<script type="module" src="./js/3dView.js"></script>
 
 </html>

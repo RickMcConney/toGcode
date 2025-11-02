@@ -357,13 +357,29 @@ html, body {
     margin-bottom: 8px;
 }
 
-/* Tab content height management */
-.tab-content {
+/* Tab content height management - ONLY for canvas tabs, not sidebar */
+#canvasTabContent {
+    overflow-y: auto;
+    flex-grow: 1;
+    min-height: 0;
+}
+
+/* Sidebar tab content styling */
+.sidebar-tab-content {
     overflow-y: auto;
 }
 
 .tab-pane {
-    min-height: 400px;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+#3d-canvas-container {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
 }
 
 .version{

@@ -96,13 +96,13 @@ class Operation {
         // Convert screen to world coordinates
         var worldCoords;
         if (typeof worldToScreen === 'function' && typeof screenToWorld === 'function') {
-            var screen = { x: x - target.offsetLeft, y: y - target.offsetTop };
-            worldCoords = screenToWorld(screen.x, screen.y);
+            // x,y are already in canvas coordinate space (getBoundingClientRect accounts for all nesting)
+            worldCoords = screenToWorld(x, y);
         } else {
             // fallback to old method if mapping not available
             worldCoords = {
-                x: (x - target.offsetLeft - offsetX) / scaleFactor,
-                y: (y - target.offsetTop - offsetY) / scaleFactor
+                x: (x - offsetX) / scaleFactor,
+                y: (y - offsetY) / scaleFactor
             };
         }
 

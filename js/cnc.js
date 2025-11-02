@@ -374,14 +374,14 @@ canvas.addEventListener('mousewheel', function (evt) {
 }, { passive: false });
 
 // Add window resize handler to re-center workpiece when viewport changes
-window.addEventListener('resize', function () {
+//window.addEventListener('resize', function () {
 	// Debounce resize events to avoid excessive recalculations
-	clearTimeout(window.resizeTimeout);
-	window.resizeTimeout = setTimeout(function () {
-		centerWorkpiece();
-		redraw();
-	}, 150);
-});
+	//clearTimeout(window.resizeTimeout);
+	//window.resizeTimeout = setTimeout(function () {
+		//centerWorkpiece();
+		//redraw();
+	//}, 150);
+//});
 
 // Keyboard shortcuts
 document.addEventListener('keydown', function (evt) {
@@ -3366,7 +3366,7 @@ function toolRadius() {
 
 function toolDepth(degrees, radius) {
 	var angle = degrees * Math.PI / 180;
-	return radius / Math.tan(angle / 2);
+	return toMMZ(radius / Math.tan(angle / 2));
 }
 
 function toMM(x, y) {
@@ -3398,7 +3398,8 @@ function toGcodeUnits(x, y, useInches) {
 
 // Convert Z coordinate to G-code units (mm or inches based on profile setting)
 function toGcodeUnitsZ(z, useInches) {
-	var mm = toMMZ(z);
+	//var mm = toMMZ(z);
+	var mm = z;
 	if (!useInches) {
 		return mm;
 	}
@@ -3800,6 +3801,15 @@ function toGcode() {
 				}
 			}
 			lastToolId = currentToolId;
+
+			// Add tool information comment for 3D visualization
+			var toolInfo = 'Tool: ID=' + currentToolId +
+				' Type=' + (sortedToolpaths[i].tool.bit || 'End Mill') +
+				' Diameter=' + sortedToolpaths[i].tool.diameter +
+				' Angle=' + (sortedToolpaths[i].tool.angle || 0) +
+				' StepDown=' + toolStep;
+			var toolComment = formatComment(toolInfo, profile);
+			if (toolComment) output += toolComment + '\n';
 
 			// Handle pocket operations differently - complete each layer before going deeper
 			if (operation == 'Pocket') {

@@ -1,0 +1,105 @@
+/**
+ * VoxelMaterialRemover - Utility class for managing material removal during simulation
+ * Provides a clean interface for removing voxels based on tool geometry and movement
+ */
+
+class VoxelMaterialRemover {
+  /**
+   * Constructor
+   */
+  constructor() {
+    this.totalVoxelsRemoved = 0;
+    this.lastToolPosition = null;
+  }
+
+  /**
+   * Remove material from voxel grid based on tool movement
+   * @param {VoxelGrid} voxelGrid - The voxel grid instance
+   * @param {number} toolX - Tool X position in world space
+   * @param {number} toolY - Tool Y position in world space
+   * @param {number} toolZ - Tool Z position in world space
+   * @param {Object} toolInfo - Tool information object
+   * @param {number} toolInfo.diameter - Tool diameter in mm
+   * @param {string} toolInfo.type - Tool type: 'flat', 'ball', 'vbit', 'drill'
+   * @param {number} [toolInfo.vbitAngle=90] - V-bit angle in degrees (only for 'vbit')
+   * @returns {Array} Array of removed voxel indices in this operation
+   */
+  removeAtToolPosition(voxelGrid, toolX, toolY, toolZ, toolInfo) {
+    if (!voxelGrid || !toolInfo) return [];
+
+    const toolRadius = toolInfo.diameter / 2;
+    const toolType = toolInfo.type || 'flat';
+    const vbitAngle = toolInfo.vbitAngle || 90;
+
+    // Remove voxels at current tool position
+    const removedVoxels = voxelGrid.removeVoxelsAtToolPosition(
+      toolX,
+      toolY,
+      toolZ,
+      toolRadius,
+      toolType,
+      vbitAngle
+    );
+
+    this.totalVoxelsRemoved += removedVoxels.length;
+    this.lastToolPosition = { x: toolX, y: toolY, z: toolZ };
+
+    return removedVoxels;
+  }
+
+  /**
+   * Remove material along a linear tool path
+   * @param {VoxelGrid} voxelGrid - The voxel grid instance
+   * @param {THREE.Vector3} startPos - Start position of tool
+   * @param {THREE.Vector3} endPos - End position of tool
+   * @param {Object} toolInfo - Tool information object
+   * @param {number} stepDistance - Distance between samples along the path in mm
+   * @returns {number} Total voxels removed in this operation
+   */
+  removeAlongPath(voxelGrid, startPos, endPos, toolInfo, stepDistance = 1.0) {
+    if (!voxelGrid || !toolInfo) return 0;
+
+    // Calculate path length
+    const dx = endPos.x - startPos.x;
+    const dy = endPos.y - startPos.y;
+    const dz = endPos.z - startPos.z;
+    const pathLength = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (pathLength === 0) {
+      // No movement, just remove at current position
+      this.removeAtToolPosition(voxelGrid, startPos.x, startPos.y, startPos.z, toolInfo);
+      return this.totalVoxelsRemoved;
+    }
+
+    // Sample along the path
+    const numSteps = Math.ceil(pathLength / stepDistance);
+    for (let i = 0; i <= numSteps; i++) {
+      const t = numSteps > 0 ? i / numSteps : 0;
+      const x = startPos.x + dx * t;
+      const y = startPos.y + dy * t;
+      const z = startPos.z + dz * t;
+
+      this.removeAtToolPosition(voxelGrid, x, y, z, toolInfo);
+    }
+
+    return this.totalVoxelsRemoved;
+  }
+
+  /**
+   * Reset removal tracker
+   */
+  reset() {
+    this.totalVoxelsRemoved = 0;
+    this.lastToolPosition = null;
+  }
+
+  /**
+   * Get total voxels removed in current session
+   * @returns {number} Total voxels removed
+   */
+  getTotalVoxelsRemoved() {
+    return this.totalVoxelsRemoved;
+  }
+}
+
+export { VoxelMaterialRemover };

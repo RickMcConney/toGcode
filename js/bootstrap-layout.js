@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-10-30";
+var APP_VERSION = "Ver 2025-11-02";
 
 var mode = "Select";
 var options = [];
@@ -616,7 +616,7 @@ function createSidebar() {
         </nav>
 
         <!-- Tab Content -->
-        <div class="tab-content h-100" id="sidebar-content">
+        <div class="sidebar-tab-content h-100" id="sidebar-content">
             <!-- Draw Tools Tab -->
             <div class="tab-pane fade show active h-100" id="draw-tools" role="tabpanel">
                 <div id="draw-tools-list" class="p-3">

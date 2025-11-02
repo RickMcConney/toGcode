@@ -332,6 +332,37 @@ class Workpiece extends Operation {
             redraw();
         }
 
+        // Update 3D grid if gridSize changed - parse the new value and pass it
+        if ('gridSize' in data && typeof window.updateGridSize3D === 'function') {
+            const useInches = getOption('Inches');
+            const newGridSize = parseDimension(data.gridSize, useInches) || 10;  // Parse the string value
+            window.updateGridSize3D(newGridSize);
+        }
+
+        // Update 3D workpiece if any dimensions or species changed
+        if ((('workpieceWidth' in data) || ('workpieceLength' in data) || ('workpieceThickness' in data) ||
+             ('originPosition' in data) || ('woodSpecies' in data)) && typeof window.updateWorkpiece3D === 'function') {
+            const useInches = getOption('Inches');
+
+            // Parse new dimension values if they're in the change data
+            const newWidth = ('workpieceWidth' in data) ?
+                (parseDimension(data.workpieceWidth, useInches) || getOption('workpieceWidth')) :
+                getOption('workpieceWidth');
+            const newLength = ('workpieceLength' in data) ?
+                (parseDimension(data.workpieceLength, useInches) || getOption('workpieceLength')) :
+                getOption('workpieceLength');
+            const newThickness = ('workpieceThickness' in data) ?
+                (parseDimension(data.workpieceThickness, useInches) || getOption('workpieceThickness')) :
+                getOption('workpieceThickness');
+            const newOriginPosition = ('originPosition' in data) ?
+                data.originPosition :
+                getOption('originPosition');
+            const newWoodSpecies = ('woodSpecies' in data) ?
+                data.woodSpecies :
+                getOption('woodSpecies');
+
+            window.updateWorkpiece3D(newWidth, newLength, newThickness, newOriginPosition, newWoodSpecies);
+        }
 
         // Force a second redraw on next frame to ensure all updates are visible
         if (typeof requestAnimationFrame !== 'undefined') {
@@ -341,7 +372,7 @@ class Workpiece extends Operation {
                 }
             });
         }
-            
+
     }
 
     // Help system integration
