@@ -16,13 +16,14 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 
 ## Key Features
 
-- 🤖 **AI-Powered Design**: Generate SVG designs from text descriptions using Google Gemini API, unfortunately generated images are primative
+- 🤖 **AI-Powered Design**: Generate SVG designs from text descriptions using Google Gemini API (experimental)
 - 🎨 **Visual CAM Workflow**: Import SVG, design toolpaths, export G-code - all in your browser
 - ✏️ **Advanced Path Tools**: Boolean operations, parametric shapes, path editing, and freehand drawing
 - 🔧 **Complete Tool Library**: Manage unlimited tools with full parameter control
 - 📐 **Flexible Workpiece Setup**: Configure dimensions, material, origin position with visual feedback
 - ⚙️ **Smart Operations**: Inside/Outside profiling, Pocketing, Drilling, V-Carving with automatic tool compensation
 - 🎯 **Intelligent Feed Rates**: Auto-calculated speeds based on tool type and material properties
+- 🔮 **3D Visualization**: Real-time 3D preview of cutting operations with voxel-based material removal simulation
 - 💾 **No Installation Required**: Runs entirely in the browser with localStorage persistence
 - 🖱️ **Intuitive Interface**: Modern Bootstrap 5 UI with resizable panels and contextual help
 
@@ -31,7 +32,7 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 ### File Operations
 - **SVG Import**: Parse and import SVG files with support for various drawing software (Adobe Illustrator, Inkscape)
 - **AI-Powered SVG Generation**: Generate SVG designs from text descriptions using Google Gemini API
-  - Text-to-SVG conversion experimental not very useful at the moment
+  - Text-to-SVG conversion is experimental and has limited capabilities
   - Generates stroke-based line drawings (no fills)
   - Requires free Gemini API key (stored securely in browser localStorage)
   - Automatic import of generated SVG into workspace
@@ -89,17 +90,27 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
   - Real-time origin indicator on canvas
 
 ### Visualization & Navigation
-- **Interactive Canvas**: Responsive 2D canvas with:
+- **Interactive 2D Canvas**: Responsive 2D canvas with:
   - Smooth zoom and pan controls (mouse wheel to zoom, middle mouse button to pan)
   - Snap-to-grid functionality when grid is visible (1/10 grid size precision)
   - Dynamic viewport centering
   - Real-time path selection and highlighting
   - Resizable panels for optimal workspace
+- **3D Visualization**: Real-time 3D cutting simulation with:
+  - Interactive 3D camera control (rotate, pan, zoom)
+  - Voxel-based material removal visualization
+  - Real-time height-map showing material cut away
+  - Tool-specific cutting geometry (End Mill, V-Bit, Drill)
+  - Play/Pause/Stop simulation controls with variable speed
+  - Progress slider for jumping to specific points in the cutting sequence
+  - Toggle axes and toolpath visibility
+  - Workpiece material preview with realistic colors
 - **Toolpath Preview**: Comprehensive toolpath visualization:
   - Color-coded paths by tool
   - Toolpath ordering and optimization
   - Visual depth indicators
   - Show/hide individual toolpaths
+  - 2D and 3D simulation playback
 - **Grid & Guides**: Alignment and measurement aids:
   - Configurable grid size
   - Workpiece boundary outline
@@ -113,6 +124,7 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 
 ### Core Technologies
 - **Frontend**: Vanilla JavaScript with HTML5 Canvas
+- **3D Graphics**: Three.js v0.181.0 (local ES6 modules) for 3D visualization and simulation
 - **UI Framework**: Bootstrap 5 with responsive layout
 - **Geometry**: Paper.js for SVG parsing and geometric operations
 - **Path Operations**: ClipperJS for offsetting and boolean operations
@@ -126,6 +138,13 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 - `js/cnc.js` - Core CNC logic and toolpath generation
 - `js/bootstrap-layout.js` - Bootstrap 5 UI implementation and layout management
 - `js/vcarve.js` - V-carve specific algorithms and optimization
+- `js/3dView.js` - 3D visualization engine with Three.js integration
+  - `ToolpathAnimation` - Orchestrates cutting simulation and playback
+  - `WorkpieceManager` - 3D workpiece rendering and material preview
+  - `ToolpathVisualizer` - Renders toolpath visualization in 3D
+- `js/voxels/` - Voxel-based material removal system
+  - `VoxelGrid.js` - 2D height-map voxel grid with instance rendering
+  - `VoxelMaterialRemover.js` - Tool-specific material removal calculations
 - `js/operations/` - Operation system with individual tool implementations
   - `Operation.js` - Base operation class
   - `Select.js` - Selection and manipulation tool
@@ -141,6 +160,7 @@ Auto feed rate calculations are currently capped at 1000 mm/min. To adjust this 
 - `js/CncController.js` - Main controller orchestrating operations and UI
 - `js/ToolPropertiesEditor.js` - Dynamic properties panel system
 - `js/StepWiseHelpSystem.js` - Contextual help and guidance system
+- `js/three.module.js`, `js/three.core.js` - Three.js library (local ES6 modules)
 
 ### Data Flow
 1. **Import**: SVG files imported and parsed into internal path format using Paper.js
@@ -235,7 +255,7 @@ If you want to run toGcode locally or contribute to development:
    - Enter your API key (stored securely in browser)
    - Type a description (e.g., "a decorative oak leaf", "a geometric mountain range")
    - Click Apply to generate and import the SVG
-   - Unfortunately the Gemini models are not realy trained to generate SVG images so functionality is pretty limited
+   - Note: Gemini models have limited training for SVG generation, so results may be basic
 
 3. **Tips for Best Results**
    - Be specific and descriptive
@@ -258,6 +278,10 @@ toGcode/
 │   ├── CncController.js            # Main controller and event orchestration
 │   ├── ToolPropertiesEditor.js     # Dynamic properties panel system
 │   ├── StepWiseHelpSystem.js       # Contextual help system
+│   ├── 3dView.js                   # 3D visualization with Three.js
+│   ├── voxels/                     # Voxel-based material removal system
+│   │   ├── VoxelGrid.js            # Height-map voxel grid renderer
+│   │   └── VoxelMaterialRemover.js # Tool-specific cutting calculations
 │   ├── operations/                 # Operation implementations
 │   │   ├── Operation.js            # Base operation class
 │   │   ├── Select.js               # Selection tool
@@ -278,7 +302,9 @@ toGcode/
 │   ├── maker.js                    # Maker.js parametric shapes
 │   ├── paper-full.js               # Paper.js library
 │   ├── opentype.js                 # OpenType font library
-│   └── lucide.js                   # Lucide icon library
+│   ├── lucide.js                   # Lucide icon library
+│   ├── three.module.js             # Three.js main module (local ES6)
+│   └── three.core.js               # Three.js core implementation (local ES6)
 ├── icons/                          # Application icons
 └── svg/                            # Sample SVG files for testing
 ```
@@ -292,6 +318,11 @@ toGcode/
 - ✅ Path editing with control point manipulation
 - ✅ Boolean operations (union, intersection, difference)
 - ✅ Core CNC operations (Inside, Outside, Pocket, Center, V-Carve, Drill)
+- ✅ 3D visualization with real-time cutting simulation
+  - Voxel-based material removal visualization
+  - Tool-specific cutting geometry (End Mill, V-Bit, Drill)
+  - Interactive playback controls with variable speed
+  - Height-map material preview
 - ✅ Comprehensive tool management system
 - ✅ Tool library with add/edit/duplicate/delete
 - ✅ Material database with 10 wood species properties
@@ -299,7 +330,8 @@ toGcode/
 - ✅ Workpiece configuration panel
 - ✅ Flexible origin positioning system (9 positions)
 - ✅ G-code export with post-processor support
-- ✅ Interactive canvas with zoom/pan (mouse wheel + middle button)
+- ✅ Interactive 2D canvas with zoom/pan (mouse wheel + middle button)
+- ✅ Interactive 3D visualization with Three.js
 - ✅ Snap-to-grid functionality
 - ✅ Undo/redo functionality
 - ✅ Project save/load with localStorage persistence
@@ -307,6 +339,7 @@ toGcode/
 - ✅ Dynamic properties panel system
 - ✅ Contextual help system
 - ✅ Resizable UI panels
+- ✅ Local Three.js library (v0.181.0) with no external CDN dependencies
 
 ### In Progress
 - 🔄 Enhanced toolpath optimization algorithms

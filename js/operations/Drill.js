@@ -25,8 +25,11 @@ class Drill extends Operation {
     draw(ctx) {
         if(this.circle)
         {
+            // Convert world coordinates to screen coordinates for canvas drawing
+            const screen = worldToScreen(this.circle.x, this.circle.y);
             ctx.beginPath();
-            ctx.arc(this.circle.x, this.circle.y, this.circle.r, 0, 2 * Math.PI);
+            // Scale radius by zoom level so preview circle size matches zoom
+            ctx.arc(screen.x, screen.y, this.circle.r * zoomLevel, 0, 2 * Math.PI);
             ctx.strokeStyle = this.circleColor;
             ctx.lineWidth = 0.2;
             ctx.stroke();

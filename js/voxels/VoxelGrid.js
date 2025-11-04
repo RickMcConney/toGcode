@@ -1,8 +1,8 @@
 /**
  * VoxelGrid - Manages voxel-based material representation for CNC simulation
- * Uses Two Three.js InstancedMeshes for efficient rendering with dual-color visualization
- * Top layer: workpiece color on top face, lighter on sides/bottom
- * Internal: lighter color on all faces
+ * Uses a single InstancedMesh with 2D X-Y layout and per-voxel height tracking
+ * Single layer at Z=0 (material surface), with voxelTopZ tracking actual cut depth
+ * Material color on top face, yellow on exposed surfaces when cut
  */
 
 import * as THREE from 'three';
@@ -16,66 +16,87 @@ class VoxelGrid {
    * @param {number} voxelSize - Size of X and Y voxels in mm
    * @param {THREE.Vector3} originOffset - Offset of workpiece origin in world space
    * @param {string} workpieceColor - Hex color or material color for voxels
-   * @param {number} voxelSizeZ - Size of Z voxels in mm (default: same as voxelSize for cubic voxels)
    */
-  constructor(workpieceWidth, workpieceLength, workpieceThickness, voxelSize = 1.0, originOffset = new THREE.Vector3(0, 0, 0), workpieceColor = 0x8B6914, voxelSizeZ = null) {
+  constructor(workpieceWidth, workpieceLength, workpieceThickness, voxelSize = 1.0, originOffset = new THREE.Vector3(0, 0, 0), workpieceColor = 0x8B6914) {
     this.workpieceWidth = workpieceWidth;
     this.workpieceLength = workpieceLength;
     this.workpieceThickness = workpieceThickness;
     this.voxelSize = voxelSize;  // XY voxel size
-    this.voxelSizeZ = voxelSizeZ || voxelSize;  // Z voxel size (default to XY size if not specified)
     this.originOffset = originOffset;
     this.workpieceColor = workpieceColor;
 
-    // Calculate grid dimensions (Z uses separate voxelSizeZ)
+    // Calculate grid dimensions (2D grid only - no Z dimension)
     this.gridWidth = Math.ceil(workpieceWidth / voxelSize);
     this.gridLength = Math.ceil(workpieceLength / voxelSize);
-    this.gridHeight = Math.ceil(workpieceThickness / this.voxelSizeZ);
 
-    // Total voxel count
-    this.maxVoxels = this.gridWidth * this.gridLength * this.gridHeight;
+    // Total voxel count (2D grid)
+    this.maxVoxels = this.gridWidth * this.gridLength;
 
-    // Track active voxels using a Set of indices for sparse representation
-    this.activeVoxels = new Set();
-    this.voxelColors = new Map();  // Store colors per voxel for visualization feedback
+    // Material thickness and bounds
+    this.materialBottomZ = -this.workpieceThickness;  // Bottom of material (negative)
 
-    // Lookup array: maps global voxel index → {mesh: 'top'|'internal', instanceIndex: number}
-    this.voxelIndexMap = new Array(this.maxVoxels);
+    // Per-voxel height tracking
+    this.voxelTopZ = new Float32Array(this.maxVoxels);  // Z position of each voxel's top surface
+    this.voxelHeightChanged = new Set();  // Track which voxels have been cut for color updates
 
-    // Three.js meshes for rendering (dual-color system)
-    this.topLayerMesh = null;      // Top surface: workpiece color on top, lighter on sides/bottom
-    this.internalMesh = null;      // Internal: lighter color on all faces
+    // Single Three.js mesh for rendering
+    this.mesh = null;
+
+    // Instance colors for per-voxel coloring (colors all faces of each voxel)
+    this.instanceColors = null;  // THREE.InstancedBufferAttribute
 
     // Debug tracking
     this.frameNumber = 0;
-    this.debugLog = [];
 
-    // Initialize the grid with all voxels active
+    // Initialize the grid with all voxels at material surface
     this.initializeGrid();
   }
 
   /**
-   * Create colored BoxGeometry for top-layer voxels
-   * Top face: workpiece color, sides/bottom: yellow (fresh-cut material)
-   * X and Y: voxelSize, Z: voxelSizeZ (rectangular voxels for step-down support)
+   * Create BoxGeometry for voxels with per-vertex colors
+   * Top and bottom faces: material color
+   * Side faces: yellow (to show exposed cut surfaces)
+   * X and Y: voxelSize, Z: workpieceThickness (full height)
    * @private
    * @returns {THREE.BoxGeometry} Geometry with per-vertex colors
    */
-  createTopLayerGeometry() {
-    const geometry = new THREE.BoxGeometry(this.voxelSize * 0.95, this.voxelSize * 0.95, this.voxelSizeZ * 0.95);
+  createGeometry() {
+    const geometry = new THREE.BoxGeometry(
+      this.voxelSize,
+      this.voxelSize,
+      this.workpieceThickness
+    );
 
-    // Create color array for all vertices
+    // Create per-vertex color array using face normals
+    // BoxGeometry has pre-computed normals that tell us which face each vertex belongs to
+    // Top/bottom faces: normals point in Z direction (0, 0, ±1)
+    // Side faces: normals point in XY directions
+
+    geometry.computeVertexNormals();  // Ensure normals are computed
+
+    const positions = geometry.attributes.position.array;
+    const normals = geometry.attributes.normal.array;
+    const materialColor = new THREE.Color(this.workpieceColor);
+    const yellowColor = new THREE.Color(0xFFFF00);
+
     const colors = [];
-    const topColor = new THREE.Color(this.workpieceColor);  // Full workpiece color on top face
-    const sideColor = new THREE.Color(0xFFFF00);  // Yellow for sides/bottom (fresh-cut material)
+    for (let i = 0; i < positions.length; i += 3) {
+      // Get normal for this vertex
+      const normalX = normals[i];
+      const normalY = normals[i + 1];
+      const normalZ = normals[i + 2];
 
-    for (let i = 0; i < geometry.attributes.position.count; i++) {
-      const z = geometry.attributes.position.getZ(i);
+      // Check if normal points primarily in Z direction (top/bottom faces)
+      // Top/bottom normals: (0, 0, ±1) have |normalZ| close to 1
+      // Side normals: have significant X or Y components
+      const absNormalZ = Math.abs(normalZ);
 
-      if (z > 0) {  // Top face (+Z face)
-        colors.push(topColor.r, topColor.g, topColor.b);
-      } else {  // Bottom and sides - show as fresh-cut (yellow)
-        colors.push(sideColor.r, sideColor.g, sideColor.b);
+      if (absNormalZ > 0.8) {
+        // Top or bottom face (normal is Z-dominant) - material color
+        colors.push(materialColor.r, materialColor.g, materialColor.b);
+      } else {
+        // Side faces (normal points sideways) - yellow
+        colors.push(yellowColor.r, yellowColor.g, yellowColor.b);
       }
     }
 
@@ -84,147 +105,86 @@ class VoxelGrid {
   }
 
   /**
-   * Create colored BoxGeometry for internal voxels
-   * All faces: bright yellow uniform color
-   * X and Y: voxelSize, Z: voxelSizeZ (rectangular voxels for step-down support)
-   * @private
-   * @returns {THREE.BoxGeometry} Geometry with uniform yellow color
-   */
-  createInternalGeometry() {
-    const geometry = new THREE.BoxGeometry(this.voxelSize * 0.95, this.voxelSize * 0.95, this.voxelSizeZ * 0.95);
-
-    // Create color array for all vertices - all yellow
-    const colors = [];
-    const yellow = new THREE.Color(0xFFFF00);  // Bright yellow
-
-    for (let i = 0; i < geometry.attributes.position.count; i++) {
-      colors.push(yellow.r, yellow.g, yellow.b);
-    }
-
-    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
-    return geometry;
-  }
-
-  /**
-   * Initialize the voxel grid with all voxels active
-   * Creates two InstancedMeshes with colored geometries
-   * Pre-calculates mesh capacities to avoid unused instances at origin
+   * Initialize the voxel grid with all voxels at material surface
+   * Creates a single InstancedMesh with 2D X-Y layout
+   * All voxels initialized with topZ = 0 (material surface)
    */
   initializeGrid() {
-    // Pre-calculate how many voxels go into each mesh
-    // Top layer: worldZ > -voxelSizeZ
-    let topLayerCount = 0;
-    let internalCount = 0;
+    // Create geometry (single unified geometry)
+    const geometry = this.createGeometry();
 
-    for (let x = 0; x < this.gridWidth; x++) {
-      for (let y = 0; y < this.gridLength; y++) {
-        for (let z = 0; z < this.gridHeight; z++) {
-          const worldZ = this.originOffset.z - (z * this.voxelSizeZ + this.voxelSizeZ / 2);
-          if (worldZ > -this.voxelSizeZ) {
-            topLayerCount++;
-          } else {
-            internalCount++;
-          }
-        }
-      }
-    }
-
-    // Create colored geometries
-    const topLayerGeometry = this.createTopLayerGeometry();
-    const internalGeometry = this.createInternalGeometry();
-
-    // Create material with vertex colors
+    // Create material with vertex colors enabled
+    // Per-vertex colors from geometry define the appearance
     const material = new THREE.MeshPhongMaterial({
-      vertexColors: true,
+      vertexColors: true,  // Use per-vertex colors from geometry
       shininess: 30,
-      transparent: true,
-      opacity: 0.85,
+      transparent: false,
+      opacity: 1.0,
       wireframe: false
     });
 
-    // Create InstancedMeshes with exact capacity needed (no unused instances)
-    this.topLayerMesh = new THREE.InstancedMesh(topLayerGeometry, material, topLayerCount);
-    this.topLayerMesh.castShadow = true;
-    this.topLayerMesh.receiveShadow = true;
+    // Create single InstancedMesh with capacity for all voxels
+    this.mesh = new THREE.InstancedMesh(geometry, material, this.maxVoxels);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
 
-    this.internalMesh = new THREE.InstancedMesh(internalGeometry, material.clone(), internalCount);
-    this.internalMesh.castShadow = true;
-    this.internalMesh.receiveShadow = true;
-
-    // Create dummy matrix for transforms
+    // Create dummy object for transforms
     const dummy = new THREE.Object3D();
-    let topLayerInstanceIndex = 0;
-    let internalInstanceIndex = 0;
+    const materialColor = new THREE.Color(this.workpieceColor);
 
-    // Position all voxels in the grid and build lookup map
-    let index = 0;
-
+    // Position all voxels in the 2D grid
+    // 2D indexing: index = y + x * gridLength
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridLength; y++) {
-        for (let z = 0; z < this.gridHeight; z++) {
-          // Calculate world position (centered in each voxel cell)
-          const worldX = this.originOffset.x - this.workpieceWidth / 2 + x * this.voxelSize + this.voxelSize / 2;
-          const worldY = this.originOffset.y - this.workpieceLength / 2 + y * this.voxelSize + this.voxelSize / 2;
-          const worldZ = this.originOffset.z - (z * this.voxelSizeZ + this.voxelSizeZ / 2);  // Subtract to go downward
+        const index = y + x * this.gridLength;
 
-          dummy.position.set(worldX, worldY, worldZ);
-          dummy.updateMatrix();
+        // Calculate world position (centered in each voxel cell)
+        const worldX = this.originOffset.x - this.workpieceWidth / 2 + x * this.voxelSize + this.voxelSize / 2;
+        const worldY = this.originOffset.y - this.workpieceLength / 2 + y * this.voxelSize + this.voxelSize / 2;
 
-          // Determine if this voxel is in the top layer based on world Z
-          // Top layer: if worldZ is between 0 and -voxelSizeZ (the surface layer)
-          const isTopLayer = worldZ > -this.voxelSizeZ;
+        // Voxel Z position: center between top (0) and bottom (-thickness)
+        // Z = (topZ + bottomZ) / 2 = (0 + (-thickness)) / 2 = -thickness/2
+        const worldZ = this.originOffset.z - this.workpieceThickness / 2;
 
-          if (isTopLayer) {
-            this.topLayerMesh.setMatrixAt(topLayerInstanceIndex, dummy.matrix);
-            // Store mapping: global index → {mesh: 'top', instanceIndex}
-            this.voxelIndexMap[index] = { mesh: 'top', instanceIndex: topLayerInstanceIndex };
-            topLayerInstanceIndex++;
-          } else {
-            this.internalMesh.setMatrixAt(internalInstanceIndex, dummy.matrix);
-            // Store mapping: global index → {mesh: 'internal', instanceIndex}
-            this.voxelIndexMap[index] = { mesh: 'internal', instanceIndex: internalInstanceIndex };
-            internalInstanceIndex++;
-          }
+        dummy.position.set(worldX, worldY, worldZ);
+        dummy.scale.set(1, 1, 1);  // Full height initially
+        dummy.updateMatrix();
 
-          // Track this voxel as active
-          this.activeVoxels.add(index);
-          this.voxelColors.set(index, new THREE.Color(this.workpieceColor));
+        this.mesh.setMatrixAt(index, dummy.matrix);
+        // Initialize all instance colors to material color (uncut state)
+        this.mesh.setColorAt(index, materialColor);
 
-          index++;
-        }
+        // Initialize voxel top Z to material surface (0)
+        this.voxelTopZ[index] = 0;
       }
     }
 
-    this.topLayerMesh.instanceMatrix.needsUpdate = true;
-    this.internalMesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
 
   /**
-   * Convert 3D grid coordinates to linear index
+   * Convert 2D grid coordinates to linear index
    * @param {number} x - X grid coordinate
    * @param {number} y - Y grid coordinate
-   * @param {number} z - Z grid coordinate
    * @returns {number} Linear index or -1 if out of bounds
    */
-  coordsToIndex(x, y, z) {
-    if (x < 0 || x >= this.gridWidth || y < 0 || y >= this.gridLength || z < 0 || z >= this.gridHeight) {
+  coordsToIndex(x, y) {
+    if (x < 0 || x >= this.gridWidth || y < 0 || y >= this.gridLength) {
       return -1;
     }
-    return z + y * this.gridHeight + x * this.gridLength * this.gridHeight;
+    return y + x * this.gridLength;
   }
 
   /**
-   * Convert linear index to 3D grid coordinates
+   * Convert linear index to 2D grid coordinates
    * @param {number} index - Linear index
-   * @returns {Object} {x, y, z} coordinates or null if invalid
+   * @returns {Object} {x, y} coordinates or null if invalid
    */
   indexToCoords(index) {
     if (index < 0 || index >= this.maxVoxels) return null;
-    const x = Math.floor(index / (this.gridLength * this.gridHeight));
-    const remainder = index % (this.gridLength * this.gridHeight);
-    const y = Math.floor(remainder / this.gridHeight);
-    const z = remainder % this.gridHeight;
-    return { x, y, z };
+    const x = Math.floor(index / this.gridLength);
+    const y = index % this.gridLength;
+    return { x, y };
   }
 
   /**
@@ -238,153 +198,204 @@ class VoxelGrid {
 
     const worldX = this.originOffset.x - this.workpieceWidth / 2 + coords.x * this.voxelSize + this.voxelSize / 2;
     const worldY = this.originOffset.y - this.workpieceLength / 2 + coords.y * this.voxelSize + this.voxelSize / 2;
-    const worldZ = this.originOffset.z - (coords.z * this.voxelSizeZ + this.voxelSizeZ / 2);  // Subtract to go downward
+    const worldZ = this.voxelTopZ[index];  // Return current top Z of voxel
 
     return new THREE.Vector3(worldX, worldY, worldZ);
   }
 
   /**
-   * Remove a voxel from the grid
-   * Uses lookup array to find the correct mesh and instance index
+   * Update voxel height based on tool penetration
+   * Only shrinks height, never increases it
    * @param {number} index - Linear voxel index
+   * @param {number} newTopZ - New Z position of voxel top (must be negative or 0)
+   * @returns {boolean} True if height changed, false otherwise
    */
-  removeVoxel(index) {
-    if (!this.activeVoxels.has(index)) return;
+  updateVoxelHeight(index, newTopZ) {
+    if (index < 0 || index >= this.maxVoxels) return false;
 
-    this.activeVoxels.delete(index);
+    const currentTopZ = this.voxelTopZ[index];
 
-    // Look up which mesh and instance this voxel belongs to
-    const mapping = this.voxelIndexMap[index];
-    if (!mapping) return;  // Safety check
+    // Only shrink, never increase (newTopZ must be more negative)
+    if (newTopZ >= currentTopZ) return false;
 
-    // Hide the voxel by scaling it to 0 in the correct mesh
-    const dummy = new THREE.Object3D();
-    dummy.scale.set(0, 0, 0);  // Invisible
-    dummy.updateMatrix();
+    // Update voxel top Z
+    this.voxelTopZ[index] = newTopZ;
 
-    if (mapping.mesh === 'top') {
-      this.topLayerMesh.setMatrixAt(mapping.instanceIndex, dummy.matrix);
-    } else {
-      this.internalMesh.setMatrixAt(mapping.instanceIndex, dummy.matrix);
-    }
-    // Don't update here - let the caller batch the update
+    // Mark this voxel as cut for color update
+    this.voxelHeightChanged.add(index);
+
+    return true;
   }
 
   /**
    * Signal that instance matrices have been updated and need to be re-rendered
-   * Updates both top layer and internal meshes
    */
   updateInstanceMatrices() {
-    this.topLayerMesh.instanceMatrix.needsUpdate = true;
-    this.internalMesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
 
   /**
-   * Remove all voxels that intersect with a tool at a given position
-   * This method is called by VoxelMaterialRemover
-   * Optimized with spatial bounding to only check nearby voxels
+   * Update instance colors for cut voxels
+   * Changes instance color to yellow for voxels that have been cut
+   * The yellow color blends with vertex colors to show cutting effect
+   */
+  updateVoxelColors() {
+    if (this.voxelHeightChanged.size === 0) return;
+
+    const yellowColor = new THREE.Color(0xFFFF00);
+
+    // For each voxel that was cut, update its instance color to yellow
+    for (const index of this.voxelHeightChanged) {
+      // Set instance color to yellow to show this voxel has been cut
+      this.mesh.setColorAt(index, yellowColor);
+    }
+
+    // Mark instance colors as needing update
+    if (this.mesh.instanceColor) {
+      this.mesh.instanceColor.needsUpdate = true;
+    }
+    this.voxelHeightChanged.clear();
+  }
+
+  /**
+   * Update voxel heights based on tool position
+   * Only shrinks voxel heights, never increases them
    * @param {number} toolX - Tool X position in world space
    * @param {number} toolY - Tool Y position in world space
-   * @param {number} toolZ - Tool Z position in world space (cutting depth)
+   * @param {number} toolZ - Tool Z position in world space (cutting depth, negative)
    * @param {number} toolRadius - Tool radius in mm
    * @param {string} toolType - Type of tool: 'flat', 'ball', 'vbit', 'drill'
    * @param {number} vbitAngle - V-bit angle in degrees (only for 'vbit')
-   * @returns {Array} Array of removed voxel indices
+   * @returns {Array} Array of updated voxel indices
    */
   removeVoxelsAtToolPosition(toolX, toolY, toolZ, toolRadius, toolType = 'flat', vbitAngle = 90) {
-    const removedVoxels = [];
+    const updatedVoxels = [];
     this.frameNumber++;
 
-    // Calculate search radius with margin for vbit/drill cone expansion
-    const searchRadius = toolRadius * 2 + this.voxelSize;
-    const searchDepth = Math.max(toolRadius * 3, this.workpieceThickness);  // Search entire workpiece depth
+    // Calculate search radius based on tool type
+    let searchRadius;
 
-    // Convert world coordinates to grid coordinates for spatial search
-    // Inverse of positioning formula
-    // NOTE: gridX and gridY use voxelSize (XY resolution), but gridZ uses voxelSizeZ (step-down)
-    let gridX = Math.floor((toolX - this.originOffset.x + this.workpieceWidth / 2 - this.voxelSize / 2) / this.voxelSize);
-    let gridY = Math.floor((toolY - this.originOffset.y + this.workpieceLength / 2 - this.voxelSize / 2) / this.voxelSize);
-    let gridZ = Math.floor((this.originOffset.z - toolZ + this.voxelSizeZ / 2) / this.voxelSizeZ);
-
-
-    // Clamp to valid grid bounds (tools can be outside the grid, but we search the nearest valid cells)
-    gridX = Math.max(0, Math.min(this.gridWidth - 1, gridX));
-    gridY = Math.max(0, Math.min(this.gridLength - 1, gridY));
-    gridZ = Math.max(0, Math.min(this.gridHeight - 1, gridZ));
+    if (toolType === 'drill') {
+      // Drill: only cuts within its own diameter, no extension beyond
+      // Simple circular search within the radius
+      searchRadius = toolRadius + this.voxelSize;
+    } else if (toolType === 'vbit') {
+      // V-bit: cone extends significantly, calculate reach to surface
+      const halfAngle = (vbitAngle / 2) * (Math.PI / 180);
+      const tanAngle = Math.tan(halfAngle);
+      // How far can cone reach to reach surface (Z=0) from current depth?
+      const coneReach = Math.abs(toolZ) / tanAngle;
+      searchRadius = Math.max(toolRadius * 2 + this.voxelSize, coneReach * 1.2);
+    } else {
+      // Default for flat endmills and ball nose
+      searchRadius = toolRadius * 1.5 + this.voxelSize;
+    }
 
     const searchRadiusVoxels = Math.ceil(searchRadius / this.voxelSize);
-    const searchDepthVoxels = Math.ceil(searchDepth / this.voxelSizeZ);  // Use voxelSizeZ for Z depth, not voxelSize!
 
-    let voxelsChecked = 0;
-    let voxelsActive = 0;
+    // Convert world coordinates to grid coordinates for spatial search
+    let gridX = Math.floor((toolX - this.originOffset.x + this.workpieceWidth / 2 - this.voxelSize / 2) / this.voxelSize);
+    let gridY = Math.floor((toolY - this.originOffset.y + this.workpieceLength / 2 - this.voxelSize / 2) / this.voxelSize);
 
-    // Only check voxels within search bounds (spatial optimization)
-    // Search upward from tool tip toward surface (Z increases toward surface)
+    // Clamp to valid grid bounds
+    gridX = Math.max(0, Math.min(this.gridWidth - 1, gridX));
+    gridY = Math.max(0, Math.min(this.gridLength - 1, gridY));
+
+    // Only check voxels within 2D search radius
     for (let dx = -searchRadiusVoxels; dx <= searchRadiusVoxels; dx++) {
       for (let dy = -searchRadiusVoxels; dy <= searchRadiusVoxels; dy++) {
-        for (let dz = 0; dz <= searchDepthVoxels; dz++) {
-          const x = gridX + dx;
-          const y = gridY + dy;
-          const z = gridZ - dz;  // Search upward: subtract dz to go toward surface
+        const x = gridX + dx;
+        const y = gridY + dy;
 
-          const index = this.coordsToIndex(x, y, z);
-          voxelsChecked++;
-          if (index < 0 || !this.activeVoxels.has(index)) continue;
+        const index = this.coordsToIndex(x, y);
+        if (index < 0) continue;
 
-          voxelsActive++;
-          const voxelPos = this.getVoxelWorldPosition(index);
-          if (!voxelPos) continue;
+        const voxelPos = this.getVoxelWorldPosition(index);
+        if (!voxelPos) continue;
 
-          let shouldRemove = false;
+        let penetrationZ = null;
 
-          switch (toolType) {
-            case 'flat':
-              // Flat endmill: cylindrical intersection
-              shouldRemove = this.isFlatEndmillIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius);
-              break;
-            case 'ball':
-              // Ball nose: spherical intersection
-              shouldRemove = this.isBallNoseIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius);
-              break;
-            case 'vbit':
-              // V-bit: conical intersection
-              shouldRemove = this.isVBitIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle);
-              break;
-            case 'drill':
-              // Drill: conical tip + cylindrical body
-              shouldRemove = this.isDrillIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius);
-              break;
-            default:
-              // Fallback to flat endmill
-              shouldRemove = this.isFlatEndmillIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius);
-          }
+        switch (toolType) {
+          case 'flat':
+            // Flat endmill: cylindrical intersection - penetration at tool tip
+            penetrationZ = this.getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
+            break;
+          case 'ball':
+            // Ball nose: spherical intersection
+            penetrationZ = this.getBallNosePenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
+            break;
+          case 'vbit':
+            // V-bit: conical intersection
+            penetrationZ = this.getVBitPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle);
+            break;
+          case 'drill':
+            // Drill: conical tip + cylindrical body
+            penetrationZ = this.getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
+            break;
+          default:
+            // Fallback to flat endmill
+            penetrationZ = this.getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
+        }
 
-          if (shouldRemove) {
-            this.removeVoxel(index);
-            removedVoxels.push(index);
+        // Update voxel height if tool penetrates
+        if (penetrationZ !== null) {
+          if (this.updateVoxelHeight(index, penetrationZ)) {
+            updatedVoxels.push(index);
           }
         }
       }
     }
 
-
-    // Batch update: notify Three.js that matrices changed (only once, not per-voxel)
-    if (removedVoxels.length > 0) {
-      this.updateInstanceMatrices();
+    // Batch update: notify Three.js that matrices changed (only once)
+    if (updatedVoxels.length > 0) {
+      this.updateVoxelMatrices(updatedVoxels);
+      this.updateVoxelColors();
     }
 
-    return removedVoxels;
+    return updatedVoxels;
   }
 
   /**
-   * Check if a voxel intersects with flat endmill
+   * Update instance matrices and Z scales for affected voxels
    * @private
    */
-  isFlatEndmillIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    // Flat endmill: check if voxel is within cylinder defined by tool position and radius
-    // Tool extends downward from toolZ
-    // Coordinate system: Z=0 at surface, Z<0 going deeper into material
+  updateVoxelMatrices(voxelIndices) {
+    const dummy = new THREE.Object3D();
 
+    for (const index of voxelIndices) {
+      const coords = this.indexToCoords(index);
+      if (!coords) continue;
+
+      const worldX = this.originOffset.x - this.workpieceWidth / 2 + coords.x * this.voxelSize + this.voxelSize / 2;
+      const worldY = this.originOffset.y - this.workpieceLength / 2 + coords.y * this.voxelSize + this.voxelSize / 2;
+
+      const topZ = this.voxelTopZ[index];
+      const bottomZ = this.materialBottomZ;
+
+      // Voxel Z position: center between top and bottom
+      const worldZ = (topZ + bottomZ) / 2;
+
+      // Voxel Z scale: current height / original height
+      const currentHeight = topZ - bottomZ;
+      const originalHeight = 0 - bottomZ;  // 0 to bottom
+      const scaleZ = Math.max(0, currentHeight / originalHeight);
+
+      dummy.position.set(worldX, worldY, worldZ);
+      dummy.scale.set(1, 1, scaleZ);
+      dummy.updateMatrix();
+
+      this.mesh.setMatrixAt(index, dummy.matrix);
+    }
+
+    this.updateInstanceMatrices();
+  }
+
+  /**
+   * Get penetration depth for flat endmill at voxel position
+   * Returns the Z depth where tool penetrates, or null if no intersection
+   * @private
+   */
+  getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
     // Distance in XY plane from tool center
     const dx = voxelPos.x - toolX;
     const dy = voxelPos.y - toolY;
@@ -392,231 +403,183 @@ class VoxelGrid {
 
     // Check if voxel is in XY footprint (within radius)
     if (distXY > toolRadius) {
-      return false;
+      return null;  // No intersection
     }
 
-    // Check if voxel's top surface is at or above (less negative than) tool depth
-    // Voxel top = voxel center + voxelSizeZ/2 (the shallower edge in Z)
-    // NOTE: voxels are rectangular - use voxelSizeZ for Z dimension, not voxelSize!
-    const voxelTop = voxelPos.z + this.voxelSizeZ / 2;
-
-    // Tool removes material from surface (Z=0) down to toolZ depth
-    // So we check: is voxel top at or above tool depth?
-    if (voxelTop >= toolZ) {
-      return true;
-    }
-    return false;
+    // Flat endmill penetrates to tool Z depth
+    return toolZ;
   }
 
   /**
-   * Check if a voxel intersects with ball nose tool
+   * Get penetration depth for ball nose at voxel XY position
+   * Ball nose is a sphere: tip at toolZ, extends upward
    * @private
    */
-  isBallNoseIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    // Ball nose: check if voxel intersects with sphere defined by tool tip and radius
-    // The sphere includes the curved cutting surface
+  getBallNosePenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
+    // Distance in XY plane from tool center
     const dx = voxelPos.x - toolX;
     const dy = voxelPos.y - toolY;
-    const dz = voxelPos.z - toolZ;
-
-    // Distance from voxel center to tool center
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-    // Check if voxel intersects the sphere (use largest voxel dimension for loose intersection)
-    // Voxels are rectangular: 0.5×0.5 in XY, and voxelSizeZ in Z
-    // Use max dimension for conservative intersection test
-    const voxelHalfSize = Math.max(this.voxelSize / 2, this.voxelSizeZ / 2);
-    if (distance <= toolRadius + voxelHalfSize) {
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Check if a voxel intersects with V-bit (cone)
-   * @private
-   */
-  isVBitIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle) {
-    // V-bit: conical shape that expands as you go deeper
-    // Tip is at toolZ, opens downward (negative Z direction)
-    const dx = voxelPos.x - toolX;
-    const dy = voxelPos.y - toolY;
-
-    // Distance in XY plane
     const distXY = Math.sqrt(dx * dx + dy * dy);
 
-    // Cone angle (half-angle) in radians
+    if (distXY > toolRadius) {
+      return null;  // Outside tool radius
+    }
+
+    // Ball nose sphere: tip (lowest point) at toolZ, center at (toolX, toolY, toolZ + toolRadius)
+    // Sphere equation: distXY² + (z - (toolZ + toolRadius))² = toolRadius²
+    // Solving for z (cutting surface): z = (toolZ + toolRadius) - sqrt(toolRadius² - distXY²)
+    //
+    // At distXY = 0: z = toolZ + r - r = toolZ ✓ (tip is at toolZ)
+    // At distXY = r/2: z = toolZ + r - sqrt(r² - r²/4) = toolZ + r - r√3/2 (shallower away from center) ✓
+    const heightAboveTip = Math.sqrt(toolRadius * toolRadius - distXY * distXY);
+    const penetrationZ = toolZ + toolRadius - heightAboveTip;
+
+    return penetrationZ;
+  }
+
+  /**
+   * Get penetration depth for V-bit at voxel XY position
+   * V-bit is a cone: tip at toolZ, expands upward toward surface
+   * @private
+   */
+  getVBitPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle) {
+    // V-bit: cone that expands at an angle
+    const dx = voxelPos.x - toolX;
+    const dy = voxelPos.y - toolY;
+    const distXY = Math.sqrt(dx * dx + dy * dy);
+
+    // ENFORCE: V-bit only cuts within its diameter
+    // Material removal must be constrained to the actual tool radius
+    if (distXY > toolRadius) {
+      return voxelPos.z;  // No penetration beyond tool radius
+    }
+
+    // Cone half-angle in radians
     const halfAngleRad = (vbitAngle / 2) * (Math.PI / 180);
     const tanAngle = Math.tan(halfAngleRad);
 
-    // Check if voxel's top surface is at or above tool tip
-    // NOTE: Use voxelSizeZ for Z dimension, not voxelSize!
-    const voxelTop = voxelPos.z + this.voxelSizeZ / 2;
+    // At the voxel's XY distance, the cone surface rises toward surface:
+    // Tip is at toolZ (negative, below surface)
+    // As distance increases, Z increases (closer to surface)
+    // z = toolZ + (distXY / tanAngle)
+    //
+    // Example: toolZ = -3mm, distXY = 2mm, angle = 45° (tan=1)
+    // z = -3 + 2/1 = -1 (cuts shallower away from center) ✓
+    const penetrationZ = toolZ + (distXY / tanAngle);
 
-    if (voxelTop >= toolZ) {
-      // Voxel is at or shallower than tool tip
-      // Calculate cone radius at voxel depth
-      const depth = voxelTop - toolZ;  // How far above tool tip (towards surface)
-      const coneRadius = depth * tanAngle;
-
-      // Add voxel XY size for loose intersection test
-      if (distXY <= coneRadius + this.voxelSize / 2) {
-        return true;
-      }
-    }
-    return false;
+    return penetrationZ;
   }
 
   /**
-   * Check if a voxel intersects with drill bit
+   * Get penetration depth for drill bit at voxel XY position
+   * Drill has conical tip (118° total angle = 59° half angle)
+   * Tip point at center, cone base at radius edge
    * @private
    */
-  isDrillIntersecting(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    // Drill: conical tip (59° total angle = 29.5° half angle) + cylindrical body
+  getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
     const dx = voxelPos.x - toolX;
     const dy = voxelPos.y - toolY;
     const distXY = Math.sqrt(dx * dx + dy * dy);
 
-    // Drill has a conical tip and cylindrical body
-    const drillHalfAngle = 29.5 * (Math.PI / 180);  // 59° total angle
-    const tanDrillAngle = Math.tan(drillHalfAngle);
-
-    // Check voxel top surface
-    // NOTE: Use voxelSizeZ for Z dimension, not voxelSize!
-    const voxelTop = voxelPos.z + this.voxelSizeZ / 2;
-
-    // Conical tip extends from surface down to toolZ
-    if (voxelTop >= toolZ) {
-      const depth = voxelTop - toolZ;  // How far above tool tip (towards surface)
-      const tipRadius = depth * tanDrillAngle;
-
-      // Voxel intersects if it's within cone or cylindrical body
-      if (distXY <= Math.max(tipRadius, toolRadius) + this.voxelSize / 2) {
-        return true;
-      }
+    // Drill: only cuts within its own diameter
+    if (distXY > toolRadius) {
+      return null;  // Outside drill radius - no cutting
     }
 
-    // Cylindrical body below toolZ
-    if (voxelTop < toolZ && distXY <= toolRadius + this.voxelSize / 2) {
-      return true;
-    }
-
-    return false;
+    // Drill: treat as full depth cylinder within radius
+    // All voxels within the radius are cut to the same depth (toolZ)
+    // This is simpler and treats the cone as just part of the tip geometry
+    return toolZ;
   }
 
   /**
-   * Reset all voxels to active state
-   * Rebuilds both meshes and the lookup array
-   * Disposes and recreates meshes to ensure correct capacity
+   * Reset all voxels to initial state (uncut, at material surface)
+   * Resets heights and colors to default
    */
   reset() {
-    this.activeVoxels.clear();
-
-    // Dispose old meshes
-    if (this.topLayerMesh) {
-      this.topLayerMesh.geometry.dispose();
-      this.topLayerMesh.material.dispose();
-    }
-    if (this.internalMesh) {
-      this.internalMesh.geometry.dispose();
-      this.internalMesh.material.dispose();
+    // Reset all voxel heights to material surface
+    for (let i = 0; i < this.maxVoxels; i++) {
+      this.voxelTopZ[i] = 0;
     }
 
-    // Pre-calculate counts
-    let topLayerCount = 0;
-    let internalCount = 0;
+    // Clear cut tracking
+    this.voxelHeightChanged.clear();
+
+    // Reset all voxel matrices to full height
+    const dummy = new THREE.Object3D();
 
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridLength; y++) {
-        for (let z = 0; z < this.gridHeight; z++) {
-          const worldZ = this.originOffset.z - (z * this.voxelSizeZ + this.voxelSizeZ / 2);
-          if (worldZ > -this.voxelSizeZ) {
-            topLayerCount++;
-          } else {
-            internalCount++;
-          }
-        }
+        const index = y + x * this.gridLength;
+
+        const worldX = this.originOffset.x - this.workpieceWidth / 2 + x * this.voxelSize + this.voxelSize / 2;
+        const worldY = this.originOffset.y - this.workpieceLength / 2 + y * this.voxelSize + this.voxelSize / 2;
+        const worldZ = this.originOffset.z - this.workpieceThickness / 2;
+
+        dummy.position.set(worldX, worldY, worldZ);
+        dummy.scale.set(1, 1, 1);  // Full height
+        dummy.updateMatrix();
+
+        this.mesh.setMatrixAt(index, dummy.matrix);
       }
     }
 
-    // Create new geometries and materials
-    const topLayerGeometry = this.createTopLayerGeometry();
-    const internalGeometry = this.createInternalGeometry();
-    const material = new THREE.MeshPhongMaterial({
-      vertexColors: true,
-      shininess: 30,
-      transparent: true,
-      opacity: 0.85,
-      wireframe: false
-    });
+    this.mesh.instanceMatrix.needsUpdate = true;
 
-    // Create new meshes with correct capacities
-    this.topLayerMesh = new THREE.InstancedMesh(topLayerGeometry, material, topLayerCount);
-    this.topLayerMesh.castShadow = true;
-    this.topLayerMesh.receiveShadow = true;
-
-    this.internalMesh = new THREE.InstancedMesh(internalGeometry, material.clone(), internalCount);
-    this.internalMesh.castShadow = true;
-    this.internalMesh.receiveShadow = true;
-
-    // Reinitialize all voxels
-    const dummy = new THREE.Object3D();
-    let topLayerInstanceIndex = 0;
-    let internalInstanceIndex = 0;
-
-    for (let index = 0; index < this.maxVoxels; index++) {
-      const coords = this.indexToCoords(index);
-      const worldX = this.originOffset.x - this.workpieceWidth / 2 + coords.x * this.voxelSize + this.voxelSize / 2;
-      const worldY = this.originOffset.y - this.workpieceLength / 2 + coords.y * this.voxelSize + this.voxelSize / 2;
-      const worldZ = this.originOffset.z - (coords.z * this.voxelSizeZ + this.voxelSizeZ / 2);  // Subtract to go downward
-
-      dummy.position.set(worldX, worldY, worldZ);
-      dummy.scale.set(1, 1, 1);  // Reset scale to visible
-      dummy.updateMatrix();
-
-      // Determine if this voxel is in the top layer based on world Z
-      const isTopLayer = worldZ > -this.voxelSizeZ;
-
-      if (isTopLayer) {
-        this.topLayerMesh.setMatrixAt(topLayerInstanceIndex, dummy.matrix);
-        this.voxelIndexMap[index] = { mesh: 'top', instanceIndex: topLayerInstanceIndex };
-        topLayerInstanceIndex++;
-      } else {
-        this.internalMesh.setMatrixAt(internalInstanceIndex, dummy.matrix);
-        this.voxelIndexMap[index] = { mesh: 'internal', instanceIndex: internalInstanceIndex };
-        internalInstanceIndex++;
-      }
-
-      this.activeVoxels.add(index);
-    }
-
-    this.topLayerMesh.instanceMatrix.needsUpdate = true;
-    this.internalMesh.instanceMatrix.needsUpdate = true;
+    // Reset voxel colors to material color
+    this.resetVoxelColors();
   }
 
   /**
-   * Get the Three.js meshes for rendering
-   * Returns both top layer and internal meshes
-   * @returns {Array} Array containing [topLayerMesh, internalMesh]
+   * Reset all voxel colors to material color (remove yellow cutting visualization)
+   * @private
+   */
+  resetVoxelColors() {
+    if (!this.mesh || !this.mesh.instanceColor) return;
+
+    const materialColor = new THREE.Color(this.workpieceColor);
+
+    // Reset all instance colors to material color using setColorAt
+    for (let i = 0; i < this.maxVoxels; i++) {
+      this.mesh.setColorAt(i, materialColor);
+    }
+
+    // Mark instance colors as needing update
+    this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /**
+   * Get the Three.js mesh for rendering
+   * @returns {THREE.InstancedMesh} Single mesh instance
    */
   getMesh() {
-    return [this.topLayerMesh, this.internalMesh];
+    return this.mesh;
   }
 
   /**
-   * Get count of active (non-removed) voxels
-   * @returns {number} Number of active voxels
+   * Get average cut depth across all voxels
+   * @returns {number} Average depth in mm (positive value)
    */
-  getActiveVoxelCount() {
-    return this.activeVoxels.size;
+  getAverageCutDepth() {
+    let totalDepth = 0;
+    for (let i = 0; i < this.maxVoxels; i++) {
+      totalDepth += Math.abs(this.voxelTopZ[i]);
+    }
+    return totalDepth / this.maxVoxels;
   }
 
   /**
-   * Get material removal percentage
-   * @returns {number} Percentage of material removed (0-100)
+   * Get percentage of voxels that have been cut
+   * @returns {number} Percentage (0-100)
    */
-  getMaterialRemovalPercentage() {
-    return ((this.maxVoxels - this.activeVoxels.size) / this.maxVoxels) * 100;
+  getVoxelsCutPercentage() {
+    let cutCount = 0;
+    for (let i = 0; i < this.maxVoxels; i++) {
+      if (this.voxelTopZ[i] < 0) {
+        cutCount++;
+      }
+    }
+    return (cutCount / this.maxVoxels) * 100;
   }
 
   /**
@@ -626,97 +589,31 @@ class VoxelGrid {
   getStats() {
     return {
       totalVoxels: this.maxVoxels,
-      activeVoxels: this.activeVoxels.size,
-      removedVoxels: this.maxVoxels - this.activeVoxels.size,
-      removalPercentage: this.getMaterialRemovalPercentage(),
+      cutVoxels: this.voxelHeightChanged.size,
+      cutPercentage: this.getVoxelsCutPercentage(),
+      averageCutDepth: this.getAverageCutDepth(),
       gridDimensions: {
         width: this.gridWidth,
-        length: this.gridLength,
-        height: this.gridHeight
+        length: this.gridLength
       },
       voxelSize: this.voxelSize,
-      memoryEstimate: `~${(this.maxVoxels * 64 / 1024 / 1024).toFixed(2)} MB` // Rough estimate
+      materialThickness: this.workpieceThickness,
+      memoryEstimate: `~${(this.maxVoxels * 32 / 1024 / 1024).toFixed(2)} MB` // ~32 bytes per voxel
     };
   }
 
   /**
-   * Analyze and log removed voxel positions to identify duplication pattern
-   * @public
-   */
-  analyzeRemovedPositions() {
-    if (!this.removedPositions || this.removedPositions.length === 0) {
-      console.log('No removed positions recorded');
-      return;
-    }
-
-    console.log('\n=== REMOVED POSITIONS ANALYSIS ===');
-    console.log(`Total removed voxel records: ${this.removedPositions.length}`);
-
-    // Group by tool position (within small tolerance)
-    const groupedByToolPos = {};
-    const tolerance = 0.5;
-
-    for (const record of this.removedPositions) {
-      const key = `${Math.round(record.toolPos.x / tolerance) * tolerance},${Math.round(record.toolPos.y / tolerance) * tolerance},${Math.round(record.toolPos.z / tolerance) * tolerance}`;
-      if (!groupedByToolPos[key]) {
-        groupedByToolPos[key] = [];
-      }
-      groupedByToolPos[key].push(record);
-    }
-
-    console.log(`Unique tool positions: ${Object.keys(groupedByToolPos).length}`);
-
-    // For each unique tool position, show where voxels were removed
-    for (const [toolPos, records] of Object.entries(groupedByToolPos).slice(0, 5)) {
-      console.log(`\nTool position: ${toolPos} (${records.length} removals)`);
-      const uniqueVoxelPos = {};
-      for (const record of records) {
-        const voxelKey = `${record.voxelPos.x},${record.voxelPos.y},${record.voxelPos.z}`;
-        if (!uniqueVoxelPos[voxelKey]) {
-          uniqueVoxelPos[voxelKey] = record;
-        }
-      }
-      console.log(`  Unique voxel positions: ${Object.keys(uniqueVoxelPos).length}`);
-      for (const [voxelPos, record] of Object.entries(uniqueVoxelPos).slice(0, 10)) {
-        console.log(`    Voxel at ${voxelPos} (grid: ${record.gridCoords.x},${record.gridCoords.y},${record.gridCoords.z})`);
-      }
-    }
-
-    // Check for duplicated voxel world positions across different tool positions
-    const voxelPosCount = {};
-    for (const record of this.removedPositions) {
-      const key = `${record.voxelPos.x},${record.voxelPos.y},${record.voxelPos.z}`;
-      if (!voxelPosCount[key]) {
-        voxelPosCount[key] = 0;
-      }
-      voxelPosCount[key]++;
-    }
-
-    const duplicatedVoxels = Object.entries(voxelPosCount).filter(([_, count]) => count > 1);
-    console.log(`\nDuplicated voxel world positions: ${duplicatedVoxels.length}`);
-    for (const [voxelPos, count] of duplicatedVoxels.slice(0, 10)) {
-      console.log(`  ${voxelPos}: removed ${count} times`);
-    }
-  }
-
-  /**
    * Dispose of Three.js resources
-   * Cleans up both top layer and internal meshes
    */
   dispose() {
-    if (this.topLayerMesh) {
-      this.topLayerMesh.geometry.dispose();
-      this.topLayerMesh.material.dispose();
-      this.topLayerMesh = null;
+    if (this.mesh) {
+      this.mesh.geometry.dispose();
+      this.mesh.material.dispose();
+      this.mesh = null;
     }
-    if (this.internalMesh) {
-      this.internalMesh.geometry.dispose();
-      this.internalMesh.material.dispose();
-      this.internalMesh = null;
-    }
-    this.activeVoxels.clear();
-    this.voxelColors.clear();
-    this.voxelIndexMap = null;
+    this.voxelTopZ = null;
+    this.instanceColors = null;
+    this.voxelHeightChanged.clear();
   }
 }
 

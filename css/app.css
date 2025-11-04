@@ -373,13 +373,13 @@ html, body {
 #canvasTabContent .tab-pane {
     min-height: 0;
     height: 100%;
-    display: none;
+    display: none !important;
     flex-direction: column;
 }
 
 /* Canvas tab panes when active - show as flex */
 #canvasTabContent .tab-pane.active {
-    display: flex;
+    display: flex !important;
 }
 
 /* Generic fallback for other tab-panes */
@@ -401,4 +401,24 @@ html, body {
 
 .version{
     padding-right:10px;
+}
+
+/* Simulation Controls Floating Overlay */
+.simulation-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: auto;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    padding: 12px 15px;
+    z-index: 1000;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.simulation-overlay.d-none {
+    display: none !important;
 }

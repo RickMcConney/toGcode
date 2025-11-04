@@ -2809,6 +2809,8 @@ function makeHole(pt) {
 		// Try to collect form data from the properties panel
 		try {
 			const data = window.toolpathPropertiesManager.collectFormData();
+			// Save drill properties to localStorage for persistence between sessions
+			window.toolpathPropertiesManager.updateDefaults('Drill', data);
 			const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
 
 			if (selectedTool) {
@@ -3918,10 +3920,13 @@ function toGcode() {
 								z = left - depth;
 								var zCoord = toGcodeUnitsZ(z, useInches);
 								var zCoordPullUp = toGcodeUnitsZ(z + toolStep + zbacklash, useInches);
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoord, f: feedZ }) + '\n';
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordPullUp, f: feedZ }) + '\n'; // pull up to clear chip
+								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';  // Use G1 for cutting move
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordPullUp, f: feedZ / 2 }) + '\n'; // pull up to clear chip at rapid
 							}
 						}
+
+						// Retract to safe height after drilling hole is complete
+						output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
 					}
 					else if (operation == 'VCarve In' || operation == 'VCarve Out' || operation == 'VCarve') {
 						z = 0;
@@ -3962,10 +3967,10 @@ function toGcode() {
 					{
 						z = 0;
 
-						if (bit == 'VBit') {
-							let maxRadius = vbitRadius(sortedToolpaths[i].tool);
-							depth = toolDepth(angle, maxRadius);
-						}
+						//if (bit == 'VBit') {
+						//	let maxRadius = vbitRadius(sortedToolpaths[i].tool);
+						//	depth = toolDepth(angle, maxRadius);
+						//}
 						var left = depth;
 						var pass = 0;
 						while (path.length && left > 0) {

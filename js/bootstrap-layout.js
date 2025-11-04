@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-02";
+var APP_VERSION = "Ver 2025-11-04";
 
 var mode = "Select";
 var options = [];
@@ -222,6 +222,23 @@ function loadTools() {
             depth: drillDepth,
             step: drillStep,
             stepover: 0,
+            depthPercent: 100,
+            stepPercent: 25,
+        }, {
+            recid: 4,
+            color: 'F8CBAD',
+            name: "6mm Ball Nose",
+            direction: 'Climb',
+            diameter: 6,
+            flutes: 2,
+            rpm: 16000,
+            feed: 400,
+            zfeed: 150,
+            angle: 0,
+            bit: 'Ball Nose',
+            depth: 6,
+            step: 2,
+            stepover: 50,
             depthPercent: 100,
             stepPercent: 25,
         }];
@@ -895,23 +912,87 @@ function createSidebar() {
     drawToolsTab.addEventListener('shown.bs.tab', function () {
         autoCloseToolProperties('tab switch to Draw Tools');
         hideBottomPanel();
+        // Hide simulation overlay when Draw Tools is active in 2D view
+        const canvas2DView = document.getElementById('2d-view');
+        if (canvas2DView && canvas2DView.classList.contains('active')) {
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.add('d-none');
+        }
     });
 
     operationsTab.addEventListener('shown.bs.tab', function () {
         autoCloseToolProperties('tab switch to Operations');
         showBottomPanel();
+        // Show simulation overlay when Operations is active in 2D view
+        const canvas2DView = document.getElementById('2d-view');
+        if (canvas2DView && canvas2DView.classList.contains('active')) {
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.remove('d-none');
+        }
     });
 
     // Initialize panel visibility based on current active tab
     const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
     if (activeTab && activeTab.id === 'operations-tab') {
         showBottomPanel();
+        // Show 2D simulation overlay on init if Operations tab is active
+        const canvas2DView = document.getElementById('2d-view');
+        if (canvas2DView && canvas2DView.classList.contains('active')) {
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.remove('d-none');
+        }
     } else {
         hideBottomPanel();
+        // Hide 2D simulation overlay on init if Draw Tools is active
+        const overlay2D = document.getElementById('simulation-overlay-2d');
+        if (overlay2D) overlay2D.classList.add('d-none');
     }
 
     // Bootstrap automatically handles aria-expanded, no JS needed for chevron rotation
     // CSS handles the rotation based on [aria-expanded] attribute
+
+    // Add canvas tab change listeners to control 2D/3D overlay visibility
+    const canvas2DTab = document.getElementById('2d-tab');
+    const canvas3DTab = document.getElementById('3d-tab');
+    const canvasToolsTab = document.getElementById('tools-tab');
+
+    if (canvas2DTab) {
+        canvas2DTab.addEventListener('shown.bs.tab', function () {
+            // When switching to 2D view, show/hide overlay based on sidebar tab
+            const currentSidebarTab = document.querySelector('#sidebar-tabs .nav-link.active');
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) {
+                if (currentSidebarTab && currentSidebarTab.id === 'draw-tools-tab') {
+                    overlay2D.classList.add('d-none');
+                } else {
+                    overlay2D.classList.remove('d-none');
+                }
+            }
+            // Hide 3D overlay
+            const overlay3D = document.getElementById('simulation-overlay-3d');
+            if (overlay3D) overlay3D.classList.add('d-none');
+        });
+    }
+
+    if (canvas3DTab) {
+        canvas3DTab.addEventListener('shown.bs.tab', function () {
+            // When switching to 3D view, show 3D overlay and hide 2D overlay
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.add('d-none');
+            const overlay3D = document.getElementById('simulation-overlay-3d');
+            if (overlay3D) overlay3D.classList.remove('d-none');
+        });
+    }
+
+    if (canvasToolsTab) {
+        canvasToolsTab.addEventListener('shown.bs.tab', function () {
+            // When switching to Tools tab, hide both overlays
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.add('d-none');
+            const overlay3D = document.getElementById('simulation-overlay-3d');
+            if (overlay3D) overlay3D.classList.add('d-none');
+        });
+    }
 
     // Initialize G-code profiles UI
     initializeGcodeProfilesUI();
@@ -1537,7 +1618,7 @@ function showToolpathPropertiesEditor(toolpath) {
     const operationsPane = document.getElementById('operations');
 
     document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+    document.querySelectorAll('#sidebar-tabs ~ .sidebar-tab-content .tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
 
     operationsTab.classList.add('active');
     operationsPane.classList.add('show', 'active');
@@ -1733,6 +1814,165 @@ function updateShapeInPlace(path, data) {
 
 
 // Tool panel creation
+// Create 2D simulation controls in overlay
+function create2DSimulationControls() {
+    const overlayControls = document.getElementById('2d-simulation-controls');
+    overlayControls.innerHTML = `
+        <div class="row g-2 w-100">
+            <div class="col-auto">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="start-simulation">
+                    <i data-lucide="play"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="pause-simulation" disabled>
+                    <i data-lucide="pause"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="stop-simulation" disabled>
+                    <i data-lucide="octagon-x"></i>
+                </button>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Speed:</span>
+                <input type="range" class="form-range form-range-sm" id="simulation-speed" min="1" max="10" step="0.5" value="1" style="width: 60px;">
+                <span id="speed-display" class="small">1x</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Step:</span>
+                <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 150px;" disabled>
+                <span id="step-display" class="small">0/0</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Time:</span>
+                <span class="small"><span id="simulation-time">0:00</span>/<span id="total-time">0:00</span></span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Feed:</span>
+                <span class="small"><span id="feed-rate-display">0</span> mm/min</span>
+            </div>
+        </div>
+    `;
+
+    // Add simulation control event handlers
+    document.getElementById('start-simulation').addEventListener('click', startSimulation);
+    document.getElementById('pause-simulation').addEventListener('click', pauseSimulation);
+    document.getElementById('stop-simulation').addEventListener('click', stopSimulation);
+
+    // Simulation speed control
+    document.getElementById('simulation-speed').addEventListener('input', function (e) {
+        const speed = parseFloat(e.target.value);
+        document.getElementById('speed-display').textContent = speed + 'x';
+        if (typeof updateSimulationSpeed === 'function') {
+            updateSimulationSpeed(speed);
+        }
+    });
+
+    // Simulation step control
+    document.getElementById('simulation-step').addEventListener('input', function (e) {
+        const step = parseInt(e.target.value);
+        if (typeof setSimulationStep === 'function') {
+            setSimulationStep(step);
+        }
+    });
+}
+
+function create3DSimulationControls() {
+    const overlayControls = document.getElementById('3d-simulation-controls');
+    overlayControls.innerHTML = `
+        <div class="row g-2 w-100">
+            <div class="col-auto">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="3d-start-simulation">
+                    <i data-lucide="play"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="3d-pause-simulation" disabled>
+                    <i data-lucide="pause"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="3d-stop-simulation" disabled>
+                    <i data-lucide="octagon-x"></i>
+                </button>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Speed:</span>
+                <input type="range" class="form-range form-range-sm" id="3d-simulation-speed" min="1" max="10" step="0.5" value="4" style="width: 60px;">
+                <span id="3d-speed-display" class="small">4x</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Progress:</span>
+                <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="100" step="1" value="0" style="width: 150px;">
+                <span id="3d-progress-display" class="small">0%</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <label class="form-check-label small" style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" class="form-check-input" id="3d-show-axes" checked style="margin: 0; cursor: pointer;">
+                    <span>Axes</span>
+                </label>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <label class="form-check-label small" style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" class="form-check-input" id="3d-show-toolpath" checked style="margin: 0; cursor: pointer;">
+                    <span>Toolpath</span>
+                </label>
+            </div>
+        </div>
+    `;
+
+    // Wire up 3D controls
+    document.getElementById('3d-start-simulation').addEventListener('click', () => {
+        if (typeof startSimulation3D === 'function') {
+            startSimulation3D();
+        }
+    });
+
+    document.getElementById('3d-pause-simulation').addEventListener('click', () => {
+        if (typeof pauseSimulation3D === 'function') {
+            pauseSimulation3D();
+        }
+    });
+
+    document.getElementById('3d-stop-simulation').addEventListener('click', () => {
+        if (typeof stopSimulation3D === 'function') {
+            stopSimulation3D();
+        }
+    });
+
+    // Speed control
+    document.getElementById('3d-simulation-speed').addEventListener('input', function (e) {
+        const speed = parseFloat(e.target.value);
+        document.getElementById('3d-speed-display').textContent = speed.toFixed(1) + 'x';
+        if (typeof updateSimulation3DSpeed === 'function') {
+            updateSimulation3DSpeed(speed);
+        }
+    });
+
+    // Progress control
+    document.getElementById('3d-simulation-progress').addEventListener('input', function (e) {
+        const progress = parseFloat(e.target.value);
+        document.getElementById('3d-progress-display').textContent = Math.round(progress) + '%';
+        if (typeof setSimulation3DProgress === 'function') {
+            setSimulation3DProgress(progress / 100);
+        }
+    });
+
+    // Visibility checkboxes
+    document.getElementById('3d-show-axes').addEventListener('change', function (e) {
+        if (typeof setAxesVisibility3D === 'function') {
+            setAxesVisibility3D(e.target.checked);
+        }
+    });
+
+    document.getElementById('3d-show-toolpath').addEventListener('change', function (e) {
+        if (typeof setToolpathVisibility3D === 'function') {
+            setToolpathVisibility3D(e.target.checked);
+        }
+    });
+}
+
 function createToolPanel() {
     const toolPanel = document.getElementById('tool-panel');
     toolPanel.innerHTML = `
@@ -1744,36 +1984,9 @@ function createToolPanel() {
                 <button type="button" class="btn btn-outline-danger btn-sm" id="delete-tool" disabled>
                     <i data-lucide="trash-2"></i> Delete
                 </button>
-                <div class="border-start ps-3 d-flex gap-2 align-items-center">
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="start-simulation">
-                        <i data-lucide="play"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="pause-simulation" disabled>
-                        <i data-lucide="pause"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="stop-simulation" disabled>
-                        <i data-lucide="octagon-x"></i>
-                    </button>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="small">Speed:</span>
-                        <input type="range" class="form-range form-range-sm" id="simulation-speed" min="1" max="10" step="0.5" value="1" style="width: 60px;">
-                        <span id="speed-display" class="small">1x</span>
-                    </div>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="small">Step:</span>
-                        <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 240px;" disabled>
-                        <span id="step-display" class="small">0/0</span>
-                    </div>
-                    <div class="small text-muted">
-                        <span id="simulation-time">0:00</span>/<span id="total-time">0:00</span>
-                    </div>
-                    <div class="small text-muted">
-                        Feed: <span id="feed-rate-display">0</span> mm/min
-                    </div>
-                </div>
             </div>
         </div>
-        
+
         <div class="table-responsive">
             <table class="table table-sm tool-table" id="tool-table">
                 <thead>
@@ -1799,30 +2012,14 @@ function createToolPanel() {
     document.getElementById('add-tool').addEventListener('click', addTool);
     document.getElementById('delete-tool').addEventListener('click', deleteTool);
 
-    // Add simulation control event handlers
-    document.getElementById('start-simulation').addEventListener('click', startSimulation);
-    document.getElementById('pause-simulation').addEventListener('click', pauseSimulation);
-    document.getElementById('stop-simulation').addEventListener('click', stopSimulation);
-
-    // Simulation speed control
-    document.getElementById('simulation-speed').addEventListener('input', function (e) {
-        const speed = parseFloat(e.target.value);
-        document.getElementById('speed-display').textContent = speed + 'x';
-        if (typeof updateSimulationSpeed === 'function') {
-            updateSimulationSpeed(speed);
-        }
-    });
-
-    // Simulation step control
-    document.getElementById('simulation-step').addEventListener('input', function (e) {
-        const step = parseInt(e.target.value);
-        if (typeof setSimulationStep === 'function') {
-            setSimulationStep(step);
-        }
-    });
-
     // Render tools table
     renderToolsTable();
+
+    // Create 2D simulation controls in overlay
+    create2DSimulationControls();
+
+    // Create 3D simulation controls in overlay
+    create3DSimulationControls();
 }
 
 // Render tools table
@@ -1872,8 +2069,9 @@ function createToolRow(tool, index) {
         <td>
             <select data-field="bit" class="form-select form-select-sm">
                 <option value="End Mill" ${tool.bit === 'End Mill' ? 'selected' : ''}>End Mill</option>
-                <option value="Drill" ${tool.bit === 'Drill' ? 'selected' : ''}>Drill</option>
+                <option value="Ball Nose" ${tool.bit === 'Ball Nose' ? 'selected' : ''}>Ball Nose</option>
                 <option value="VBit" ${tool.bit === 'VBit' ? 'selected' : ''}>VBit</option>
+                <option value="Drill" ${tool.bit === 'Drill' ? 'selected' : ''}>Drill</option>
             </select>
         </td>
 
@@ -2868,7 +3066,7 @@ function handlePathClick(pathId) {
 
             // Switch to draw tools tab
             document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+            document.querySelectorAll('#sidebar-tabs ~ .sidebar-tab-content .tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
 
             drawToolsTab.classList.add('active');
             drawToolsPane.classList.add('show', 'active');
@@ -3569,27 +3767,13 @@ function w2popup() {
 // Make w2popup available globally for compatibility
 window.w2popup = w2popup();
 
-// Bottom panel visibility control functions
+// Bottom panel visibility control functions (deprecated - tool panel now in Tools tab)
 function showBottomPanel() {
-    const toolPanelContainer = document.querySelector('.tool-panel-container');
-    const bottomResize = document.getElementById('bottom-resize');
-    if (toolPanelContainer) {
-        toolPanelContainer.style.display = 'block';
-    }
-    if (bottomResize) {
-        bottomResize.style.display = 'block';
-    }
+    // Tool panel is now in the Tools tab, no longer a separate container
 }
 
 function hideBottomPanel() {
-    const toolPanelContainer = document.querySelector('.tool-panel-container');
-    const bottomResize = document.getElementById('bottom-resize');
-    if (toolPanelContainer) {
-        toolPanelContainer.style.display = 'none';
-    }
-    if (bottomResize) {
-        bottomResize.style.display = 'none';
-    }
+    // Tool panel is now in the Tools tab, no longer a separate container
 }
 
 // Resize functionality
@@ -3645,51 +3829,7 @@ function initializeResizeHandles() {
         });
     }
 
-    // Bottom panel vertical resize
-    if (bottomResize && toolPanelContainer) {
-        let isResizingBottom = false;
-        let startY = 0;
-        let startHeight = 0;
-
-        bottomResize.addEventListener('mousedown', function (e) {
-            isResizingBottom = true;
-            startY = e.clientY;
-            startHeight = parseInt(window.getComputedStyle(toolPanelContainer).height, 10);
-            bottomResize.classList.add('dragging');
-            document.body.style.cursor = 'row-resize';
-            document.body.style.userSelect = 'none';
-            e.preventDefault();
-        });
-
-        document.addEventListener('mousemove', function (e) {
-            if (!isResizingBottom) return;
-
-            const newHeight = startHeight - (e.clientY - startY);
-            const minHeight = 150;
-            const maxHeight = window.innerHeight * 0.6;
-
-            if (newHeight >= minHeight && newHeight <= maxHeight) {
-                toolPanelContainer.style.height = newHeight + 'px';
-            }
-        });
-
-        document.addEventListener('mouseup', function () {
-            if (isResizingBottom) {
-                isResizingBottom = false;
-                bottomResize.classList.remove('dragging');
-                document.body.style.cursor = '';
-                document.body.style.userSelect = '';
-
-                // Update canvas center after bottom panel resize
-                if (typeof updateCanvasCenter === 'function') {
-                    updateCanvasCenter();
-                    if (typeof redraw === 'function') {
-                        redraw();
-                    }
-                }
-            }
-        });
-    }
+    // Bottom panel resize removed - tool panel now in Tools tab
 }
 
 // Initialize when DOM is loaded

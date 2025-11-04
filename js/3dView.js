@@ -127,13 +127,22 @@ function refreshToolpath() {
   // Get current workpiece dimensions
   const { width: workpieceWidth, length: workpieceLength, thickness: workpieceThickness, originPosition } = getWorkpieceDimensions();
 
+  // Get wood species color
+  const woodSpecies = (typeof getOption === 'function') ? getOption('woodSpecies') : 'Pine';
+  let woodColor = 0x8B7355;  // Default wood color (brown)
+  if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
+    const colorHex = woodSpeciesDatabase[woodSpecies].color;
+    // Remove '#' and parse as hexadecimal with radix 16
+    woodColor = parseInt(colorHex.replace('#', ''), 16);
+  }
+
   // Remove old workpiece
   scene.remove(workpieceManager.mesh);
   if (workpieceManager.mesh.geometry) workpieceManager.mesh.geometry.dispose();
   if (workpieceManager.mesh.material) workpieceManager.mesh.material.dispose();
 
-  // Create new workpiece with current dimensions
-  workpieceManager = new WorkpieceManager(scene, workpieceWidth, workpieceLength, workpieceThickness, originPosition);
+  // Create new workpiece with current dimensions and wood color
+  workpieceManager = new WorkpieceManager(scene, workpieceWidth, workpieceLength, workpieceThickness, originPosition, woodColor);
   workpieceManager.mesh.visible = true;  // Show workpiece
 
   // Update the toolpath animation's reference
@@ -241,8 +250,17 @@ function initThree() {
   // Create and add tool visualization
   createToolVisualization(6);  // 6mm diameter tool
 
-  // Initialize workpiece manager with workpiece positioned correctly
-  workpieceManager = new WorkpieceManager(scene, workpieceWidth, workpieceLength, workpieceThickness, originPosition);
+  // Get wood species color for initial workpiece
+  const woodSpecies = (typeof getOption === 'function') ? getOption('woodSpecies') : 'Pine';
+  let woodColor = 0x8B7355;  // Default wood color (brown)
+  if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
+    const colorHex = woodSpeciesDatabase[woodSpecies].color;
+    // Remove '#' and parse as hexadecimal with radix 16
+    woodColor = parseInt(colorHex.replace('#', ''), 16);
+  }
+
+  // Initialize workpiece manager with workpiece positioned correctly and wood color
+  workpieceManager = new WorkpieceManager(scene, workpieceWidth, workpieceLength, workpieceThickness, originPosition, woodColor);
   workpieceManager.mesh.visible = true;  // Show workpiece
 
   // Initialize visualizers
@@ -264,8 +282,8 @@ function initThree() {
 
   orbitControls.setTarget(0, 0, 0);
 
-  // Create UI controls
-  createControlsUI(container);
+  // Simulation controls are now created by bootstrap-layout.js overlay system
+  // No need to create them here
 
   // Load toolpaths from generated G-code if available
   if (window.toolpaths && window.toolpaths.length > 0) {
@@ -469,9 +487,91 @@ function generateToolGeometryAtPosition(toolDiameter, posX, posY, posZ, toolType
 
     geometry = mergedGeometry;
   } else if (geometryToolType === 'BallNose' || geometryToolType === 'Ball Nose') {
-    // Ball nose: hemisphere at tip with cylinder shaft
-    const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
-    geometry = sphereGeometry;
+    // Ball nose: sphere at tip with cylinder shaft
+    // Shaft diameter is 3/4 the ball diameter, 30mm long
+    // Geometry created along Y axis, alignment code will swap to Z axis for world space
+    const sphereRadius = radius;
+    const shaftRadius = radius * 0.75;
+    const shaftHeight = 30;
+
+    // Create sphere geometry (centered at origin)
+    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 16, 16);
+    const spherePositions = sphereGeometry.attributes.position;
+
+    // Position sphere so its bottom (lowest point) is at Y=0
+    // Default sphere is centered at origin, so lowest point is at Y=-radius
+    // We need to shift up by radius so lowest point is at Y=0
+    for (let i = 0; i < spherePositions.count; i++) {
+      const y = spherePositions.getY(i);
+      spherePositions.setY(i, y + sphereRadius);
+    }
+    spherePositions.needsUpdate = true;
+    sphereGeometry.computeVertexNormals();
+
+    // Create cylinder for shaft above sphere (along Y axis)
+    // CylinderGeometry is Y-axis aligned by default
+    const cylinderGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 16);
+    const cylinderPositions = cylinderGeometry.attributes.position;
+
+    // Position cylinder so its bottom sits at sphere top (Y = 2*sphereRadius)
+    // Default cylinder: top at Y=+shaftHeight/2, bottom at Y=-shaftHeight/2
+    // Need: bottom at Y=2*sphereRadius, top at Y=2*sphereRadius+shaftHeight
+    for (let i = 0; i < cylinderPositions.count; i++) {
+      const y = cylinderPositions.getY(i);
+      cylinderPositions.setY(i, y + sphereRadius * 2 + shaftHeight / 2);
+    }
+    cylinderPositions.needsUpdate = true;
+    cylinderGeometry.computeVertexNormals();
+
+    // Merge sphere and cylinder geometries
+    const mergedGeometry = new THREE.BufferGeometry();
+    const combinedPositions = [];
+    const combinedNormals = [];
+    const combinedIndices = [];
+
+    // Add sphere vertices and indices
+    const spherePos = sphereGeometry.attributes.position;
+    const sphereNorm = sphereGeometry.attributes.normal;
+    for (let i = 0; i < spherePos.count; i++) {
+      combinedPositions.push(spherePos.getX(i), spherePos.getY(i), spherePos.getZ(i));
+      if (sphereNorm) {
+        combinedNormals.push(sphereNorm.getX(i), sphereNorm.getY(i), sphereNorm.getZ(i));
+      }
+    }
+
+    if (sphereGeometry.index) {
+      for (let i = 0; i < sphereGeometry.index.count; i++) {
+        combinedIndices.push(sphereGeometry.index.getX(i));
+      }
+    }
+
+    // Add cylinder vertices and indices
+    const cylPos = cylinderGeometry.attributes.position;
+    const cylNorm = cylinderGeometry.attributes.normal;
+    const sphereVertexCount = spherePos.count;
+    for (let i = 0; i < cylPos.count; i++) {
+      combinedPositions.push(cylPos.getX(i), cylPos.getY(i), cylPos.getZ(i));
+      if (cylNorm) {
+        combinedNormals.push(cylNorm.getX(i), cylNorm.getY(i), cylNorm.getZ(i));
+      }
+    }
+
+    if (cylinderGeometry.index) {
+      for (let i = 0; i < cylinderGeometry.index.count; i++) {
+        combinedIndices.push(cylinderGeometry.index.getX(i) + sphereVertexCount);
+      }
+    }
+
+    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(combinedPositions), 3));
+    if (combinedNormals.length > 0) {
+      mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(combinedNormals), 3));
+    }
+    if (combinedIndices.length > 0) {
+      mergedGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(combinedIndices), 1));
+    }
+    mergedGeometry.computeVertexNormals();
+
+    geometry = mergedGeometry;
   } else if (geometryToolType === 'Drill') {
     // Drill bit: cylindrical body with conical pointed tip
     // Tip angle is typically around 118 degrees, so half angle is 59 degrees
@@ -585,10 +685,11 @@ function generateToolGeometryAtPosition(toolDiameter, posX, posY, posZ, toolType
       alignedY = z;
       alignedZ = y;  // Tip is at Y=0, positioned at posZ in world space
     } else if (geometryToolType === 'Ball Nose' || geometryToolType === 'BallNose') {
-      // Ball nose: keep as is for now (sphere geometry)
+      // Ball nose (sphere + shaft): align with Z axis
+      // The tip (sphere bottom) is at Y=0 in local space, positioned at gcode location
       alignedX = x;
-      alignedY = y;
-      alignedZ = z;
+      alignedY = z;
+      alignedZ = y;  // Tip is at Y=0, positioned at posZ in world space
     } else {
       // Unknown types: default to cylinder behavior
       alignedX = x;
@@ -698,7 +799,8 @@ function updateWorkpiece3D(width, length, thickness, originPosition, woodSpecies
   if (typeof woodSpeciesDatabase !== 'undefined' && woodSpeciesDatabase[woodSpecies]) {
     const colorHex = woodSpeciesDatabase[woodSpecies].color;
     // Convert CSS hex color (e.g., '#F5DEB3') to THREE.js hex (e.g., 0xF5DEB3)
-    woodColor = parseInt(colorHex.replace('#', '0x'));
+    // Remove '#' and parse as hexadecimal with radix 16
+    woodColor = parseInt(colorHex.replace('#', ''), 16);
   }
 
   // Remove old workpiece
@@ -718,126 +820,78 @@ function updateWorkpiece3D(width, length, thickness, originPosition, woodSpecies
 
 window.updateWorkpiece3D = updateWorkpiece3D;
 
-function createControlsUI(container) {
-  const controlsPanel = document.createElement('div');
-  controlsPanel.id = '3d-controls-panel';
-  controlsPanel.style.cssText = `
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.8);
-    color: #fff;
-    padding: 15px;
-    border-radius: 5px;
-    font-family: Arial, sans-serif;
-    font-size: 12px;
-    z-index: 100;
-    min-width: 300px;
-  `;
-
-  controlsPanel.innerHTML = `
-    <div style="margin-bottom: 10px;">
-      <strong>Simulation Controls</strong>
-    </div>
-    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-      <button id="play-pause-btn" style="padding: 5px 15px; cursor: pointer;">Play</button>
-      <span id="sim-status" style="flex: 1; text-align: right;">Ready</span>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <label>Speed: </label>
-      <input id="speed-slider" type="range" min="1" max="10" step="0.5" value="4" style="width: 150px;">
-      <span id="speed-display">4.0x</span>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <label>Progress: </label>
-      <input id="progress-slider" type="range" min="0" max="100" value="0" style="width: 150px;">
-      <span id="progress-display">0%</span>
-    </div>
-    <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #555;">
-      <div style="margin-bottom: 8px;">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input id="show-axes-checkbox" type="checkbox" checked style="cursor: pointer;">
-          <span>Show Axes</span>
-        </label>
-      </div>
-      <div>
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input id="show-toolpath-checkbox" type="checkbox" checked style="cursor: pointer;">
-          <span>Show Toolpath</span>
-        </label>
-      </div>
-    </div>
-    <div style="font-size: 11px; margin-top: 10px; color: #aaa;">
-      Left click: Rotate • Middle click: Pan • Scroll: Zoom
-    </div>
-  `;
-
-  container.style.position = 'relative';
-  container.appendChild(controlsPanel);
-
-  // Wire up controls
-  const playPauseBtn = document.getElementById('play-pause-btn');
-  const speedSlider = document.getElementById('speed-slider');
-  const progressSlider = document.getElementById('progress-slider');
-  const showAxesCheckbox = document.getElementById('show-axes-checkbox');
-  const showToolpathCheckbox = document.getElementById('show-toolpath-checkbox');
-
-  playPauseBtn.addEventListener('click', () => {
-    if (toolpathAnimation.isPlaying) {
-      // Currently playing - pause it
-      toolpathAnimation.pause();
-      playPauseBtn.textContent = 'Play';
-    } else {
-      // Currently paused - check if we need to restart from beginning
-      if (toolpathAnimation.progress >= 1) {
-        // Simulation completed - reset to beginning
-        toolpathAnimation.setProgress(0);
-      }
-      toolpathAnimation.play();
-      playPauseBtn.textContent = 'Pause';
-    }
-  });
-
-  speedSlider.addEventListener('input', (e) => {
-    const speed = parseFloat(e.target.value);
-    toolpathAnimation.setSpeed(speed);
-    document.getElementById('speed-display').textContent = speed.toFixed(1) + 'x';
-  });
-
-  progressSlider.addEventListener('input', (e) => {
-    const progress = parseFloat(e.target.value);
-    toolpathAnimation.setProgress(progress / 100);
-    document.getElementById('progress-display').textContent = Math.round(progress) + '%';
-  });
-
-  // Wire up visibility checkboxes
-  showAxesCheckbox.addEventListener('change', (e) => {
-    setAxesVisibility(e.target.checked);
-  });
-
-  showToolpathCheckbox.addEventListener('change', (e) => {
-    setToolpathVisibility(e.target.checked);
-  });
-
-  // Update status display
-  toolpathAnimation.onStatusChange = (status) => {
-    document.getElementById('sim-status').textContent = status;
-  };
-}
-
-function setAxesVisibility(visible) {
-  // Toggle visibility of all three axis lines using stored references
+// Wrapper functions for 3D simulation controls called from bootstrap-layout.js
+window.setAxesVisibility3D = function(visible) {
   if (axisLines.x) axisLines.x.visible = visible;
   if (axisLines.y) axisLines.y.visible = visible;
   if (axisLines.z) axisLines.z.visible = visible;
-}
+};
 
-function setToolpathVisibility(visible) {
-  // Toggle visibility of all toolpath lines
+window.setToolpathVisibility3D = function(visible) {
   if (!toolpathAnimation || !toolpathAnimation.toolpathLines) return;
-
   for (const line of toolpathAnimation.toolpathLines) {
     line.visible = visible;
+  }
+};
+
+window.startSimulation3D = function() {
+  if (toolpathAnimation && !toolpathAnimation.isPlaying) {
+    if (toolpathAnimation.progress >= 1) {
+      toolpathAnimation.setProgress(0);
+    }
+    toolpathAnimation.play();
+    updateSimulation3DUI();
+  }
+};
+
+window.pauseSimulation3D = function() {
+  if (toolpathAnimation && toolpathAnimation.isPlaying) {
+    toolpathAnimation.pause();
+    updateSimulation3DUI();
+  }
+};
+
+window.stopSimulation3D = function() {
+  if (toolpathAnimation) {
+    toolpathAnimation.pause();
+    toolpathAnimation.setProgress(0);
+    updateSimulation3DUI();
+  }
+};
+
+window.updateSimulation3DSpeed = function(speed) {
+  if (toolpathAnimation) {
+    toolpathAnimation.setSpeed(speed);
+  }
+};
+
+window.setSimulation3DProgress = function(progress) {
+  if (toolpathAnimation) {
+    toolpathAnimation.setProgress(progress);
+  }
+};
+
+function updateSimulation3DUI() {
+  const startBtn = document.getElementById('3d-start-simulation');
+  const pauseBtn = document.getElementById('3d-pause-simulation');
+  const stopBtn = document.getElementById('3d-stop-simulation');
+  const progressSlider = document.getElementById('3d-simulation-progress');
+
+  if (!startBtn || !pauseBtn || !stopBtn) return;
+
+  if (toolpathAnimation && toolpathAnimation.isPlaying) {
+    startBtn.disabled = true;
+    pauseBtn.disabled = false;
+    stopBtn.disabled = false;
+  } else {
+    startBtn.disabled = false;
+    pauseBtn.disabled = true;
+    stopBtn.disabled = true;
+  }
+
+  if (progressSlider && toolpathAnimation) {
+    progressSlider.value = toolpathAnimation.getProgress() * 100;
+    document.getElementById('3d-progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
   }
 }
 
@@ -857,11 +911,11 @@ function animate() {
   if (toolpathAnimation) {
     toolpathAnimation.update();
 
-    // Update progress slider
-    const progressSlider = document.getElementById('progress-slider');
+    // Update 3D progress slider in overlay
+    const progressSlider = document.getElementById('3d-simulation-progress');
     if (progressSlider) {
       progressSlider.value = toolpathAnimation.getProgress() * 100;
-      document.getElementById('progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
+      document.getElementById('3d-progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
     }
   }
   const updateTime = performance.now() - updateStart;
@@ -940,21 +994,6 @@ function onWindowResize() {
  
   }
 
-function olddoResize()
-{
-    const container = document.getElementById('3d-canvas-container');
-    if (!container || !renderer || !camera) return;
-
-    let newWidth = container.clientWidth-10;
-    let newHeight = container.clientHeight;
-    console.log('doResize - Container dimensions:', newWidth, 'x', newHeight);
-
-    if (newWidth > 0 && newHeight > 0) {
-        camera.aspect = newWidth / newHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(newWidth, newHeight);
-    }
-}
 
 // ============ WORKPIECE MANAGER ============
 class WorkpieceManager {
@@ -1113,6 +1152,10 @@ class ToolpathAnimation {
     this.elapsedTime = 0;  // Elapsed time in current animation playback
     this.lastSubtractionSegmentIndex = -1;  // Track last segment where we performed subtraction
     this.subtractionStepDistance = 2;  // Subtract every N mm of movement (reduced for smoother cuts)
+    this.toolCommentsInOrder = [];  // Array of tool comments in chronological order for tool switching
+    this.currentToolCommentIndex = 0;  // Track which tool comment we're currently using
+    this.lastSegmentIndex = -1;  // Track last segment to detect segment changes
+    this.toolChangesByTime = {};  // Map of cumulative time -> tool info for precise tool switching
 
     // Voxel-based material removal
     this.voxelGrid = null;
@@ -1173,12 +1216,8 @@ class ToolpathAnimation {
     try {
       // Dispose of old voxel grid if it exists
       if (this.voxelGrid) {
-        const meshes = this.voxelGrid.getMesh();
-        if (Array.isArray(meshes)) {
-          meshes.forEach(mesh => this.scene.remove(mesh));
-        } else {
-          this.scene.remove(meshes);
-        }
+        const voxelMesh = this.voxelGrid.getMesh();
+        this.scene.remove(voxelMesh);
         this.voxelGrid.dispose();
       }
 
@@ -1205,10 +1244,6 @@ class ToolpathAnimation {
       // Get workpiece color
       const woodColor = this.workpieceManager.woodColor || 0x8B6914;
 
-      // Use tool step-down for Z voxel size if available, otherwise default to 1mm
-      // (For V-Carve and other operations without step-down parameter)
-      const voxelSizeZ = this.toolInfo?.stepDown || 1;
-
       // Calculate toolpath bounding box
       const bounds = this.calculateToolPathBounds();
       let gridWidth = width;
@@ -1233,15 +1268,28 @@ class ToolpathAnimation {
         const clippedMinZ = Math.max(bounds.minZ, materialMinZ);
         const clippedMaxZ = Math.min(bounds.maxZ, materialMaxZ);
 
+        let clippedWidth = clippedMaxX - clippedMinX;
+        let clippedLength = clippedMaxY - clippedMinY;
+        let numberOfVoxels = clippedWidth*clippedLength/(this.voxelSize*this.voxelSize);
+
+    
+        while (numberOfVoxels > 750000)
+        {
+            this.voxelSize += 0.1;
+            numberOfVoxels = clippedWidth*clippedLength/(this.voxelSize*this.voxelSize);
+
+        }
+        console.log("number of voxels = "+numberOfVoxels+ " voxex size = "+this.voxelSize);     
+  
+
         // Round clipped bounds UP to clean voxel boundaries to ensure all in-bounds toolpath is captured
         const toolpathWidthMM = Math.ceil((clippedMaxX - clippedMinX) / this.voxelSize) * this.voxelSize;
         const toolpathLengthMM = Math.ceil((clippedMaxY - clippedMinY) / this.voxelSize) * this.voxelSize;
-        const toolpathDepthMM = Math.ceil((clippedMaxZ - clippedMinZ) / voxelSizeZ) * voxelSizeZ;
 
         // Final clip to material bounds (safety check)
         gridWidth = Math.min(toolpathWidthMM, width);
         gridLength = Math.min(toolpathLengthMM, length);
-        gridThickness = Math.min(toolpathDepthMM, thickness);
+        gridThickness = thickness;  // Always use full material thickness for 2D height-based voxels
 
         // Use clipped bounds center for grid origin
         gridOrigin = new THREE.Vector3(
@@ -1252,28 +1300,23 @@ class ToolpathAnimation {
       }
 
 
-      // Create new voxel grid (sparse, based on bounding box)
+      // Create new voxel grid (2D grid with height-based voxels)
       this.voxelGrid = new VoxelGrid(
         gridWidth,
         gridLength,
         gridThickness,
         this.voxelSize,
         gridOrigin,
-        woodColor,
-        voxelSizeZ
+        woodColor
       );
 
 
-      // Add voxel meshes to scene (both top layer and internal)
-      const voxelMeshes = this.voxelGrid.getMesh();
-      if (Array.isArray(voxelMeshes)) {
-        voxelMeshes.forEach(mesh => this.scene.add(mesh));
-      } else {
-        this.scene.add(voxelMeshes);
-      }
+      // Add voxel mesh to scene (single 2D height-based mesh)
+      const voxelMesh = this.voxelGrid.getMesh();
+      this.scene.add(voxelMesh);
 
-      // Create wireframe outline showing full workpiece extent
-      this.createWorkpieceOutlineBox(width, length, thickness);
+      // Create solid boxes filling gaps between workpiece and voxel grid
+      this.createWorkpieceOutlineBox(width, length, thickness, gridWidth, gridLength, gridOrigin);
 
       // Hide original workpiece mesh when voxels are active (voxels replace the visual representation)
       if (this.workpieceManager && this.workpieceManager.mesh) {
@@ -1289,49 +1332,143 @@ class ToolpathAnimation {
   }
 
   /**
-   * Create wireframe outline box showing full workpiece boundaries
+   * Create single InstancedMesh with 4 large filler voxels
+   * Fills gaps between workpiece edges and voxel grid edges
+   * Uses exact same coloring as main voxel grid for seamless appearance
    * @param {number} width - Workpiece width in mm
    * @param {number} length - Workpiece length in mm
    * @param {number} thickness - Workpiece thickness in mm
+   * @param {number} gridWidth - Voxel grid width in mm
+   * @param {number} gridLength - Voxel grid length in mm
+   * @param {THREE.Vector3} gridOrigin - Center position of voxel grid in world space
    */
-  createWorkpieceOutlineBox(width, length, thickness) {
-    // Create vertices for the 8 corners of the workpiece box
-    const w = width / 2;
-    const l = length / 2;
-    const vertices = [
-      // Top face (Z=0)
-      -w, -l, 0,    // 0: front-left
-      w, -l, 0,     // 1: front-right
-      w, l, 0,      // 2: back-right
-      -w, l, 0,     // 3: back-left
-      // Bottom face (Z=-thickness)
-      -w, -l, -thickness,  // 4: front-left
-      w, -l, -thickness,   // 5: front-right
-      w, l, -thickness,    // 6: back-right
-      -w, l, -thickness    // 7: back-left
-    ];
+  createWorkpieceOutlineBox(width, length, thickness, gridWidth, gridLength, gridOrigin) {
+    // Get workpiece color
+    let woodColor = 0x8B6914;  // Default wood color
+    if (typeof getOption === 'function') {
+      const woodSpecies = getOption('woodSpecies');
+      const colorHex = woodSpeciesDatabase[woodSpecies]?.color || '#8B6914';
+      woodColor = parseInt(colorHex.replace('#', ''), 16);
+    } else if (this.workpieceManager?.woodColor) {
+      woodColor = this.workpieceManager.woodColor;
+    }
 
-    // Create 12 edges connecting the vertices
-    const indices = [
-      // Top face edges
-      0, 1, 1, 2, 2, 3, 3, 0,
-      // Bottom face edges
-      4, 5, 5, 6, 6, 7, 7, 4,
-      // Vertical edges
-      0, 4, 1, 5, 2, 6, 3, 7
-    ];
+    // Calculate workpiece boundaries (centered at origin)
+    const wpMinX = -width / 2;
+    const wpMaxX = width / 2;
+    const wpMinY = -length / 2;
+    const wpMaxY = length / 2;
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
-    geometry.setIndex(new THREE.BufferAttribute(new Uint16Array(indices), 1));
+    // Calculate voxel grid boundaries (centered at gridOrigin)
+    const vgMinX = gridOrigin.x - gridWidth / 2;
+    const vgMaxX = gridOrigin.x + gridWidth / 2;
+    const vgMinY = gridOrigin.y - gridLength / 2;
+    const vgMaxY = gridOrigin.y + gridLength / 2;
 
-    const material = new THREE.LineBasicMaterial({
-      color: 0x888888,  // Gray wireframe
-      linewidth: 2,
-      fog: false
+    // Collect filler box data (up to 4 boxes)
+    const fillerBoxes = [];
+
+    // LEFT BOX: from workpiece left to voxel grid left
+    if (vgMinX > wpMinX) {
+      fillerBoxes.push({
+        width: vgMinX - wpMinX,
+        length: gridLength,
+        x: wpMinX + (vgMinX - wpMinX) / 2,
+        y: gridOrigin.y,
+        z: -thickness / 2
+      });
+    }
+
+    // RIGHT BOX: from voxel grid right to workpiece right
+    if (vgMaxX < wpMaxX) {
+      fillerBoxes.push({
+        width: wpMaxX - vgMaxX,
+        length: gridLength,
+        x: vgMaxX + (wpMaxX - vgMaxX) / 2,
+        y: gridOrigin.y,
+        z: -thickness / 2
+      });
+    }
+
+    // FRONT BOX: full workpiece width
+    if (vgMinY > wpMinY) {
+      fillerBoxes.push({
+        width: width,
+        length: vgMinY - wpMinY,
+        x: 0,
+        y: wpMinY + (vgMinY - wpMinY) / 2,
+        z: -thickness / 2
+      });
+    }
+
+    // BACK BOX: full workpiece width
+    if (vgMaxY < wpMaxY) {
+      fillerBoxes.push({
+        width: width,
+        length: wpMaxY - vgMaxY,
+        x: 0,
+        y: vgMaxY + (wpMaxY - vgMaxY) / 2,
+        z: -thickness / 2
+      });
+    }
+
+    // Only create InstancedMesh if there are filler boxes
+    if (fillerBoxes.length === 0) {
+      this.workpieceOutlineBox = new THREE.Group();
+      this.scene.add(this.workpieceOutlineBox);
+      return;
+    }
+
+    // Create geometry for large filler voxels (same structure as main voxel grid)
+    const geometry = new THREE.BoxGeometry(1, 1, thickness);
+    geometry.computeVertexNormals();
+
+    const positions = geometry.attributes.position.array;
+    const normals = geometry.attributes.normal.array;
+    const materialColor = new THREE.Color(woodColor);
+
+    const colors = [];
+    for (let i = 0; i < positions.length; i += 3) {
+      const normalZ = normals[i + 2];
+      const absNormalZ = Math.abs(normalZ);
+
+      // Top/bottom faces get wood color, sides get wood color for consistent appearance
+      colors.push(materialColor.r, materialColor.g, materialColor.b);
+    }
+
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+
+    // Create material (same as voxel grid)
+    const material = new THREE.MeshPhongMaterial({
+      vertexColors: true,
+      shininess: 30,
+      transparent: false,
+      opacity: 1.0,
+      wireframe: false
     });
 
-    this.workpieceOutlineBox = new THREE.LineSegments(geometry, material);
+    // Create InstancedMesh for filler voxels
+    this.workpieceOutlineBox = new THREE.InstancedMesh(geometry, material, fillerBoxes.length);
+    this.workpieceOutlineBox.castShadow = true;
+    this.workpieceOutlineBox.receiveShadow = true;
+
+    // Create dummy object for transforms
+    const dummy = new THREE.Object3D();
+
+    // Position each filler voxel
+    for (let i = 0; i < fillerBoxes.length; i++) {
+      const box = fillerBoxes[i];
+
+      dummy.position.set(box.x, box.y, box.z);
+      dummy.scale.set(box.width, box.length, 1);  // Scale to box dimensions
+      dummy.updateMatrix();
+
+      this.workpieceOutlineBox.setMatrixAt(i, dummy.matrix);
+      this.workpieceOutlineBox.setColorAt(i, materialColor);
+    }
+
+    this.workpieceOutlineBox.instanceMatrix.needsUpdate = true;
+
     this.scene.add(this.workpieceOutlineBox);
   }
 
@@ -1506,6 +1643,9 @@ class ToolpathAnimation {
     this.calculateAnimationTiming(movements);
     timers.animationTime = performance.now() - timers.animationStart;
 
+    // Build tool changes by time mapping for precise tool switching during animation
+    this.buildToolChangesByTime(lines);
+
     // Visualize the complete toolpath with G0/G1 distinction
     timers.visualizeStart = performance.now();
     this.visualizeToolpathWithGCode(movements);
@@ -1547,9 +1687,13 @@ class ToolpathAnimation {
     // Parse tool information comments from G-code
     // Format: (Tool: ID=X Type=Y Diameter=Z Angle=A [StepDown=S])
     this.toolInfo = {};
+    this.toolCommentsByLineIndex = {};  // Map of line index to tool info for tool switching during animation
+    this.toolCommentsInOrder = [];  // Array of unique tool comments in order they appear
     const lines = gcode.split('\n');
+    const seenToolIds = new Set();  // Track which tool IDs we've already added to avoid duplicates
 
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
       const trimmed = line.trim();
       if (trimmed.includes('Tool:')) {
         // Extract tool information from comment (StepDown is optional)
@@ -1559,7 +1703,7 @@ class ToolpathAnimation {
           const toolId = toolMatch[1];
           const toolType = toolMatch[2].trim();  // Trim whitespace from type (keep original: End Mill, Ball Nose, VBit, Drill)
 
-          this.toolInfo = {
+          const toolData = {
             id: toolId,
             type: toolType,  // Store original type name (End Mill, Ball Nose, VBit, Drill)
             diameter: parseFloat(toolMatch[3]),
@@ -1567,7 +1711,66 @@ class ToolpathAnimation {
             stepDown: toolMatch[5] ? parseFloat(toolMatch[5]) : null
           };
 
+          // Store all tool comments for tool switching during animation
+          this.toolCommentsByLineIndex[lineIndex] = toolData;
+
+          // Track tool comment appearances in chronological order (avoid consecutive duplicates)
+          if (!seenToolIds.has(toolId) || this.toolCommentsInOrder.length === 0 ||
+              this.toolCommentsInOrder[this.toolCommentsInOrder.length - 1].id !== toolId) {
+            this.toolCommentsInOrder.push(toolData);
+            seenToolIds.add(toolId);
+          }
+
+          // Use FIRST tool comment for initialization
+          if (Object.keys(this.toolInfo).length === 0) {
+            this.toolInfo = toolData;
+          }
         }
+      }
+    }
+  }
+
+  buildToolChangesByTime(lines) {
+    // Build a map of cumulative times where tool changes occur
+    // This allows precise tool switching during animation playback
+    this.toolChangesByTime = {};
+
+    // Count total G0/G1 command lines for percentage calculation
+    let totalMovementLines = 0;
+    let movementLineIndices = [];  // Track which lines have G0/G1 commands
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (!trimmed || trimmed.startsWith('(') || trimmed.startsWith(';')) continue;
+
+      const isG0 = trimmed.includes('G0 ') || trimmed.startsWith('G0');
+      const isG1 = trimmed.includes('G1 ') || trimmed.startsWith('G1');
+      if (isG0 || isG1) {
+        movementLineIndices[totalMovementLines] = i;
+        totalMovementLines++;
+      }
+    }
+
+    // For each tool comment, determine its cumulative time
+    for (const lineIndex in this.toolCommentsByLineIndex) {
+      const toolData = this.toolCommentsByLineIndex[lineIndex];
+      const lineNum = parseInt(lineIndex);
+
+      // Find which movement this tool comment is near
+      // Look for the first G0/G1 command at or after this tool comment
+      let movementIndex = -1;
+      for (let i = 0; i < movementLineIndices.length; i++) {
+        if (movementLineIndices[i] >= lineNum) {
+          movementIndex = i;
+          break;
+        }
+      }
+
+      if (movementIndex >= 0 && movementIndex < this.movementTiming.length) {
+        const cumulativeTime = this.movementTiming[movementIndex].cumulativeTime;
+        // Use the cumulative time as key to store tool change
+        // First tool at time 0, rest at their respective times
+        this.toolChangesByTime[cumulativeTime.toFixed(6)] = toolData;
       }
     }
   }
@@ -1889,6 +2092,39 @@ class ToolpathAnimation {
       segmentIndex = i;  // In case we're past the last point
     }
 
+    // Check if we should switch to a different tool based on cumulative time
+    if (this.toolChangesByTime && Object.keys(this.toolChangesByTime).length > 0) {
+      // Find which tool to use based on current elapsed time
+      let toolForCurrentTime = this.toolInfo;  // Default to current tool
+      let toolChangeTime = 0;
+
+      // Find the latest tool change that has occurred
+      for (const timeStr in this.toolChangesByTime) {
+        const time = parseFloat(timeStr);
+        if (time <= this.elapsedTime && time > toolChangeTime) {
+          toolChangeTime = time;
+          toolForCurrentTime = this.toolChangesByTime[timeStr];
+        }
+      }
+
+      // Switch tools if different from current
+      if (toolForCurrentTime !== this.toolInfo) {
+        this.toolInfo = toolForCurrentTime;
+
+        // Update tool radius for visualization
+        if (this.toolInfo?.diameter) {
+          this.toolRadius = this.toolInfo.diameter / 2;
+        }
+
+        // Regenerate tool geometry with new tool info
+        const lastMove = this.movementTiming[Math.min(segmentIndex, this.movementTiming.length - 1)];
+        if (lastMove) {
+          updateToolMesh(this.toolRadius * 2, lastMove.x, lastMove.y, lastMove.z,
+            this.toolInfo?.type || 'End Mill', this.toolInfo?.angle || 0);
+        }
+      }
+    }
+
     let toolX, toolY, toolZ;
     let isG1 = false;  // Track if current move is a cutting move
 
@@ -1951,6 +2187,10 @@ class ToolpathAnimation {
         }
 
         // Track last tool position for interpolated removal along path
+        // Check if previous move was a G0 (rapid) - if so, don't interpolate across the gap
+        const prevMove = segmentIndex > 0 ? this.movementTiming[segmentIndex - 1] : null;
+        const prevWasRapid = prevMove && !prevMove.isG1;  // Previous move was G0
+
         if (!this.lastToolPos) {
           this.lastToolPos = { x: toolX, y: toolY, z: toolZ };
         }
@@ -1962,11 +2202,10 @@ class ToolpathAnimation {
         const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
         // If tool moved more than 1mm, interpolate removal along the path
-        if (distance > 1) {
+        // But don't interpolate across G0 moves (after rapid travel between holes)
+        if (distance > 1 && !prevWasRapid) {
           const steps = Math.ceil(distance);
-          if (Math.floor(this.elapsedTime) > (window.lastRemovalLogTime || 0) - 1) {
-            console.log(`  → Taking interpolation path: ${steps} steps`);
-          }
+
           for (let i = 0; i <= steps; i++) {
             const t = steps > 0 ? i / steps : 0;
             const interpX = this.lastToolPos.x + dx * t;
@@ -1993,7 +2232,7 @@ class ToolpathAnimation {
       // Report average every 100 frames
       if (voxelRemovalFrameCount % 100 === 0) {
         const avg = (voxelRemovalTotalTime / voxelRemovalFrameCount).toFixed(2);
-        console.log(`[Voxel Removal Profile] Frames: ${voxelRemovalFrameCount}, Avg: ${avg}ms`);
+       // console.log(`[Voxel Removal Profile] Frames: ${voxelRemovalFrameCount}, Avg: ${avg}ms`);
 
         // Reset counters for next 100 frames
         voxelRemovalFrameCount = 0;
@@ -2011,14 +2250,6 @@ class ToolpathAnimation {
     if (this.onStatusChange) {
       const status = this.isPlaying ? 'Playing...' : (this.progress >= 1 ? 'Complete' : 'Paused');
       this.onStatusChange(status);
-    }
-
-    // Update button text if simulation is complete
-    if (this.progress >= 1) {
-      const playPauseBtn = document.getElementById('play-pause-btn');
-      if (playPauseBtn) {
-        playPauseBtn.textContent = 'Play';
-      }
     }
   }
 }

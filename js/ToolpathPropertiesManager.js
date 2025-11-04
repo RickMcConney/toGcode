@@ -13,12 +13,12 @@ class ToolpathPropertiesManager {
                 description: 'Drill holes at selected points'
             },
             'Profile': {
-                compatibleBits: ['End Mill', 'VBit'],
+                compatibleBits: ['End Mill', 'Ball Nose', 'VBit'],
                 fields: ['tool', 'depth', 'step', 'inside', 'direction'],
                 description: 'Cut along the profile of the selected path'
             },
             'Pocket': {
-                compatibleBits: ['End Mill'],
+                compatibleBits: ['End Mill', 'Ball Nose'],
                 fields: ['tool', 'depth', 'step', 'stepover', 'direction'],
                 description: 'Remove all material inside the path'
             },
