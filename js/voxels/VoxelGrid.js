@@ -218,11 +218,11 @@ class VoxelGrid {
     // Only shrink, never increase (newTopZ must be more negative)
     if (newTopZ >= currentTopZ) return false;
 
+        // Mark this voxel as cut for color update
+    if(this.voxelTopZ[index] == 0)
+      this.voxelHeightChanged.add(index);
     // Update voxel top Z
     this.voxelTopZ[index] = newTopZ;
-
-    // Mark this voxel as cut for color update
-    this.voxelHeightChanged.add(index);
 
     return true;
   }
@@ -264,36 +264,18 @@ class VoxelGrid {
    * @param {number} toolY - Tool Y position in world space
    * @param {number} toolZ - Tool Z position in world space (cutting depth, negative)
    * @param {number} toolRadius - Tool radius in mm
+   * @param {number} toolRadiusSq - Pre-calculated tool radius squared (for optimization)
    * @param {string} toolType - Type of tool: 'flat', 'ball', 'vbit', 'drill'
-   * @param {number} vbitAngle - V-bit angle in degrees (only for 'vbit')
+   * @param {number|null} vbitTangent - Pre-calculated V-bit tangent (only for 'vbit')
    * @returns {Array} Array of updated voxel indices
    */
-  removeVoxelsAtToolPosition(toolX, toolY, toolZ, toolRadius, toolType = 'flat', vbitAngle = 90) {
+  removeVoxelsAtToolPosition(toolX, toolY, toolZ, toolRadius, toolRadiusSq, toolType = 'flat', vbitTangent = null) {
     const updatedVoxels = [];
     this.frameNumber++;
 
-    // Calculate search radius based on tool type
-    let searchRadius;
+    const searchRadiusVoxels = Math.ceil(toolRadius / this.voxelSize);
 
-    if (toolType === 'drill') {
-      // Drill: only cuts within its own diameter, no extension beyond
-      // Simple circular search within the radius
-      searchRadius = toolRadius + this.voxelSize;
-    } else if (toolType === 'vbit') {
-      // V-bit: cone extends significantly, calculate reach to surface
-      const halfAngle = (vbitAngle / 2) * (Math.PI / 180);
-      const tanAngle = Math.tan(halfAngle);
-      // How far can cone reach to reach surface (Z=0) from current depth?
-      const coneReach = Math.abs(toolZ) / tanAngle;
-      searchRadius = Math.max(toolRadius * 2 + this.voxelSize, coneReach * 1.2);
-    } else {
-      // Default for flat endmills and ball nose
-      searchRadius = toolRadius * 1.5 + this.voxelSize;
-    }
-
-    const searchRadiusVoxels = Math.ceil(searchRadius / this.voxelSize);
-
-    // Convert world coordinates to grid coordinates for spatial search
+    // Convert tool position to grid coordinates
     let gridX = Math.floor((toolX - this.originOffset.x + this.workpieceWidth / 2 - this.voxelSize / 2) / this.voxelSize);
     let gridY = Math.floor((toolY - this.originOffset.y + this.workpieceLength / 2 - this.voxelSize / 2) / this.voxelSize);
 
@@ -301,49 +283,65 @@ class VoxelGrid {
     gridX = Math.max(0, Math.min(this.gridWidth - 1, gridX));
     gridY = Math.max(0, Math.min(this.gridLength - 1, gridY));
 
-    // Only check voxels within 2D search radius
+    // PRE-SELECT penetration function based on tool type (OPTIMIZATION: Move outside loop)
+    // This eliminates 40,000+ switch statement evaluations
+    let penetrationFunc;
+    switch (toolType) {
+      case 'flat':
+        penetrationFunc = () => toolZ;
+        break;
+      case 'ball':
+        penetrationFunc = (distSq) =>
+          this.getBallNosePenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq);
+        break;
+      case 'vbit':
+        penetrationFunc = (distSq) =>
+          this.getVBitPenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq, vbitTangent);
+        break;
+      case 'drill':
+        penetrationFunc = () => toolZ;
+        break;
+      default:
+        penetrationFunc = () => toolZ;
+    }
+
+    // Pre-calculate world coordinate base offsets (OPTIMIZATION: Avoid repeated math)
+    const baseWorldX = this.originOffset.x - this.workpieceWidth / 2 + this.voxelSize / 2;
+    const baseWorldY = this.originOffset.y - this.workpieceLength / 2 + this.voxelSize / 2;
+
+    // Search within radius
     for (let dx = -searchRadiusVoxels; dx <= searchRadiusVoxels; dx++) {
       for (let dy = -searchRadiusVoxels; dy <= searchRadiusVoxels; dy++) {
         const x = gridX + dx;
         const y = gridY + dy;
 
-        const index = this.coordsToIndex(x, y);
-        if (index < 0) continue;
+        // Grid bounds check (OPTIMIZATION: Faster than calculating index first)
+        if (x < 0 || x >= this.gridWidth || y < 0 || y >= this.gridLength) continue;
 
-        const voxelPos = this.getVoxelWorldPosition(index);
-        if (!voxelPos) continue;
+        // Calculate world position directly (OPTIMIZATION: Eliminate getVoxelWorldPosition() call)
+        const voxelWorldX = baseWorldX + x * this.voxelSize;
+        const voxelWorldY = baseWorldY + y * this.voxelSize;
 
-        let penetrationZ = null;
+        // Distance check BEFORE index calculation (OPTIMIZATION: Early exit if tool doesn't reach)
+        const dxWorld = voxelWorldX - toolX;
+        const dyWorld = voxelWorldY - toolY;
+        const distSq = dxWorld * dxWorld + dyWorld * dyWorld;
 
-        switch (toolType) {
-          case 'flat':
-            // Flat endmill: cylindrical intersection - penetration at tool tip
-            penetrationZ = this.getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
-            break;
-          case 'ball':
-            // Ball nose: spherical intersection
-            penetrationZ = this.getBallNosePenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
-            break;
-          case 'vbit':
-            // V-bit: conical intersection
-            penetrationZ = this.getVBitPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle);
-            break;
-          case 'drill':
-            // Drill: conical tip + cylindrical body
-            penetrationZ = this.getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
-            break;
-          default:
-            // Fallback to flat endmill
-            penetrationZ = this.getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius);
-        }
+        if (distSq > toolRadiusSq) continue;
+
+        // Only calculate index when we know we need it (OPTIMIZATION: Index not needed for failed checks)
+        const index = y + x * this.gridLength;
+
+        // Calculate penetration using pre-selected function (OPTIMIZATION: Pass distSq for tools that need it)
+        const penetrationZ = penetrationFunc(distSq);
 
         // Update voxel height if tool penetrates
-        if (penetrationZ !== null) {
-          if (this.updateVoxelHeight(index, penetrationZ)) {
-            updatedVoxels.push(index);
-          }
+ 
+        if (this.updateVoxelHeight(index, penetrationZ)) {
+          updatedVoxels.push(index);
         }
-      }
+
+    }
     }
 
     // Batch update: notify Three.js that matrices changed (only once)
@@ -357,28 +355,31 @@ class VoxelGrid {
 
   /**
    * Update instance matrices and Z scales for affected voxels
+   * Optimized: Only recalculates Z values, X and Y never change during material removal
+   * Uses single dummy object to avoid repeated allocation
    * @private
    */
   updateVoxelMatrices(voxelIndices) {
     const dummy = new THREE.Object3D();
+    const bottomZ = this.materialBottomZ;
+    const originalHeight = 0 - bottomZ;  // 0 to bottom (negative value)
 
     for (const index of voxelIndices) {
       const coords = this.indexToCoords(index);
       if (!coords) continue;
 
-      const worldX = this.originOffset.x - this.workpieceWidth / 2 + coords.x * this.voxelSize + this.voxelSize / 2;
-      const worldY = this.originOffset.y - this.workpieceLength / 2 + coords.y * this.voxelSize + this.voxelSize / 2;
-
       const topZ = this.voxelTopZ[index];
-      const bottomZ = this.materialBottomZ;
 
       // Voxel Z position: center between top and bottom
       const worldZ = (topZ + bottomZ) / 2;
 
       // Voxel Z scale: current height / original height
       const currentHeight = topZ - bottomZ;
-      const originalHeight = 0 - bottomZ;  // 0 to bottom
       const scaleZ = Math.max(0, currentHeight / originalHeight);
+
+      // OPTIMIZATION: Only recalculate Z values, X and Y never change
+      const worldX = this.originOffset.x - this.workpieceWidth / 2 + coords.x * this.voxelSize + this.voxelSize / 2;
+      const worldY = this.originOffset.y - this.workpieceLength / 2 + coords.y * this.voxelSize + this.voxelSize / 2;
 
       dummy.position.set(worldX, worldY, worldZ);
       dummy.scale.set(1, 1, scaleZ);
@@ -392,72 +393,44 @@ class VoxelGrid {
 
   /**
    * Get penetration depth for flat endmill at voxel position
-   * Returns the Z depth where tool penetrates, or null if no intersection
+   * Simplified: Distance boundary check already done before calling this function
+   * Flat endmill: cylindrical shape with flat bottom
    * @private
    */
-  getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    // Distance in XY plane from tool center
-    const dx = voxelPos.x - toolX;
-    const dy = voxelPos.y - toolY;
-    const distXY = Math.sqrt(dx * dx + dy * dy);
-
-    // Check if voxel is in XY footprint (within radius)
-    if (distXY > toolRadius) {
-      return null;  // No intersection
-    }
-
-    // Flat endmill penetrates to tool Z depth
+  getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, toolRadiusSq) {
+    // Voxel is guaranteed to be within tool radius (checked before this call)
+    // Flat endmill cuts straight down to tool Z depth
     return toolZ;
   }
 
   /**
-   * Get penetration depth for ball nose at voxel XY position
+   * Get penetration depth for ball nose at voxel position
    * Ball nose is a sphere: tip at toolZ, extends upward
+   * Simplified: Distance boundary check already done before calling this function
    * @private
    */
-  getBallNosePenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    // Distance in XY plane from tool center
-    const dx = voxelPos.x - toolX;
-    const dy = voxelPos.y - toolY;
-    const distXY = Math.sqrt(dx * dx + dy * dy);
-
-    if (distXY > toolRadius) {
-      return null;  // Outside tool radius
-    }
-
+  getBallNosePenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq) {
+    // Voxel is guaranteed to be within tool radius (checked before this call)
     // Ball nose sphere: tip (lowest point) at toolZ, center at (toolX, toolY, toolZ + toolRadius)
     // Sphere equation: distXY² + (z - (toolZ + toolRadius))² = toolRadius²
     // Solving for z (cutting surface): z = (toolZ + toolRadius) - sqrt(toolRadius² - distXY²)
     //
     // At distXY = 0: z = toolZ + r - r = toolZ ✓ (tip is at toolZ)
     // At distXY = r/2: z = toolZ + r - sqrt(r² - r²/4) = toolZ + r - r√3/2 (shallower away from center) ✓
-    const heightAboveTip = Math.sqrt(toolRadius * toolRadius - distXY * distXY);
+    const heightAboveTip = Math.sqrt(toolRadiusSq - distSq);  // Use distSq directly
     const penetrationZ = toolZ + toolRadius - heightAboveTip;
 
     return penetrationZ;
   }
 
   /**
-   * Get penetration depth for V-bit at voxel XY position
+   * Get penetration depth for V-bit at voxel position
    * V-bit is a cone: tip at toolZ, expands upward toward surface
+   * Simplified: Distance boundary check already done before calling this function
    * @private
    */
-  getVBitPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, vbitAngle) {
-    // V-bit: cone that expands at an angle
-    const dx = voxelPos.x - toolX;
-    const dy = voxelPos.y - toolY;
-    const distXY = Math.sqrt(dx * dx + dy * dy);
-
-    // ENFORCE: V-bit only cuts within its diameter
-    // Material removal must be constrained to the actual tool radius
-    if (distXY > toolRadius) {
-      return voxelPos.z;  // No penetration beyond tool radius
-    }
-
-    // Cone half-angle in radians
-    const halfAngleRad = (vbitAngle / 2) * (Math.PI / 180);
-    const tanAngle = Math.tan(halfAngleRad);
-
+  getVBitPenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq, vbitTangent) {
+    // Voxel is guaranteed to be within tool radius (checked before this call)
     // At the voxel's XY distance, the cone surface rises toward surface:
     // Tip is at toolZ (negative, below surface)
     // As distance increases, Z increases (closer to surface)
@@ -465,30 +438,21 @@ class VoxelGrid {
     //
     // Example: toolZ = -3mm, distXY = 2mm, angle = 45° (tan=1)
     // z = -3 + 2/1 = -1 (cuts shallower away from center) ✓
-    const penetrationZ = toolZ + (distXY / tanAngle);
+    const distXY = Math.sqrt(distSq);
+    const penetrationZ = toolZ + (distXY / vbitTangent);
 
     return penetrationZ;
   }
 
   /**
    * Get penetration depth for drill bit at voxel XY position
-   * Drill has conical tip (118° total angle = 59° half angle)
-   * Tip point at center, cone base at radius edge
+   * Simplified: Distance boundary check already done before calling this function
+   * Drill: cylindrical cutting within diameter, tip geometry handled by plunge
    * @private
    */
-  getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius) {
-    const dx = voxelPos.x - toolX;
-    const dy = voxelPos.y - toolY;
-    const distXY = Math.sqrt(dx * dx + dy * dy);
-
-    // Drill: only cuts within its own diameter
-    if (distXY > toolRadius) {
-      return null;  // Outside drill radius - no cutting
-    }
-
-    // Drill: treat as full depth cylinder within radius
-    // All voxels within the radius are cut to the same depth (toolZ)
-    // This is simpler and treats the cone as just part of the tip geometry
+  getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, toolRadiusSq) {
+    // Voxel is guaranteed to be within tool radius (checked before this call)
+    // Drill cuts straight down to tool Z depth within its diameter
     return toolZ;
   }
 

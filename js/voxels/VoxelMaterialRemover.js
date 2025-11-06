@@ -10,6 +10,31 @@ class VoxelMaterialRemover {
   constructor() {
     this.totalVoxelsRemoved = 0;
     this.lastToolPosition = null;
+
+    // Tool constant caching for optimization
+    this.lastToolInfo = null;
+    this.toolRadiusSq = null;      // Pre-calculated: toolRadius * toolRadius
+    this.vbitTangent = null;       // Pre-calculated: Math.tan(vbitAngle/2 * PI/180)
+  }
+
+  /**
+   * Pre-calculate tool constants when tool changes
+   * Calculates values that don't change during a tool's operation
+   * @private
+   */
+  precalculateToolConstants(toolInfo) {
+    // Calculate tool radius squared for boundary checks (eliminates sqrt)
+    const toolRadius = toolInfo.diameter / 2;
+    this.toolRadiusSq = toolRadius * toolRadius;
+
+    // Pre-calculate V-bit tangent if applicable
+    if (toolInfo.type === 'vbit') {
+      const vbitAngle = toolInfo.vbitAngle || 90;
+      const halfAngleRad = (vbitAngle / 2) * (Math.PI / 180);
+      this.vbitTangent = Math.tan(halfAngleRad);
+    } else {
+      this.vbitTangent = null;
+    }
   }
 
   /**
@@ -27,18 +52,24 @@ class VoxelMaterialRemover {
   removeAtToolPosition(voxelGrid, toolX, toolY, toolZ, toolInfo) {
     if (!voxelGrid || !toolInfo) return [];
 
+    // Pre-calculate tool constants if tool has changed
+    if (this.lastToolInfo !== toolInfo) {
+      this.precalculateToolConstants(toolInfo);
+      this.lastToolInfo = toolInfo;
+    }
+
     const toolRadius = toolInfo.diameter / 2;
     const toolType = toolInfo.type || 'flat';
-    const vbitAngle = toolInfo.vbitAngle || 90;
 
-    // Remove voxels at current tool position
+    // Remove voxels at current tool position, passing pre-calculated constants
     const removedVoxels = voxelGrid.removeVoxelsAtToolPosition(
       toolX,
       toolY,
       toolZ,
       toolRadius,
+      this.toolRadiusSq,
       toolType,
-      vbitAngle
+      this.vbitTangent
     );
 
     this.totalVoxelsRemoved += removedVoxels.length;
