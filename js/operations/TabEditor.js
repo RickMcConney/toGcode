@@ -1,8 +1,8 @@
 class TabEditor extends Select {
     constructor() {
-        super('Tabs', 'square');
+        super('Tabs', 'rectangle-ellipsis');
         this.name = 'Tabs';
-        this.icon = 'square';
+        this.icon = 'rectangle-ellipsis';
         this.tooltip = 'Add and position tabs for holding material during cutting';
 
         this.unselectOnMouseDown = false;
@@ -20,6 +20,17 @@ class TabEditor extends Select {
             tabHeight: 2,      // MM
             numberOfTabs: 4
         };
+
+        // Load saved properties from localStorage if available
+        const stored = localStorage.getItem('tabEditorProperties');
+        if (stored) {
+            try {
+                this.properties = JSON.parse(stored);
+            } catch (e) {
+                // If parsing fails, keep defaults
+                console.error('Failed to parse saved tab properties:', e);
+            }
+        }
 
         this.keydownHandler = (evt) => {
             const activeElement = document.activeElement;
@@ -45,12 +56,6 @@ class TabEditor extends Select {
         this.activeTab = null;
         this.draggedTab = null;
         this.hoveredTab = null;
-
-        // Load properties from localStorage
-        const stored = localStorage.getItem('tabEditorProperties');
-        if (stored) {
-            this.properties = JSON.parse(stored);
-        }
 
         const selected = selectMgr.lastSelected();
         if (selected) {
@@ -97,6 +102,10 @@ class TabEditor extends Select {
             selectMgr.unselectAll();
             selectMgr.selectPath(clickedPath);
             this.selectedPath = clickedPath;
+
+            // Auto-generate tabs when a new shape is selected
+            this.generateTabs();
+
             redraw();
         } else {
             selectMgr.unselectAll();
@@ -625,7 +634,7 @@ class TabEditor extends Select {
 
         let html = `
             <div class="alert alert-info mb-3">
-                <i data-lucide="square"></i>
+                <i data-lucide="rectangle-ellipsis"></i>
                 <strong>Tab Editor</strong>
         `;
 

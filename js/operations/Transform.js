@@ -786,7 +786,6 @@ class Transform extends Select {
             const centerYStr = formatDimension(centerMM.y, true);
             centerInfo = `
                 <div class="alert alert-info mb-3">
-                    <i data-lucide="move"></i>
                     <strong>Center Position</strong><br>
                     X: <span id="move-center-x">${centerXStr}</span><br>
                     Y: <span id="move-center-y">${centerYStr}</span>
@@ -795,7 +794,6 @@ class Transform extends Select {
         } else {
             centerInfo = `
                 <div class="alert alert-info mb-3">
-                    <i data-lucide="info"></i>
                     <strong>Move Tool</strong><br>
                     Select objects to apply transformations.
                 </div>

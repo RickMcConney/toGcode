@@ -117,6 +117,7 @@ function setupTabListener() {
     tab3dElement.addEventListener('hidden.bs.tab', () => {
       // Disable animation loop when switching to 2D view
       animationLoopActive = false;
+      redraw();
     });
   }
 }

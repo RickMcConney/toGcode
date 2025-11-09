@@ -1,6 +1,6 @@
 class Pan extends Operation {
     constructor() {
-        super('Pan', 'fa fa-hand-paper-o');
+        super('Pan', 'hand');
     }
 
     // Properties Editor Interface
@@ -11,7 +11,6 @@ class Pan extends Operation {
 
         return `
             <div class="alert alert-info mb-3">
-                <i data-lucide="move"></i>
                 <strong>Pan & Zoom</strong><br>
                 Current view position and zoom level
             </div>

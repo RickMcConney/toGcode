@@ -388,7 +388,6 @@ class PathEdit extends Select {
         if (!this.selectedPath) {
             return `
                 <div class="alert alert-info mb-3">
-                    <i data-lucide="info"></i>
                     <strong>Edit Points Tool</strong><br>
                     Select a path to edit its points.
                 </div>
@@ -399,7 +398,6 @@ class PathEdit extends Select {
         const minPoints = this.selectedPath.closed ? 3 : 2;
         return `
             <div class="alert alert-info mb-3">
-                <i data-lucide="edit"></i>
                 <strong>Editing Path Points</strong><br>
                 Path: ${this.selectedPath.name}<br>
                 Points: ${pointCount}

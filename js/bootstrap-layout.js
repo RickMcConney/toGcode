@@ -586,6 +586,12 @@ function createToolbar() {
 
         switch (action) {
             case 'new':
+                // Switch to 2D view before creating new project so canvas has proper dimensions
+                const canvas2DTab = document.getElementById('2d-tab');
+                if (canvas2DTab) {
+                    const tab = new bootstrap.Tab(canvas2DTab);
+                    tab.show();
+                }
                 newProject();
                 break;
             case 'open':
@@ -647,8 +653,9 @@ function createSidebar() {
 
                 <!-- Tool Properties Editor (hidden by default) -->
                 <div id="tool-properties-editor" class="p-3" style="display: none;">
-                    <div class="mb-3 pb-3 border-bottom">
+                    <div class="mb-3 pb-3 border-bottom d-flex justify-content-between align-items-center">
                         <h6 class="mb-0" id="tool-properties-title">Tool Properties</h6>
+                        <button type="button" class="btn-close" id="tool-close-button" aria-label="Close"></button>
                     </div>
 
                     <!-- Properties form will be injected here -->
@@ -663,11 +670,6 @@ function createSidebar() {
                             Select a tool to see instructions here.
                         </div>
                     </div>
-
-                    <!-- Done button after help -->
-                    <button type="button" class="btn btn-secondary w-100" id="done-button">
-                        <i data-lucide="check"></i> Done
-                    </button>
                 </div>
 
                 <!-- SVG Paths Section -->
@@ -702,8 +704,9 @@ function createSidebar() {
                 </div>
                 <!-- Operation Properties Editor (hidden by default) -->
                 <div id="operation-properties-editor" class="p-3" style="display: none;">
-                    <div class="mb-3 pb-3 border-bottom">
+                    <div class="mb-3 pb-3 border-bottom d-flex justify-content-between align-items-center">
                         <h6 class="mb-0" id="operation-properties-title">Operation Properties</h6>
+                        <button type="button" class="btn-close" id="operation-close-button" aria-label="Close"></button>
                     </div>
 
                     <!-- Operation properties form will be injected here -->
@@ -718,11 +721,6 @@ function createSidebar() {
                             Select an operation to see instructions here.
                         </div>
                     </div>
-
-                    <!-- Done button after help -->
-                    <button type="button" class="btn btn-secondary w-100" id="operation-done-button">
-                        <i data-lucide="check"></i> Done
-                    </button>
                 </div>
                     <!-- Tool Paths Section -->
                     <div class="sidebar-section mt-4">
@@ -835,10 +833,10 @@ function createSidebar() {
     // Add sidebar event handlers
     sidebar.addEventListener('click', function (e) {
         const item = e.target.closest('.sidebar-item');
-        const doneButton = e.target.closest('#done-button, #operation-done-button');
+        const closeButton = e.target.closest('#tool-close-button, #operation-close-button');
 
-        // Handle Done button clicks
-        if (doneButton) {
+        // Handle Close button (X) clicks
+        if (closeButton) {
             showToolsList();
             return;
         }
@@ -979,6 +977,9 @@ function createSidebar() {
             // Hide 3D overlay
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.add('d-none');
+
+            // Redraw the 2D canvas to ensure content is current
+            redraw();
         });
     }
 
@@ -1253,11 +1254,17 @@ function showToolPropertiesEditor(operationName) {
     propertiesEditor.style.display = 'block';
 
     currentOperationName = operationName;
-    // Update title
-    title.textContent = `${operationName} Tool`;
 
-    // Get the operation instance and populate properties
+    // Get the operation instance first (needed for icon and properties)
     const operation = window.cncController?.operationManager?.getOperation(operationName);
+
+    // Update title with icon if available
+    if (operation && operation.icon) {
+        title.innerHTML = `<i data-lucide="${operation.icon}"></i> ${operationName} Tool`;
+        lucide.createIcons(); // Re-render newly added Lucide icons
+    } else {
+        title.textContent = `${operationName} Tool`;
+    }
     if (operation && typeof operation.getPropertiesHTML === 'function') {
         form.innerHTML = operation.getPropertiesHTML();
 
@@ -1412,9 +1419,15 @@ function showOperationPropertiesEditor(operationName) {
     operationsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
-    // Update title
+    // Update title with icon
     currentOperationName = operationName;
-    title.textContent = `${operationName} Operation`;
+    const operationIcon = getOperationIcon(operationName);
+    if (operationIcon) {
+        title.innerHTML = `<i data-lucide="${operationIcon}"></i> ${operationName} Operation`;
+        lucide.createIcons(); // Re-render newly added Lucide icons
+    } else {
+        title.textContent = `${operationName} Operation`;
+    }
 
     // Check if this is a toolpath operation that should use the new properties manager
     const isToolpathOperation = window.toolpathPropertiesManager &&

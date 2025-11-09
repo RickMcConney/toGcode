@@ -89,7 +89,6 @@ class Workpiece extends Operation {
             </style>
 
             <div class="alert alert-info mb-3">
-                <i data-lucide="package"></i>
                 <strong>Workpiece Setup</strong><br>
                 Configure your workpiece dimensions and material properties
             </div>

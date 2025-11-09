@@ -1,6 +1,6 @@
 class Origin extends Operation {
     constructor() {
-        super('Origin', null);
+        super('Origin', 'anchor');
     }
 
     // Properties Editor Interface
@@ -10,7 +10,6 @@ class Origin extends Operation {
 
         return `
             <div class="alert alert-info mb-3">
-                <i data-lucide="anchor"></i>
                 <strong>Origin Position</strong><br>
                 Current origin coordinates in internal units
             </div>
