@@ -335,7 +335,8 @@ class Select extends Operation {
         const operationsTab = document.getElementById('operations-tab');
         const isOnOperationsTab = operationsTab && operationsTab.classList.contains('active');
         const changePanel = !isOnOperationsTab && window.cncController.operationManager.currentOperation.name !== 'Move' &&
-            window.cncController.operationManager.currentOperation.name !== 'Boolean';
+            window.cncController.operationManager.currentOperation.name !== 'Boolean' &&
+            window.cncController.operationManager.currentOperation.name !== 'Tabs';
 
 
         let pathToShow = this.lastSelected();

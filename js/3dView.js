@@ -917,6 +917,11 @@ function animate() {
       progressSlider.value = toolpathAnimation.getProgress() * 100;
       document.getElementById('3d-progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
     }
+
+    // If animation has completed, update UI to re-enable play button
+    if (toolpathAnimation.getProgress() >= 1 && !toolpathAnimation.isPlaying) {
+      updateSimulation3DUI();
+    }
   }
   const updateTime = performance.now() - updateStart;
 

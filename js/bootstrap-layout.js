@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-05";
+var APP_VERSION = "Ver 2025-11-09";
 
 var mode = "Select";
 var options = [];
@@ -550,6 +550,9 @@ function createToolbar() {
                 <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Generate G-code">
                     <i data-lucide="file-cog"></i>G-code
                 </button>
+                <button type="button" class="btn btn-outline-info btn-sm btn-toolbar" id="export-debug-log" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Export debug log from last G-code generation">
+                    <i data-lucide="download"></i>Debug Log
+                </button>
             </div>
             <div class="toolbar-separator"></div>
             <div class="toolbar-section">
@@ -849,7 +852,7 @@ function createSidebar() {
             // First activate the operation (calls start() which loads saved properties)
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text', 'Tabs'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -958,6 +961,11 @@ function createSidebar() {
 
     if (canvas2DTab) {
         canvas2DTab.addEventListener('shown.bs.tab', function () {
+            // When switching away from 3D view, pause the 3D simulation if it's playing
+            if (typeof pauseSimulation3D === 'function') {
+                pauseSimulation3D();
+            }
+
             // When switching to 2D view, show/hide overlay based on sidebar tab
             const currentSidebarTab = document.querySelector('#sidebar-tabs .nav-link.active');
             const overlay2D = document.getElementById('simulation-overlay-2d');
@@ -981,11 +989,21 @@ function createSidebar() {
             if (overlay2D) overlay2D.classList.add('d-none');
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.remove('d-none');
+
+            // Update simulation UI button states when switching to 3D view
+            if (typeof updateSimulation3DUI === 'function') {
+                updateSimulation3DUI();
+            }
         });
     }
 
     if (canvasToolsTab) {
         canvasToolsTab.addEventListener('shown.bs.tab', function () {
+            // When switching away from 3D view, pause the 3D simulation if it's playing
+            if (typeof pauseSimulation3D === 'function') {
+                pauseSimulation3D();
+            }
+
             // When switching to Tools tab, hide both overlays
             const overlay2D = document.getElementById('simulation-overlay-2d');
             if (overlay2D) overlay2D.classList.add('d-none');
@@ -1007,6 +1025,7 @@ function initializeGcodeProfilesUI() {
     document.getElementById('new-gcode-profile').addEventListener('click', createNewGcodeProfile);
     document.getElementById('delete-gcode-profile').addEventListener('click', deleteCurrentGcodeProfile);
     document.getElementById('save-gcode-profile').addEventListener('click', saveCurrentGcodeProfile);
+
 }
 
 // Populate the G-code profile selector dropdown
@@ -1255,6 +1274,20 @@ function showToolPropertiesEditor(operationName) {
             // Add both change and input events for real-time updates
             input.addEventListener('change', handleInputChange);
             //input.addEventListener('input', handleInputChange);
+        });
+
+        // Handle operation-specific buttons (e.g., Generate Tabs)
+        const buttons = form.querySelectorAll('button');
+        buttons.forEach(button => {
+            if (button.id === 'generateTabsBtn') {
+                button.addEventListener('click', () => {
+                    const data = collectFormData(form);
+                    operation.updateFromProperties(data);
+                    if (typeof operation.generateTabs === 'function') {
+                        operation.generateTabs();
+                    }
+                });
+            }
         });
     } else {
         form.innerHTML = '<p class="text-muted">No properties available for this tool.</p>';
@@ -1856,9 +1889,19 @@ function create2DSimulationControls() {
     `;
 
     // Add simulation control event handlers
-    document.getElementById('start-simulation').addEventListener('click', startSimulation);
-    document.getElementById('pause-simulation').addEventListener('click', pauseSimulation);
-    document.getElementById('stop-simulation').addEventListener('click', stopSimulation);
+    const startBtn = document.getElementById('start-simulation');
+    const pauseBtn = document.getElementById('pause-simulation');
+    const stopBtn = document.getElementById('stop-simulation');
+
+    if (startBtn && typeof startSimulation === 'function') {
+        startBtn.addEventListener('click', startSimulation);
+    }
+    if (pauseBtn && typeof pauseSimulation === 'function') {
+        pauseBtn.addEventListener('click', pauseSimulation);
+    }
+    if (stopBtn && typeof stopSimulation === 'function') {
+        stopBtn.addEventListener('click', stopSimulation);
+    }
 
     // Simulation speed control
     document.getElementById('simulation-speed').addEventListener('input', function (e) {
@@ -3004,6 +3047,9 @@ function handleOperationClick(operation) {
             break;
         case 'Text':
             doText();
+            break;
+        case 'Tabs':
+            doTabEditor();
             break;
         // Machining Operations
         case 'Drill':

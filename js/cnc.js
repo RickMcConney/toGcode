@@ -5,6 +5,10 @@ var panY = 0; // will be calculated dynamically by centerWorkpiece()
 var origin = { x: 0, y: 0 }; // origin in virtual coordinates
 const selectMgr = Select.getInstance();
 
+// Debug visualization for tab markers
+var debugTabMarkers = [];
+var showDebugMarkers = false;
+
 function worldToScreen(x, y) {
 	return {
 		x: (x * zoomLevel + panX),
@@ -432,14 +436,15 @@ document.addEventListener('keydown', function (evt) {
 		return;
 	}
 
-	// Delete key: Delete selected (but not when PathEdit tool is active)
+	// Delete key: Delete selected (but not when PathEdit or TabEditor tool is active)
 	if (evt.key === 'Delete' || evt.key === 'Backspace') {
-		// Check if PathEdit tool is active - if so, let it handle the delete
+		// Check if PathEdit or TabEditor tool is active - if so, let them handle the delete
 		if (typeof cncController !== 'undefined' &&
 			cncController.operationManager &&
 			cncController.operationManager.currentOperation &&
-			cncController.operationManager.currentOperation.name === 'Edit') {
-			// Let PathEdit handle the delete key for deleting points
+			(cncController.operationManager.currentOperation.name === 'Edit' ||
+			 cncController.operationManager.currentOperation.name === 'Tabs')) {
+			// Let PathEdit/TabEditor handle the delete key for deleting points/tabs
 			return;
 		}
 
@@ -573,7 +578,6 @@ function initPaperJS() {
 
 	try {
 		paper.setup(canvas);
-		console.log('Paper.js initialized successfully');
 		return true;
 	} catch (error) {
 		console.error('Failed to initialize Paper.js:', error);
@@ -595,15 +599,12 @@ function newParseSvgContent(data, name) {
 
 		// Parse SVG using Paper.js
 		if (data.indexOf("Adobe Illustrator") >= 0) {
-			console.log("Adobe 72")
 			pixelsPerInch = 72;
 		}
 		else if (data.indexOf("woodgears.ca") >= 0) {
-			console.log("Woodgears 254")
 			pixelsPerInch = 254; // 100 pixels per mm
 		}
 		else {
-			console.log("Inkscape 92")
 			pixelsPerInch = 96;
 		}
 		svgscale = viewScale * 25.4 / pixelsPerInch;
@@ -632,7 +633,6 @@ function newParseSvgContent(data, name) {
 
 				} catch (pathError) {
 					console.error('Error creating Paper.js path:', pathError);
-					console.log('Path data:', d);
 				}
 			}
 		}
@@ -667,7 +667,6 @@ function newParseSvgContent(data, name) {
 					paths = paths.concat(convertedPaths);
 				} catch (polygonError) {
 					console.error('Error creating polygon:', polygonError);
-					console.log('Points data:', points);
 				}
 			}
 		}
@@ -792,8 +791,7 @@ function newParseSvgContent(data, name) {
 				// Apply transform to the element's path if it exists
 				// This is a simplified approach - in a full implementation,
 				// you'd want to parse and apply the transform matrix
-				console.log('Transform found on element:', transform);
-			}
+		}
 		}
 		addUndo(false, true, false);
 
@@ -914,7 +912,6 @@ function newTransformFromPaperPath(paperPath, name) {
 
 	} catch (error) {
 		console.error('Error converting Paper.js path:', error);
-		console.log('Path object:', paperPath);
 
 		// Try to create a simple path from the original segments
 		try {
@@ -1051,10 +1048,201 @@ function drawSvgPath(svgpath, color, lineWidth) {
 	ctx.strokeStyle = color;
 	ctx.stroke();
 
-
+	// Draw tabs if they exist on this path
+	if (svgpath.creationProperties && svgpath.creationProperties.tabs && svgpath.creationProperties.tabs.length > 0) {
+		drawPathTabs(svgpath);
+	}
 }
 
+function drawPathTabs(svgpath) {
+	if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
 
+	const tabs = svgpath.creationProperties.tabs;
+	const tabLength = svgpath.creationProperties.tabLength || 5;
+	const tabHeight = svgpath.creationProperties.tabHeight || 2;
+
+	ctx.save();
+
+	for (let i = 0; i < tabs.length; i++) {
+		const tab = tabs[i];
+		const screenCenter = worldToScreen(tab.x, tab.y);
+
+		// Convert MM to world units then to screen units
+		const tabLengthScreen = tabLength * viewScale * zoomLevel;
+		const tabHeightScreen = tabHeight * viewScale * zoomLevel;
+
+		// Save and transform for rotation
+		ctx.save();
+		ctx.translate(screenCenter.x, screenCenter.y);
+		// Rotate to align with segment direction (tab.angle is now the segment angle directly)
+		ctx.rotate(tab.angle);
+
+		// Draw tab rectangle with color based on convexity
+		// Now: width (x-axis) = length along path, height (y-axis) = height perpendicular to path
+		ctx.fillStyle = tab.isConvex ? 'rgba(100, 150, 255, 0.5)' : 'rgba(255, 150, 100, 0.5)';
+		ctx.fillRect(-tabLengthScreen / 2, -tabHeightScreen / 2, tabLengthScreen, tabHeightScreen);
+
+		// Draw outline
+		ctx.strokeStyle = tab.isConvex ? '#0080ff' : '#ff8050';
+		ctx.lineWidth = 1.5;
+		ctx.strokeRect(-tabLengthScreen / 2, -tabHeightScreen / 2, tabLengthScreen, tabHeightScreen);
+
+		ctx.restore();
+	}
+
+	ctx.restore();
+}
+
+/**
+ * DEBUG VISUALIZATION: Draw tab bounding boxes on the canvas
+ * Shows exactly what the tab detection algorithm sees
+ */
+function drawTabBoundingBoxes() {
+	// Get all tabs from all SVG paths
+	const allTabs = [];
+	for (let pathIdx = 0; pathIdx < svgpaths.length; pathIdx++) {
+		const path = svgpaths[pathIdx];
+		if (path.creationProperties && path.creationProperties.tabs) {
+			const tabLength = path.creationProperties.tabLength || 0;
+			for (let tabIdx = 0; tabIdx < path.creationProperties.tabs.length; tabIdx++) {
+				const tab = path.creationProperties.tabs[tabIdx];
+				allTabs.push({
+					tab: tab,
+					tabLength: tabLength,
+					pathName: path.name,
+					pathIdx: pathIdx,
+					tabIdx: tabIdx
+				});
+			}
+		}
+	}
+
+	if (allTabs.length === 0) return; // No tabs to draw
+
+	ctx.save();
+
+	// Get tool radius for box width calculation
+	// Get the first visible tool to get the radius
+	let toolRadius = 3; // Default fallback
+	for (let i = 0; i < toolpaths.length; i++) {
+		if (toolpaths[i].visible && toolpaths[i].tool && toolpaths[i].tool.diameter) {
+			toolRadius = toolpaths[i].tool.diameter / 2;
+			break;
+		}
+	}
+
+	// Calculate box width - 2 × tool radius on each side
+	const boxWidth = 4 * toolRadius * viewScale; // Convert MM to world units
+
+	for (let i = 0; i < allTabs.length; i++) {
+		const { tab, tabLength, pathName, tabIdx } = allTabs[i];
+		const tabLengthWorld = tabLength * viewScale;
+
+		// Convert tab center to screen coordinates
+		const centerScreen = worldToScreen(tab.x, tab.y);
+
+		// Save context for rotation
+		ctx.save();
+		ctx.translate(centerScreen.x, centerScreen.y);
+
+		// Rotate to segment direction (tab.angle is now the segment angle directly)
+		ctx.rotate(tab.angle);
+
+		// Draw the bounding box
+		const boxLengthScreen = tabLengthWorld * zoomLevel;
+		const boxWidthScreen = boxWidth * zoomLevel;
+
+		// Draw box fill with transparency
+		ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+		ctx.fillRect(-boxLengthScreen / 2, -boxWidthScreen / 2, boxLengthScreen, boxWidthScreen);
+
+		// Draw cyan SIDE edges (long edges parallel to path direction)
+		ctx.strokeStyle = '#00FFFF';
+		ctx.lineWidth = 2;
+		// Top side
+		ctx.beginPath();
+		ctx.moveTo(-boxLengthScreen / 2, boxWidthScreen / 2);
+		ctx.lineTo(boxLengthScreen / 2, boxWidthScreen / 2);
+		ctx.stroke();
+		// Bottom side
+		ctx.beginPath();
+		ctx.moveTo(-boxLengthScreen / 2, -boxWidthScreen / 2);
+		ctx.lineTo(boxLengthScreen / 2, -boxWidthScreen / 2);
+		ctx.stroke();
+
+		// Draw RED END edges (short edges perpendicular to path direction)
+		ctx.strokeStyle = '#FF0000';
+		ctx.lineWidth = 3;
+		// Left end
+		ctx.beginPath();
+		ctx.moveTo(-boxLengthScreen / 2, -boxWidthScreen / 2);
+		ctx.lineTo(-boxLengthScreen / 2, boxWidthScreen / 2);
+		ctx.stroke();
+		// Right end
+		ctx.beginPath();
+		ctx.moveTo(boxLengthScreen / 2, -boxWidthScreen / 2);
+		ctx.lineTo(boxLengthScreen / 2, boxWidthScreen / 2);
+		ctx.stroke();
+
+		// Draw angle indicator (line showing the angle)
+		ctx.strokeStyle = '#00FF00';
+		ctx.lineWidth = 2;
+		ctx.beginPath();
+		ctx.moveTo(0, 0);
+		ctx.lineTo(boxLengthScreen / 2, 0);
+		ctx.stroke();
+
+		ctx.restore();
+
+		// Draw tab center point
+		const dotRadius = 4 / zoomLevel;
+		ctx.fillStyle = '#FF00FF';
+		ctx.beginPath();
+		ctx.arc(centerScreen.x, centerScreen.y, dotRadius, 0, Math.PI * 2);
+		ctx.fill();
+
+		// Draw tab label
+		ctx.fillStyle = '#FFFF00';
+		ctx.font = `${12 / zoomLevel}px Arial`;
+		ctx.fillText(`T${tabIdx}`, centerScreen.x + 10, centerScreen.y - 10);
+	}
+
+	// Draw debug markers if enabled
+	if (showDebugMarkers && debugTabMarkers.length > 0) {
+		ctx.save();
+
+		for (let mIdx = 0; mIdx < debugTabMarkers.length; mIdx++) {
+			const marker = debugTabMarkers[mIdx];
+			const markerScreen = worldToScreen(marker.x, marker.y);
+
+			// Draw colored circle for marker
+			if (marker.type === 'lift') {
+				ctx.fillStyle = '#FF0000';  // Red for lift
+				ctx.strokeStyle = '#FF0000';
+			} else if (marker.type === 'lower') {
+				ctx.fillStyle = '#00FF00';  // Green for lower
+				ctx.strokeStyle = '#00FF00';
+			}
+
+			ctx.lineWidth = 2;
+			ctx.beginPath();
+			ctx.arc(markerScreen.x, markerScreen.y, 8, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.stroke();
+
+			// Draw label
+			ctx.fillStyle = '#FFFF00';
+			ctx.font = `${12 / zoomLevel}px Arial`;
+			ctx.fillText(`M${mIdx}`, markerScreen.x + 12, markerScreen.y - 5);
+			ctx.font = `${10 / zoomLevel}px Arial`;
+			ctx.fillText(`seg${marker.segmentIndex}`, markerScreen.x + 12, markerScreen.y + 10);
+		}
+
+		ctx.restore();
+	}
+
+	ctx.restore();
+}
 
 function drawPath(path, color, lineWidth) {
 	ctx.beginPath();
@@ -1256,6 +1444,9 @@ function redraw() {
 		drawOrigin();
 	drawSvgPaths();
 	drawToolPaths();
+
+	// DEBUG: Draw tab bounding boxes for visualization
+	//drawTabBoundingBoxes();
 
 	// Draw material removal and travel moves during simulation
 	if (simulationState.isRunning) {
@@ -1699,8 +1890,7 @@ function makeNorms(subpath, path, cw, r, outside) {
 			}
 		}
 		else {
-			console.log("dnorm = 0");
-		}
+			}
 
 
 	}
@@ -2136,8 +2326,7 @@ function center() {
 			scaleFactor = h / boxHeight;
 
 
-		console.log("width " + boxWidth + " height " + boxHeight);
-
+	
 	}
 
 	offsetX = 0;
@@ -2799,6 +2988,10 @@ function doText() {
 function doDrill() {
 	cncController.setMode("Drill");
 	setMode("Select");
+}
+
+function doTabEditor() {
+	cncController.setMode("Tabs");
 }
 
 function makeHole(pt) {
@@ -3700,6 +3893,743 @@ function getSortedToolpaths(toolpaths) {
 	return sorted;
 }
 
+// Tab avoidance helper functions for G-code generation
+function getTabLiftAmount(z, tabs, workpieceThickness, tabHeight) {
+	if (!tabs || tabs.length === 0) return 0;
+	if (!tabHeight || tabHeight <= 0) return 0;
+
+	// z is negative (below surface)
+	// Calculate cut depth from surface
+	const cutDepth = Math.abs(z);
+
+	// Tab zone extends from bottom (workpieceThickness) up to (workpieceThickness - tabHeight)
+	// Tab surface is at depth: workpieceThickness - tabHeight
+	const tabSurfaceDepth = workpieceThickness - tabHeight;
+
+	// If cutting depth reaches or exceeds tab surface, we need to lift
+	// Lift only to just above the tab surface (don't go all the way to z=0)
+	if (cutDepth >= tabSurfaceDepth) {
+		// Lift amount brings us from -cutDepth to -tabSurfaceDepth
+		// Which is: liftAmount = cutDepth - tabSurfaceDepth
+		const liftAmount = cutDepth - tabSurfaceDepth;
+		return liftAmount;
+	}
+
+	return 0;
+}
+
+function interpolatePointOnSegment(p1, p2, distanceFraction) {
+	// distanceFraction: 0-1, where 0 is at p1 and 1 is at p2
+	return {
+		x: p1.x + distanceFraction * (p2.x - p1.x),
+		y: p1.y + distanceFraction * (p2.y - p1.y)
+	};
+}
+
+function nextSegmentHasTabIntersection(pathArray, currentSegmentIndex, tabs, toolRadius, tabLength, operationType) {
+	// Check if the next segment in the path will intersect any tab zones
+	// Returns true if next segment has tab intersections, false otherwise
+	// Returns false if we're at the end of the path
+
+	if (!pathArray || !tabs || tabs.length === 0) return false;
+	if (currentSegmentIndex + 1 >= pathArray.length) return false;
+
+	const nextIndex = currentSegmentIndex + 1;
+	const p1 = pathArray[nextIndex - 1];
+	const p2 = pathArray[nextIndex];
+
+	const tabIntersections = findTabIntersectionsOnSegment(p1, p2, tabs, toolRadius, tabLength, operationType);
+	return tabIntersections.length > 0;
+}
+
+function getTabBoundingBox(tab, tabLength, toolRadius, viewScale) {
+	// Create an oriented bounding box for a tab
+	// Returns box with center, width, height, and rotation angle
+	//
+	// Parameters:
+	//   tab: object with {x, y, angle} where angle is the segment direction
+	//   tabLength: in MM (needs conversion to world units)
+	//   toolRadius: in world units already (radius * viewScale)
+	//   viewScale: world units per MM
+	//
+	// Box dimensions:
+	// - Length (along tab.angle): tabLength (the actual tab length in world units)
+	// - Width (perpendicular to segment): 2 × toolRadius on each side = 4 × toolRadius total
+	//
+	// The box is centered on the tab and extends along the segment direction
+
+	const tabLengthWorld = tabLength * viewScale;  // Convert MM to world units
+	const boxWidth = 4 * toolRadius;               // 2 × toolRadius on each side perpendicular to segment
+	const boxLength = tabLengthWorld;              // Length along the segment
+	const boxAngle = tab.angle;                    // Use segment direction angle directly
+
+	return {
+		centerX: tab.x,
+		centerY: tab.y,
+		length: boxLength,      // Along segment direction
+		width: boxWidth,        // Perpendicular to segment (2×r on each side)
+		angle: boxAngle,        // Segment direction angle
+		cosAngle: Math.cos(boxAngle),
+		sinAngle: Math.sin(boxAngle)
+	};
+}
+
+function intersectSegmentWithRedEnds(p1, p2, tab, tabLength, toolRadius, viewScale) {
+	// Find intersections between a segment and the RED ENDS of a tab box
+	// RED ENDS are the perpendicular faces at ±(tabLength/2) along the tab direction
+	//
+	// Returns array of {distance: t, type: 'enter'/'exit'} where t is position along segment
+	// distance = 0 at p1, distance = 1 at p2
+
+	const intersections = [];
+	const isTab0 = Math.abs(tab.angle - 2.0943951022854153) < 0.01; // Detect Tab 0 by angle
+
+	// Convert tab length to world units
+	const tabLengthWorld = tabLength * viewScale;
+	const halfTabLength = tabLengthWorld / 2;
+	const boxWidthWorld = 4 * toolRadius;
+	const halfBoxWidth = boxWidthWorld / 2;
+
+	// Direction vector along the path (tab angle)
+	const dirX = Math.cos(tab.angle);
+	const dirY = Math.sin(tab.angle);
+
+	// Perpendicular vector (90 degrees counterclockwise from direction)
+	const perpX = -Math.sin(tab.angle);
+	const perpY = Math.cos(tab.angle);
+
+	// Project tab center onto direction vector
+	const tabCenterAlongDir = tab.x * dirX + tab.y * dirY;
+
+	// Define the two red end positions along the direction vector
+	const leftEndPos = tabCenterAlongDir - halfTabLength;
+	const rightEndPos = tabCenterAlongDir + halfTabLength;
+
+	// Project segment endpoints onto direction and perpendicular vectors
+	// RELATIVE to the tab center
+	const p1RelX = p1.x - tab.x;
+	const p1RelY = p1.y - tab.y;
+	const p1AlongDir = tabCenterAlongDir + (p1RelX * dirX + p1RelY * dirY);
+	const p1PerpDist = p1RelX * perpX + p1RelY * perpY;
+
+	const p2RelX = p2.x - tab.x;
+	const p2RelY = p2.y - tab.y;
+	const p2AlongDir = tabCenterAlongDir + (p2RelX * dirX + p2RelY * dirY);
+	const p2PerpDist = p2RelX * perpX + p2RelY * perpY;
+
+	if (isTab0) {
+	}
+
+	// CHECK FOR FULL-SEGMENT CONTAINMENT FIRST
+	// If entire segment is inside the tab zone, don't create spurious markers
+	// Check both endpoints and midpoint to determine if fully contained
+	const midAlongDir = (p1AlongDir + p2AlongDir) / 2;
+	const midPerpDist = (p1PerpDist + p2PerpDist) / 2;
+
+	const p1Inside = p1AlongDir >= leftEndPos && p1AlongDir <= rightEndPos && Math.abs(p1PerpDist) <= halfBoxWidth;
+	const p2Inside = p2AlongDir >= leftEndPos && p2AlongDir <= rightEndPos && Math.abs(p2PerpDist) <= halfBoxWidth;
+	const midInside = midAlongDir >= leftEndPos && midAlongDir <= rightEndPos && Math.abs(midPerpDist) <= halfBoxWidth;
+
+	if (p1Inside && p2Inside && midInside) {
+		// Entire segment is fully contained within tab zone
+		// Return special marker so calculateTabMarkers can skip creating redundant markers
+		return [
+			{ distance: 0, type: 'fullSegment', isFullSegment: true }
+		];
+	}
+
+	// Check if segment is parallel to direction
+	const alongDiff = p2AlongDir - p1AlongDir;
+	const isParallel = Math.abs(alongDiff) < 1e-10;
+
+	if (isParallel) {
+		// Segment is parallel to the tab direction - can't cross red ends
+		return []; // No intersection possible
+	}
+
+	// Segment is NOT parallel - find intersections with red end planes
+
+	// Check intersection with LEFT red end (at leftEndPos)
+	const tLeft = (leftEndPos - p1AlongDir) / alongDiff;
+	if (tLeft >= 0 && tLeft <= 1) {
+		// Intersection point exists on segment, check if within perpendicular bounds
+		const intersectPerpDist = p1PerpDist + tLeft * (p2PerpDist - p1PerpDist);
+		if (Math.abs(intersectPerpDist) <= halfBoxWidth) {
+			intersections.push({
+				distance: tLeft,
+				type: 'enter',
+				perpDist: intersectPerpDist
+			});
+		}
+	}
+
+	// Check intersection with RIGHT red end (at rightEndPos)
+	const tRight = (rightEndPos - p1AlongDir) / alongDiff;
+	if (tRight >= 0 && tRight <= 1) {
+		// Intersection point exists on segment, check if within perpendicular bounds
+		const intersectPerpDist = p1PerpDist + tRight * (p2PerpDist - p1PerpDist);
+		if (Math.abs(intersectPerpDist) <= halfBoxWidth) {
+			intersections.push({
+				distance: tRight,
+				type: 'exit',
+				perpDist: intersectPerpDist
+			});
+		}
+	}
+
+	// Sort by distance along segment
+	intersections.sort((a, b) => a.distance - b.distance);
+
+	// Cleanup - remove perpDist from return (was just for calculation)
+	return intersections.map(int => ({
+		distance: int.distance,
+		type: int.type,
+		isFullSegment: int.isFullSegment || false
+	}));
+}
+
+function segmentIntersectsOrientedBox(p1, p2, box) {
+	// Check if a line segment intersects an oriented bounding box
+	// Returns array of intersection points: [{distance: 0-1 fraction, point: {x, y}}]
+
+	const dx = p2.x - p1.x;
+	const dy = p2.y - p1.y;
+	const segmentLength = Math.sqrt(dx * dx + dy * dy);
+
+	if (segmentLength === 0) return []; // Degenerate segment
+
+	// Transform segment endpoints to box's local coordinate system
+	// Origin is at box center, x-axis is along box length (box.angle direction)
+	// y-axis is perpendicular (box.angle + 90 degrees)
+
+	const cos = box.cosAngle;
+	const sin = box.sinAngle;
+
+	// Transform p1 to box coordinates
+	// Correct rotation matrix for transforming world coordinates to box coordinates:
+	// [x'] = [ cos  sin] [x - cx]
+	// [y'] = [-sin  cos] [y - cy]
+	const p1x_local = (p1.x - box.centerX) * cos + (p1.y - box.centerY) * sin;
+	const p1y_local = -(p1.x - box.centerX) * sin + (p1.y - box.centerY) * cos;
+
+	// Transform p2 to box coordinates
+	const p2x_local = (p2.x - box.centerX) * cos + (p2.y - box.centerY) * sin;
+	const p2y_local = -(p2.x - box.centerX) * sin + (p2.y - box.centerY) * cos;
+
+	// Box bounds in local coordinates
+	const boxHalfLength = box.length / 2;
+	const boxHalfWidth = box.width / 2;
+
+	// Check if segment intersects the box
+	// A segment intersects a box if:
+	// 1. Both endpoints are outside on opposite sides, OR
+	// 2. One endpoint is inside the box
+
+	const p1Inside = (Math.abs(p1x_local) <= boxHalfLength) && (Math.abs(p1y_local) <= boxHalfWidth);
+	const p2Inside = (Math.abs(p2x_local) <= boxHalfLength) && (Math.abs(p2y_local) <= boxHalfWidth);
+
+	if (p1Inside && p2Inside) {
+		// Both endpoints inside - entire segment is in tab zone
+		return [
+			{ distance: 0, type: 'enter', isFullSegment: true },
+			{ distance: 1, type: 'exit', isFullSegment: true }
+		];
+	}
+
+	// Calculate intersections with the four edges of the box
+	const intersections = [];
+	const segmentDx_local = p2x_local - p1x_local;
+	const segmentDy_local = p2y_local - p1y_local;
+
+	// Edge 1: x = -boxHalfLength (left edge, along the length axis)
+	if (Math.abs(segmentDx_local) > 1e-10) {
+		const t = (-boxHalfLength - p1x_local) / segmentDx_local;
+		if (t >= 0 && t <= 1) {
+			const y = p1y_local + t * segmentDy_local;
+			if (Math.abs(y) <= boxHalfWidth) {
+				intersections.push({ distance: t, type: 'cross' });
+			}
+		}
+	}
+
+	// Edge 2: x = boxHalfLength (right edge)
+	if (Math.abs(segmentDx_local) > 1e-10) {
+		const t = (boxHalfLength - p1x_local) / segmentDx_local;
+		if (t >= 0 && t <= 1) {
+			const y = p1y_local + t * segmentDy_local;
+			if (Math.abs(y) <= boxHalfWidth) {
+				intersections.push({ distance: t, type: 'cross' });
+			}
+		}
+	}
+
+	// Edge 3: y = -boxHalfWidth (bottom edge)
+	if (Math.abs(segmentDy_local) > 1e-10) {
+		const t = (-boxHalfWidth - p1y_local) / segmentDy_local;
+		if (t >= 0 && t <= 1) {
+			const x = p1x_local + t * segmentDx_local;
+			if (Math.abs(x) <= boxHalfLength) {
+				intersections.push({ distance: t, type: 'cross' });
+			}
+		}
+	}
+
+	// Edge 4: y = boxHalfWidth (top edge)
+	if (Math.abs(segmentDy_local) > 1e-10) {
+		const t = (boxHalfWidth - p1y_local) / segmentDy_local;
+		if (t >= 0 && t <= 1) {
+			const x = p1x_local + t * segmentDx_local;
+			if (Math.abs(x) <= boxHalfLength) {
+				intersections.push({ distance: t, type: 'cross' });
+			}
+		}
+	}
+
+	// Determine if segment intersects box
+	// IMPORTANT: Even if there are no edge crossings, the segment might still be inside the box
+	// if the box is large relative to the segment
+
+	if (p1Inside || p2Inside) {
+		// At least one endpoint is inside the box
+		const enter = p1Inside ? 0 : (intersections.length > 0 ? intersections[0].distance : 0);
+		const exit = p2Inside ? 1 : (intersections.length > 0 ? intersections[intersections.length - 1].distance : 1);
+
+		return [
+			{ distance: Math.min(enter, exit), type: 'enter', isFullSegment: false },
+			{ distance: Math.max(enter, exit), type: 'exit', isFullSegment: false }
+		];
+	}
+
+	if (intersections.length === 0) {
+		// Both endpoints outside and no edge crossings
+		// Check if segment is entirely contained within box bounds by checking the midpoint
+		const midX = (p1x_local + p2x_local) / 2;
+		const midY = (p1y_local + p2y_local) / 2;
+
+		if (Math.abs(midX) <= boxHalfLength && Math.abs(midY) <= boxHalfWidth) {
+			// Midpoint is inside! Entire segment must be inside
+			return [
+				{ distance: 0, type: 'enter', isFullSegment: true },
+				{ distance: 1, type: 'exit', isFullSegment: true }
+			];
+		}
+
+		return []; // No intersection
+	}
+
+	// Both endpoints outside, but segment crosses box edges
+	// Sort by distance and pair up enters/exits
+	intersections.sort((a, b) => a.distance - b.distance);
+
+	// Remove duplicates (within tolerance)
+	const uniqueIntersections = [];
+	for (let i = 0; i < intersections.length; i++) {
+		if (i === 0 || Math.abs(intersections[i].distance - intersections[i-1].distance) > 1e-6) {
+			uniqueIntersections.push(intersections[i]);
+		}
+	}
+
+	// Return first two unique intersections as enter/exit
+	if (uniqueIntersections.length >= 2) {
+		return [
+			{ distance: uniqueIntersections[0].distance, type: 'enter' },
+			{ distance: uniqueIntersections[1].distance, type: 'exit' }
+		];
+	} else if (uniqueIntersections.length === 1) {
+		// Only one crossing - segment must start/end near box or be tangent
+		// Treat as full segment in zone for safety
+		return [
+			{ distance: 0, type: 'enter', isFullSegment: true },
+			{ distance: 1, type: 'exit', isFullSegment: true }
+		];
+	}
+
+	return [];
+}
+
+function findTabIntersectionsOnSegment(p1, p2, tabs, toolRadius, tabLength, operationType) {
+	// Find where segment from p1 to p2 intersects tab zones using oriented bounding boxes
+	//
+	// Approach: For each tab, create an oriented bounding box that extends:
+	// - Along tab.angle: tabLength (the actual tab length)
+	// - Perpendicular: accounts for tool radius AND path offset mismatch
+	//
+	// The key insight: tabs are marked on the original path, but cutting happens on an
+	// offset path (for inside/outside operations). The detection box must account for this!
+	//
+	// Returns array of {distance, type, tabIndex} sorted by distance
+	// distance: 0-1 fraction along segment from p1 to p2
+
+	if (!tabs || tabs.length === 0) {
+		return [];
+	}
+
+	const intersections = [];
+
+	// Check each tab for intersection with this segment
+	const tabLengthWorld = tabLength * viewScale;
+
+	// Log segment being tested
+	const segmentLength = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+	for (let tabIdx = 0; tabIdx < tabs.length; tabIdx++) {
+		const tab = tabs[tabIdx];
+
+		// Find intersections with this tab's RED ENDS
+		const boxIntersections = intersectSegmentWithRedEnds(p1, p2, tab, tabLength, toolRadius, viewScale);
+
+		// Add intersections to results with tab index
+		for (let i = 0; i < boxIntersections.length; i++) {
+			intersections.push({
+				distance: boxIntersections[i].distance,
+				type: boxIntersections[i].type,
+				tabIndex: tabIdx,
+				isFullSegment: boxIntersections[i].isFullSegment || false
+			});
+		}
+	}
+
+	// Sort by distance along segment
+	intersections.sort((a, b) => a.distance - b.distance);
+
+
+	return intersections;
+}
+
+function walkForwardSegments(toolpath, startSegIdx, startT, distanceNeeded) {
+	// Walk forward through segments accumulating distance
+	// Returns {segmentIndex, t} where the target distance is reached
+	// Handles multi-segment offset when marker crosses segment boundaries
+
+	let remainingDist = distanceNeeded;
+	let currentSegIdx = startSegIdx;
+	let currentT = startT;
+
+	// Start by consuming remaining distance in current segment
+	const p1_start = toolpath[currentSegIdx];
+	const p2_start = toolpath[currentSegIdx + 1];
+	const startSegDx = p2_start.x - p1_start.x;
+	const startSegDy = p2_start.y - p1_start.y;
+	const startSegLen = Math.sqrt(startSegDx * startSegDx + startSegDy * startSegDy);
+
+	const distInCurrentSegment = (1 - currentT) * startSegLen;
+
+	if (distInCurrentSegment >= remainingDist) {
+		// Offset fits within current segment
+		currentT += (remainingDist / startSegLen);
+		return { segmentIndex: currentSegIdx, t: Math.min(1, currentT) };
+	}
+
+	// Not enough space in current segment, move to next segments
+	remainingDist -= distInCurrentSegment;
+	currentSegIdx++;
+	currentT = 0;
+
+	// Walk through subsequent segments (with wraparound for closed paths)
+	let segmentsWalked = 0;
+	const maxSegments = toolpath.length - 1; // Maximum segments before stopping
+
+	while (remainingDist > 0 && segmentsWalked < maxSegments) {
+		// Handle wraparound: if we go past last segment, wrap to first segment
+		if (currentSegIdx >= toolpath.length - 1) {
+			currentSegIdx = 0; // Wrap to first segment
+			currentT = 0; // Start from beginning of that segment
+		}
+
+		const p1 = toolpath[currentSegIdx];
+		const p2 = toolpath[currentSegIdx + 1];
+		const dx = p2.x - p1.x;
+		const dy = p2.y - p1.y;
+		const segLen = Math.sqrt(dx * dx + dy * dy);
+
+		if (segLen >= remainingDist) {
+			// Offset ends in this segment
+			currentT = remainingDist / segLen;
+			return { segmentIndex: currentSegIdx, t: currentT };
+		}
+
+		// Use entire segment, continue to next
+		remainingDist -= segLen;
+		currentSegIdx++;
+		segmentsWalked++;
+	}
+
+	// Reached maximum segments or accumulated distance - return current position
+	if (segmentsWalked >= maxSegments) {
+		return { segmentIndex: currentSegIdx >= toolpath.length - 1 ? 0 : currentSegIdx, t: currentT };
+	}
+
+	return { segmentIndex: currentSegIdx, t: currentT };
+}
+
+function walkBackwardSegments(toolpath, startSegIdx, startT, distanceNeeded) {
+	// Walk backward through segments accumulating distance
+	// Returns {segmentIndex, t} where the target distance (backward) is reached
+	// Handles multi-segment offset when marker crosses segment boundaries
+
+	let remainingDist = distanceNeeded;
+	let currentSegIdx = startSegIdx;
+	let currentT = startT;
+
+	// Start by consuming remaining distance in current segment (backward)
+	const p1_start = toolpath[currentSegIdx];
+	const p2_start = toolpath[currentSegIdx + 1];
+	const startSegDx = p2_start.x - p1_start.x;
+	const startSegDy = p2_start.y - p1_start.y;
+	const startSegLen = Math.sqrt(startSegDx * startSegDx + startSegDy * startSegDy);
+
+	const distInCurrentSegment = currentT * startSegLen;
+
+	if (distInCurrentSegment >= remainingDist) {
+		// Offset fits within current segment
+		currentT -= (remainingDist / startSegLen);
+		return { segmentIndex: currentSegIdx, t: Math.max(0, currentT) };
+	}
+
+	// Not enough space in current segment, move to previous segments
+	remainingDist -= distInCurrentSegment;
+	currentSegIdx--;
+	currentT = 1;
+
+	// Walk through previous segments (with wraparound for closed paths)
+	let segmentsWalked = 0;
+	const maxSegments = toolpath.length - 1; // Maximum segments before stopping
+
+	while (remainingDist > 0 && segmentsWalked < maxSegments) {
+		// Handle wraparound: if we go before segment 0, wrap to last segment
+		if (currentSegIdx < 0) {
+			currentSegIdx = toolpath.length - 2; // Last valid segment index
+			currentT = 1; // Start from end of that segment
+		}
+
+		const p1 = toolpath[currentSegIdx];
+		const p2 = toolpath[currentSegIdx + 1];
+		const dx = p2.x - p1.x;
+		const dy = p2.y - p1.y;
+		const segLen = Math.sqrt(dx * dx + dy * dy);
+
+		if (segLen >= remainingDist) {
+			// Offset ends in this segment
+			currentT = 1 - (remainingDist / segLen);
+			return { segmentIndex: currentSegIdx, t: currentT };
+		}
+
+		// Use entire segment, continue to previous
+		remainingDist -= segLen;
+		currentSegIdx--;
+		segmentsWalked++;
+	}
+
+	// Reached maximum segments or accumulated distance - return current position
+	if (segmentsWalked >= maxSegments) {
+		return { segmentIndex: currentSegIdx < 0 ? toolpath.length - 2 : currentSegIdx, t: currentT };
+	}
+
+	return { segmentIndex: currentSegIdx, t: currentT };
+}
+
+function checkTabAtPathStart(startPoint, tabs, toolRadius, tabLength, viewScale) {
+	// Check if there's a tab at or very near the path start position
+	// Returns true if a tab would be affected by initial plunge, false otherwise
+	// This prevents the tool from cutting tabs during the initial descent
+
+	if (!tabs || tabs.length === 0 || !startPoint) return false;
+
+	// Check each tab to see if it intersects with the start position
+	const tabLengthWorld = tabLength * viewScale;
+
+	for (let tab of tabs) {
+		// Create a small vertical segment at the start point to check for tab intersection
+		// This represents the plunge motion
+		const p1 = startPoint; // Start point at surface
+		const p2 = { x: startPoint.x, y: startPoint.y }; // Same XY, different Z (but we check XY only)
+
+		// Check if this segment would intersect the tab box
+		const intersections = intersectSegmentWithRedEnds(p1, p2, tab, toolRadius, tabLength, viewScale);
+
+		if (intersections.length > 0) {
+			return true; // Tab found at start position
+		}
+
+		// Also check if start point is inside the perpendicular bounds of any tab
+		// This catches tabs that might not have red-end intersections but would still be hit
+		const dirX = Math.cos(tab.angle);
+		const dirY = Math.sin(tab.angle);
+		const perpX = -Math.sin(tab.angle);
+		const perpY = Math.cos(tab.angle);
+
+		const p1RelX = p1.x - tab.x;
+		const p1RelY = p1.y - tab.y;
+		const p1PerpDist = p1RelX * perpX + p1RelY * perpY;
+
+		const halfBoxWidth = 2 * toolRadius;
+		if (Math.abs(p1PerpDist) <= halfBoxWidth) {
+			// Start point is within tab's perpendicular bounds
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function isPathCounterClockwise(toolpath) {
+	// Detect path direction using signed area (shoelace formula)
+	// Returns true for counter-clockwise, false for clockwise
+	// Positive area = counter-clockwise, negative = clockwise
+
+	if (!toolpath || toolpath.length < 3) return false;
+
+	let signedArea = 0;
+	for (let i = 0; i < toolpath.length; i++) {
+		const p1 = toolpath[i];
+		const p2 = toolpath[(i + 1) % toolpath.length];
+		signedArea += (p2.x - p1.x) * (p2.y + p1.y);
+	}
+
+	return signedArea > 0;
+}
+
+function calculateTabMarkers(toolpath, tabs, tabLength, toolRadius, viewScale) {
+	// Calculate all tab lift/lower markers with tool radius offset
+	// Returns array of {x, y, type: 'lift'|'lower', segmentIndex, t}
+	// Handles multi-segment offsets when tabs are near segment boundaries
+	// Handles bidirectional path traversal (clockwise and counter-clockwise)
+
+	if (!tabs || tabs.length === 0 || !toolpath || toolpath.length < 2) return [];
+
+	const markers = [];
+
+	// Detect path direction: true = counter-clockwise (inside cuts), false = clockwise (outside cuts)
+	const isCounterClockwise = isPathCounterClockwise(toolpath);
+
+	// For each segment in toolpath
+	for (let segIdx = 0; segIdx < toolpath.length - 1; segIdx++) {
+		const p1 = toolpath[segIdx];
+		const p2 = toolpath[segIdx + 1];
+
+		// Find intersections with tab red ends on this segment
+		const intersections = findTabIntersectionsOnSegment(p1, p2, tabs, toolRadius, tabLength, 'Profile');
+
+		if (intersections.length > 0) {
+			// Check if this is a fully-contained segment (shouldn't create markers)
+			const isFullSegment = intersections.some(int => int.isFullSegment);
+
+			if (isFullSegment) {
+				// Segment is entirely inside tab zone - skip marker creation
+				// The persistent lifted state will handle traversal
+				continue;
+			}
+
+			// Flip entry/exit types for counter-clockwise paths (inside cuts)
+			// For counter-clockwise traversal, entry and exit are reversed
+			if (isCounterClockwise) {
+				for (let int of intersections) {
+					if (int.type === 'enter') {
+						int.type = 'exit';
+					} else if (int.type === 'exit') {
+						int.type = 'enter';
+					}
+				}
+			}
+
+			// Process intersections - handle both pairs and single intersections
+			for (let intIdx = 0; intIdx < intersections.length; intIdx++) {
+				const currentInt = intersections[intIdx];
+				const nextInt = intersections[intIdx + 1];
+
+				if (currentInt.type === 'enter') {
+					// Check if followed by exit
+					if (nextInt && nextInt.type === 'exit') {
+						// Paired entry/exit - create both markers
+						const liftMarker = walkBackwardSegments(toolpath, segIdx, currentInt.distance, toolRadius);
+						const liftPt = interpolatePointOnSegment(toolpath[liftMarker.segmentIndex], toolpath[liftMarker.segmentIndex + 1], liftMarker.t);
+						markers.push({
+							x: liftPt.x,
+							y: liftPt.y,
+							type: 'lift',
+							segmentIndex: liftMarker.segmentIndex,
+							t: liftMarker.t
+						});
+
+						const lowerMarker = walkForwardSegments(toolpath, segIdx, nextInt.distance, toolRadius);
+						const lowerPt = interpolatePointOnSegment(toolpath[lowerMarker.segmentIndex], toolpath[lowerMarker.segmentIndex + 1], lowerMarker.t);
+						markers.push({
+							x: lowerPt.x,
+							y: lowerPt.y,
+							type: 'lower',
+							segmentIndex: lowerMarker.segmentIndex,
+							t: lowerMarker.t
+						});
+
+						intIdx++; // Skip the next intersection since we processed it
+					} else {
+						// Single entry (exit is on a later segment) - create only lift marker
+						const liftMarker = walkBackwardSegments(toolpath, segIdx, currentInt.distance, toolRadius);
+						const liftPt = interpolatePointOnSegment(toolpath[liftMarker.segmentIndex], toolpath[liftMarker.segmentIndex + 1], liftMarker.t);
+						markers.push({
+							x: liftPt.x,
+							y: liftPt.y,
+							type: 'lift',
+							segmentIndex: liftMarker.segmentIndex,
+							t: liftMarker.t
+						});
+					}
+				} else if (currentInt.type === 'exit') {
+					// Single exit (entry was on a previous segment) - create only lower marker
+					const lowerMarker = walkForwardSegments(toolpath, segIdx, currentInt.distance, toolRadius);
+					const lowerPt = interpolatePointOnSegment(toolpath[lowerMarker.segmentIndex], toolpath[lowerMarker.segmentIndex + 1], lowerMarker.t);
+					markers.push({
+						x: lowerPt.x,
+						y: lowerPt.y,
+						type: 'lower',
+						segmentIndex: lowerMarker.segmentIndex,
+						t: lowerMarker.t
+					});
+				}
+			}
+		}
+	}
+
+	return markers;
+}
+
+function augmentToolpathWithMarkers(toolpath, markers) {
+	// Create augmented toolpath by inserting marker points
+	// Splits segments where markers occur
+	// Returns new array: original points with markers inserted at appropriate positions
+
+	if (markers.length === 0) return toolpath.slice();
+
+	const augmentedPath = [];
+
+	// For each segment
+	for (let segIdx = 0; segIdx < toolpath.length; segIdx++) {
+		const point = toolpath[segIdx];
+
+		// Add the current point
+		augmentedPath.push(point);
+
+		// If not the last point, check for markers on this segment
+		if (segIdx < toolpath.length - 1) {
+			// Find all markers for this segment, sorted by t value
+			const segmentMarkers = markers
+				.filter(m => m.segmentIndex === segIdx)
+				.sort((a, b) => a.t - b.t);
+
+			// Add all markers for this segment
+			for (const marker of segmentMarkers) {
+				augmentedPath.push({
+					x: marker.x,
+					y: marker.y,
+					marker: marker.type  // 'lift' or 'lower'
+				});
+			}
+		}
+	}
+
+	return augmentedPath;
+}
+
 function toGcode() {
 	// Get current G-code profile
 	var profile = currentGcodeProfile || {
@@ -3973,9 +4903,49 @@ function toGcode() {
 						//}
 						var left = depth;
 						var pass = 0;
-						while (path.length && left > 0) {
-							for (var j = 0; j < path.length; j++) {
-								var p = toMM(path[j].x, path[j].y);
+
+						// Get tabs from source SVG path for tab avoidance
+						var svgPath = null;
+						var tabs = [];
+						var toolRadiusWorld = radius * viewScale; // Convert MM radius to world units
+						var workpieceThickness = getOption("workpieceThickness");
+
+						if (sortedToolpaths[i].svgId) {
+							for (var spIdx = 0; spIdx < svgpaths.length; spIdx++) {
+								if (svgpaths[spIdx].id === sortedToolpaths[i].svgId) {
+									svgPath = svgpaths[spIdx];
+									break;
+								}
+							}
+						}
+
+						if (svgPath && svgPath.creationProperties && svgPath.creationProperties.tabs) {
+							tabs = svgPath.creationProperties.tabs;
+						}
+
+						// Pre-calculate tab markers with tool radius offset included
+						const tabLengthMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabLength || 0) : 0;
+						const tabHeightMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabHeight || 0) : 0;
+						const markers = (tabs.length > 0) ? calculateTabMarkers(path, tabs, tabLengthMM, toolRadiusWorld, viewScale) : [];
+
+						// Store markers for debug visualization
+						debugTabMarkers = markers.slice();
+
+						const augmentedPath = (markers.length > 0) ? augmentToolpathWithMarkers(path, markers) : path;
+
+						// Debug: Log markers
+					for (let mIdx = 0; mIdx < markers.length; mIdx++) {
+						const m = markers[mIdx];
+					}
+
+						while (augmentedPath.length && left > 0) {
+							var currentlyLifted = false;  // Persistent state across segments
+							var firstMarkerPos = null;    // Track first marker for cleanup
+							var startedLifted = false;    // Track if we started lifted
+
+							for (var j = 0; j < augmentedPath.length; j++) {
+								var pt = augmentedPath[j];
+								var p = toMM(pt.x, pt.y);
 
 								if (j == 0) {
 									pass++;
@@ -3986,22 +4956,122 @@ function toGcode() {
 									var passComment = formatComment('pass ' + pass, profile);
 									if (passComment) output += passComment + '\n';
 
-									// Retract to safe height before moving to start of next pass (except first pass)
-									if (pass > 1) {
-										output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+									// Calculate tab lift amount for this depth
+									var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+
+									// Find first marker in augmented path to detect if tab blocks path start
+									let firstMarkerIndex = -1;
+									for (let mIdx = 1; mIdx < augmentedPath.length; mIdx++) {
+										if (augmentedPath[mIdx].marker) {
+											firstMarkerIndex = mIdx;
+											firstMarkerPos = augmentedPath[mIdx];
+											break;
+										}
 									}
 
+									// Determine if tab is blocking path start
+									// If first marker is closer than 2*toolRadius from start, tab is in the way
+									let distToFirstMarker = Infinity;
+									if (firstMarkerPos) {
+										const pt0 = augmentedPath[0];
+										const dx = firstMarkerPos.x - pt0.x;
+										const dy = firstMarkerPos.y - pt0.y;
+										distToFirstMarker = Math.sqrt(dx * dx + dy * dy);
+									}
+
+									const toolRadiusWorld = radius * viewScale;
+									const tabBlocksStart = (distToFirstMarker <= 2 * toolRadiusWorld);
+
+									// Ensure Z is at safe height before moving to first point of this pass
+									// This prevents cutting material during the XY rapid move between shapes or passes
+									var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
+									output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed / 2 }) + '\n';
+
+									// Move to path start X,Y position first
 									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
-									output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed }) + '\n';
+
+									// Determine plunge depth based on whether tab blocks start
+									var startZCoord;
+									if (tabBlocksStart && tabLift > 0) {
+										// Plunge to lifted height to clear tab at start
+										startZCoord = toGcodeUnitsZ(z + tabLift, useInches);
+										currentlyLifted = true;
+										startedLifted = true;
+									} else {
+										// Plunge to full cutting depth
+										startZCoord = toGcodeUnitsZ(z, useInches);
+										currentlyLifted = false;
+										startedLifted = false;
+									}
+
+									// Plunge Z with cutting feed (G1, not rapid G0)
+									output += applyGcodeTemplate(profile.cutTemplate, { z: startZCoord, f: zfeed }) + '\n';
+
+									// Cutting move to first point
+									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: startZCoord, f: feed }) + '\n';
 								}
 								else {
-									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+									// Process augmented path point with possible marker
+									if (pt.marker) {
+										// This point is a marker (lift or lower)
+										var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+
+										if (pt.marker === 'lift') {
+											// First: Cut to marker position at normal depth
+											var zNormalCoord = toGcodeUnitsZ(z, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+
+											// Then: Lift at marker position (cutting move, in case tool radius cuts top of material)
+											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+
+											// Mark as lifted - maintains state across subsequent segments
+											currentlyLifted = true;
+										}
+										else if (pt.marker === 'lower') {
+											// First: Move to marker position at lifted height (cutting move to cut top of material over tabs)
+											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+
+											// Then: Lower back to cutting depth at this position (cutting move)
+											var zNormalCoord = toGcodeUnitsZ(z, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+
+											// No longer lifted
+											currentlyLifted = false;
+										}
+									}
+									else {
+										// Regular path point
+										if (currentlyLifted) {
+											// Continue at lifted height (cutting move to cut top of material over tabs) - maintain lifted state
+											var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+										}
+										else {
+											// Normal cutting move (not lifted)
+											var zNormalCoord = toGcodeUnitsZ(z, useInches);
+											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+										}
+									}
 								}
+							}
+
+							// If we started lifted due to tab at path start, cut remaining material at end of pass
+							if (startedLifted && firstMarkerPos) {
+								// Move back toward the first marker position to cut skipped material at path start
+								var cleanupZCoord = toGcodeUnitsZ(z, useInches);
+								var markerMM = toMM(firstMarkerPos.x, firstMarkerPos.y);
+								output += applyGcodeTemplate(profile.cutTemplate, { x: markerMM.x, y: markerMM.y, z: cleanupZCoord, f: feed }) + '\n';
 							}
 						}
 					}
 				}
 			}
+
+			// Retract to safe height after finishing shape (before moving to next shape)
+			output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: zfeed / 2 }) + '\n';
 		}
 	}
 
