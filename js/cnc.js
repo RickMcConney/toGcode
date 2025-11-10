@@ -1244,23 +1244,39 @@ function drawTabBoundingBoxes() {
 	ctx.restore();
 }
 
-function drawPath(path, color, lineWidth) {
+function drawPath(path, color, lineWidth, isMultiSegment) {
 	ctx.beginPath();
 	ctx.lineCap = 'round';
 	ctx.lineJoin = 'round';
-	for (var j = 0; j < path.length; j++) {
-		var pt = worldToScreen(path[j].x, path[j].y);
-		if (j == 0) {
+
+	if (isMultiSegment) {
+		// Pair-based iteration for multi-segment paths (infill lines with gaps)
+		// Treats path as pairs of points (segment start, segment end)
+		// moveTo(p1), lineTo(p2), moveTo(p3), lineTo(p4)...
+		// Gaps between segments appear automatically
+		for (let i = 0; i < path.length; i += 2) {
+			var pt = worldToScreen(path[i].x, path[i].y);
 			ctx.moveTo(pt.x, pt.y);
-		} else {
-			ctx.lineTo(pt.x, pt.y);
+			if (i + 1 < path.length) {
+				var pt2 = worldToScreen(path[i + 1].x, path[i + 1].y);
+				ctx.lineTo(pt2.x, pt2.y);
+			}
+		}
+	} else {
+		// Sequential iteration for regular paths (contours, profiles, etc.)
+		for (var j = 0; j < path.length; j++) {
+			var pt = worldToScreen(path[j].x, path[j].y);
+			if (j == 0) {
+				ctx.moveTo(pt.x, pt.y);
+			} else {
+				ctx.lineTo(pt.x, pt.y);
+			}
 		}
 	}
+
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
 	ctx.stroke();
-
-
 }
 
 
@@ -1756,6 +1772,7 @@ function drawToolPaths() {
 					path = paths[p].path;
 				var tpath = paths[p].tpath;
 				var operation = toolpaths[i].operation;
+				var isMultiSegment = paths[p].isMultiSegment || false;
 
 				if (operation == "Drill")
 					if (toolpaths[i].selected || isActive)
@@ -1792,7 +1809,8 @@ function drawToolPaths() {
 				}
 				else if (tpath) {
 					// Normal path drawing
-					drawPath(tpath, color, lineWidth);
+					var isMultiSegment = paths[p].isMultiSegment || false;
+				drawPath(tpath, color, lineWidth, isMultiSegment);
 				}
 			}
 		}
@@ -2782,7 +2800,7 @@ function addCircles(path, r) {
 }
 
 
-function pushToolPath(paths, name, operation, svgId) {
+function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 	addUndo(true, false, false);
 
 	// Create toolpath object with tool data
@@ -2793,7 +2811,8 @@ function pushToolPath(paths, name, operation, svgId) {
 		operation: operation,
 		name: name,
 		tool: { ...currentTool },
-		svgId: svgId
+		svgId: svgId || (svgIds && svgIds.length > 0 ? svgIds[0] : null),  // Backward compatibility
+		svgIds: svgIds  // Store array of all source SVG path IDs for multi-path operations
 	};
 
 	// If toolpath properties were set (from the new properties panel), store them
@@ -2854,7 +2873,6 @@ function doOutside() {
 		}
 		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	selectMgr.unselectAll();
 }
 
 function reversePath(path) {
@@ -2899,7 +2917,6 @@ function doInside() {
 		}
 		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	selectMgr.unselectAll();
 }
 
 function doCenter() {
@@ -2935,7 +2952,6 @@ function doCenter() {
 
 		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-	selectMgr.unselectAll();
 
 }
 
@@ -3069,12 +3085,18 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 		maxY = Math.max(maxY, point.y);
 	});
 
-	// Generate a set of parallel lines that span the bounding box
+	// Track the Y values and indices of the infill lines we generate
+	const sourceLines = [];
 	const subjectLines = [];
+	let lineIndex = 0;
+
+	// Generate a set of parallel lines that span the bounding box
 	for (let y = minY + radius; y <= (maxY - radius); y += stepOverDistance) {
 		// A single line segment to be clipped
 		const line = [{ x: minX, y: y }, { x: maxX, y: y }];
 		subjectLines.push(line);
+		sourceLines.push({ index: lineIndex, y: y });
+		lineIndex++;
 	}
 
 	//const line = [{ x: minX, y: maxY-radius }, { x: maxX, y: maxY-radius }];
@@ -3102,17 +3124,117 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 	);
 
 	const finalPaths = ClipperLib.Clipper.PolyTreeToPaths(solutionPolyTree);
+	const validPaths = [];
+
 	for (let i = finalPaths.length - 1; i >= 0; i--) {
 		let p = finalPaths[i];
 		p[0].x -= (radius);
 		p[1].x += (radius);
 
-		if (p[0].x < p[1].x) {
-			finalPaths.splice(i, 1);
+		if (!(p[0].x < p[1].x)) {
+			validPaths.unshift(p);
 		}
 	}
-	// Scale the result back down
-	return finalPaths;
+
+	// Group paths by their Y coordinate proximity
+	// All paths with similar Y values belong to the same source infill line
+	const tolerance = stepOverDistance * 0.2;  // Tolerance for Y clustering
+	const pathsWithY = validPaths.map((path, idx) => ({
+		idx: idx,
+		path: path,
+		y: path.length > 0 ? (path[0].y + path[path.length - 1].y) / 2 : 0
+	}));
+
+	// Sort by Y coordinate
+	pathsWithY.sort((a, b) => a.y - b.y);
+
+	// Cluster paths by Y proximity
+	const groups = [];
+	const usedIndices = new Set();
+
+	for (let i = 0; i < pathsWithY.length; i++) {
+		if (usedIndices.has(i)) continue;
+
+		const groupPaths = [pathsWithY[i].path];
+		usedIndices.add(i);
+		const groupY = pathsWithY[i].y;
+
+		// Find all subsequent paths with similar Y values
+		for (let j = i + 1; j < pathsWithY.length; j++) {
+			if (usedIndices.has(j)) continue;
+			if (Math.abs(pathsWithY[j].y - groupY) <= tolerance) {
+				groupPaths.push(pathsWithY[j].path);
+				usedIndices.add(j);
+			} else {
+				// Since sorted by Y, no more matches will be found
+				break;
+			}
+		}
+
+		// Add group if it has paths
+		if (groupPaths.length > 0) {
+			groups.push({
+				sourceLineY: groupY,
+				paths: groupPaths
+			});
+		}
+	}
+
+	// Return grouped structure instead of flat array
+	return groups;
+}
+
+function optimizePocketInfillOrder(paths) {
+	// Separate contour and infill paths
+	const contours = paths.filter(p => p.isContour);
+	const infill = paths.filter(p => !p.isContour);
+
+	// Alternate infill direction: reverse every other line
+	const optimizedInfill = infill.map((line, index) => {
+		if (index % 2 === 1) {
+			// Reverse entire path (including all segments if multi-segment)
+			return { ...line, tpath: reversePath(line.tpath) };
+		}
+		return line;
+	});
+
+	// Reassemble: infill first, contour last
+	// Clear the original array and repopulate it
+	paths.length = 0;
+	paths.push(...optimizedInfill, ...contours);
+}
+
+function reversePath(path) {
+	return path.slice().reverse();
+}
+
+function detectMultiSegment(path) {
+	// Detect if path has gaps (islands) by checking for large jumps
+	const totalLength = calculatePathLength(path);
+	const pointCount = path.length;
+	const avgSegmentLength = totalLength / Math.max(pointCount - 1, 1);
+
+	for (let i = 0; i < path.length - 1; i++) {
+		const segmentLength = Math.hypot(
+			path[i+1].x - path[i].x,
+			path[i+1].y - path[i].y
+		);
+		if (segmentLength > avgSegmentLength * 2) {
+			return true;  // Large gap detected
+		}
+	}
+	return false;
+}
+
+function calculatePathLength(path) {
+	let length = 0;
+	for (let i = 0; i < path.length - 1; i++) {
+		length += Math.hypot(
+			path[i+1].x - path[i].x,
+			path[i+1].y - path[i].y
+		);
+	}
+	return length;
 }
 
 function getUnionOfPaths(inputPaths) {
@@ -3160,25 +3282,68 @@ function doPocket() {
 
 	let tpath = offsetPath(outerPath, radius, false);
 	offsetPaths.push(tpath[0]);
-	paths.push({ tpath: tpath[0] });
+
+	// Apply doInside() direction logic to outer contour
+	// For conventional: no reverse (clockwise)
+	// For climb: reverse (counter-clockwise)
+	if (currentTool.direction == "climb") {
+		tpath[0] = reversePath(tpath[0]);
+	}
+	paths.push({ tpath: tpath[0], isContour: true });
 
 	for (p of inputPaths) {
 		if (pathIn(outerPath, p)) {
 			let tpath = offsetPath(p, radius, true);
-			paths.push({ tpath: tpath[0] });
+
+			// Apply doOutside() direction logic to hole contours
+			// For conventional: reverse (counter-clockwise)
+			// For climb: no reverse (clockwise)
+			if (currentTool.direction != "climb") {
+				tpath[0] = reversePath(tpath[0]);
+			}
+
+			paths.push({ tpath: tpath[0], isContour: true });
 			offsetPaths.push(tpath[0]);
 		}
 	}
 
 	let tpaths = generateClipperInfill(offsetPaths, stepover, radius);
 
-	for (let tpath of tpaths) {
-		paths.push({ tpath: tpath });
+	// Process grouped infill paths
+	// Each group represents paths from the same source infill line
+	for (let group of tpaths) {
+		// If a group has multiple paths (segments separated by islands), combine them into one path
+		const isMultiSegment = group.paths.length > 1;
+
+		if (isMultiSegment) {
+			// Combine all segments from this group into a single path object
+			// The combined path will have gaps where segments are separated
+			const combinedPath = [];
+			for (let segment of group.paths) {
+				combinedPath.push(...segment);
+			}
+
+			paths.push({
+				tpath: combinedPath,
+				isContour: false,
+				isMultiSegment: true
+			});
+		} else {
+			// Single segment - add as-is
+			paths.push({
+				tpath: group.paths[0],
+				isContour: false,
+				isMultiSegment: false
+			});
+		}
 	}
 
+	// Optimize infill alternating direction
+	optimizePocketInfillOrder(paths);
 
-	pushToolPath(paths, name, 'Pocket', selectMgr.firstSelected().id);
-	selectMgr.unselectAll();
+	// Collect all selected SVG path IDs for multi-path tracking
+	const selectedSvgIds = selectMgr.selectedPaths().map(p => p.id);
+	pushToolPath(paths, name, 'Pocket', null, selectedSvgIds);
 }
 function olddoPocket() {
 	setMode("Pocket");
@@ -3288,7 +3453,6 @@ function doVcarveCenter() {
 	}
 	setMode("VCarve In");
 	compute(false, 'VCarve In');
-	selectMgr.unselectAll();
 }
 
 function doVcarveIn() {
@@ -3298,7 +3462,6 @@ function doVcarveIn() {
 	}
 	setMode("VCarve In");
 	oldcompute(false, 'VCarve In');
-	selectMgr.unselectAll();
 }
 
 function doVcarveOut() {
@@ -3308,7 +3471,6 @@ function doVcarveOut() {
 	}
 	setMode("VCarve Out");
 	oldcompute(true, 'VCarve Out');
-	selectMgr.unselectAll();
 }
 
 
@@ -4463,38 +4625,80 @@ function toGcode() {
 					var passComment = formatComment('pass ' + pass, profile);
 					if (passComment) output += passComment + '\n';
 
-					// For each depth pass, do all paths from innermost to outermost
-					for (var k = paths.length - 1; k >= 0; k--) {
-						var path = paths[k].tpath;
+					// Convert feed rates based on profile units
+					var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+					var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+					var zCoord = toGcodeUnitsZ(z, useInches);
+
+					var firstInfillInPass = true;
+
+					// Process INFILL lines first (optimized zigzag pattern)
+					for (var k = 0; k < paths.length; k++) {
+						var pathObj = paths[k];
+						if (pathObj.isContour) continue;  // Skip contours for now
+
+						var path = pathObj.tpath;
 
 						if (path.length > 0) {
-							// Convert coordinates and feed rates based on profile units
-							var zCoord = toGcodeUnitsZ(z, useInches);
-							var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
-							var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
-
-							// Check if this is a plunge point
-							if (paths[k].isPlunge && paths[k].plungePoint) {
-								// Simple plunge - just move to center point, no retract (material is being cleared)
-								var p = toGcodeUnits(paths[k].plungePoint.x, paths[k].plungePoint.y, useInches);
+							if (firstInfillInPass) {
+								// First infill of this pass: retract to safe height, rapid to start, plunge
+								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
 								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
-								// No retract - continue to next path
+								firstInfillInPass = false;
+							} else {
+								// Subsequent infill lines: cutto start at cutting depth (no retract)
+								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 							}
-							else {
-								// Normal path following - no safe height retracts within pocket
-								for (var j = 0; j < path.length; j++) {
-									var p = toGcodeUnits(path[j].x, path[j].y, useInches);
 
-									if (j == 0) {
-										output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
-										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-										output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoord, f: feedZ }) + '\n';
-									}
-									else {
-										output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-									}
+							// Cut entire path, handling gaps in multi-segment lines
+							const hasGaps = pathObj.isMultiSegment;
+
+							for (var j = 1; j < path.length; j++) {
+								var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+								var prevP = toGcodeUnits(path[j-1].x, path[j-1].y, useInches);
+
+								// Check if this is a gap (large distance between consecutive points)
+								const dx = p.x - prevP.x;
+								const dy = p.y - prevP.y;
+								const distance = Math.sqrt(dx*dx + dy*dy);
+
+								// If multi-segment and distance is large, it's a gap - retract/rapid/plunge
+								if (hasGaps && distance > 10) {  // 10 units threshold for gap detection
+									// Retract to safe height
+									output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+									// Rapid to next point
+									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+									// Plunge back to cutting depth
+									output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+								} else {
+									// Normal cutting move
+									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 								}
+							}
+						}
+					}
+
+					// Process CONTOUR lines last (finishing operation)
+					for (var k = 0; k < paths.length; k++) {
+						var pathObj = paths[k];
+						if (!pathObj.isContour) continue;  // Only process contours
+
+						var path = pathObj.tpath;
+
+						if (path.length > 0) {
+							// Every contour gets full retract/rapid/plunge treatment
+							var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+							output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+
+							// Cut entire contour path
+							for (var j = 1; j < path.length; j++) {
+								var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 							}
 						}
 					}
@@ -4597,6 +4801,7 @@ function toGcode() {
 						//}
 						var left = depth;
 						var pass = 0;
+						var isFirstPass = true;
 
 						// Get tabs from source SVG path for tab avoidance
 						var svgPath = null;
@@ -4667,15 +4872,18 @@ function toGcode() {
 
 									const tabBlocksStart = (distToFirstMarker <= 2 * toolRadiusWorld);
 
-									// Ensure Z is at safe height before moving to first point of this pass
-									// This prevents cutting material during the XY rapid move between shapes or passes
 									var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
-									output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed / 2 }) + '\n';
 
-									// Move to path start X,Y position first
-									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+									if (isFirstPass) {
+										// FIRST PASS: Retract to safe height, rapid to start XY position
+										output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed / 2 }) + '\n';
+										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+										isFirstPass = false;
+									}
+									// MIDDLE PASSES: Already at correct XY from end of previous pass (closed path)
+									// No retract or XY movement needed - just plunge to new depth below
 
-									// Determine plunge depth based on whether tab blocks start
+									// Determine plunge depth based on whether tab blocks start at this new depth
 									var startZCoord;
 									if (tabBlocksStart && tabLift > 0) {
 										// Plunge to lifted height to clear tab at start

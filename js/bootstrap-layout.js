@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-09";
+var APP_VERSION = "Ver 2025-11-10";
 
 var mode = "Select";
 var options = [];
@@ -1584,9 +1584,21 @@ function setupToolpathUpdateButton(operationName) {
         // Collect all SVG paths that need to be regenerated
         const svgPathsToRegenerate = [];
         for (const toolpath of activeToolpaths) {
-            const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
-            if (svgPath) {
-                svgPathsToRegenerate.push(svgPath);
+            // Check if toolpath has svgIds array (new format for multi-path operations like pocket)
+            if (toolpath.svgIds && Array.isArray(toolpath.svgIds)) {
+                // Multi-path: find ALL matching paths
+                toolpath.svgIds.forEach(id => {
+                    const svgPath = svgpaths.find(p => p.id === id);
+                    if (svgPath) {
+                        svgPathsToRegenerate.push(svgPath);
+                    }
+                });
+            } else {
+                // Single path: backward compatible with old format
+                const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
+                if (svgPath) {
+                    svgPathsToRegenerate.push(svgPath);
+                }
             }
         }
 
@@ -3070,22 +3082,19 @@ function handleOperationClick(operation) {
             setMode("Select");
             break;
 
-        case 'Inside':
-            doInside();
-            break;
-        case 'Center':
-            doCenter();
-            break;
         case 'Profile':
             doProfile();
+            selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'Pocket':
             doPocket();
+            selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'VCarve':
             doVcarve();
+            selectMgr.unselectAll();
             setMode("Select");
             break;
         default:

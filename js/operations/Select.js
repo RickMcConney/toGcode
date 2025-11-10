@@ -163,7 +163,7 @@ class Select extends Operation {
         } else if (!evt.shiftKey && this.unselectOnMouseDown) {
             this.unselectAll();
         }
-        this.showSelection();
+        //this.showSelection();
     }
 
     /**
