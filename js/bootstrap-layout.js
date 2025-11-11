@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-10";
+var APP_VERSION = "Ver 2025-11-11";
 
 var mode = "Select";
 var options = [];
@@ -549,9 +549,6 @@ function createToolbar() {
                 </button>
                 <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Generate G-code">
                     <i data-lucide="file-cog"></i>G-code
-                </button>
-                <button type="button" class="btn btn-outline-info btn-sm btn-toolbar" id="export-debug-log" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Export debug log from last G-code generation">
-                    <i data-lucide="download"></i>Debug Log
                 </button>
             </div>
             <div class="toolbar-separator"></div>

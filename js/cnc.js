@@ -3074,11 +3074,91 @@ function makeHole(pt) {
 	}
 }
 
+/**
+ * Calculates the signed area of a path
+ * Used to determine winding order (clockwise vs counter-clockwise)
+ * @param {Array} path - Array of {x, y} points
+ * @returns {number} Signed area - positive for counter-clockwise, negative for clockwise
+ */
+function getSignedArea(path) {
+	if (!path || path.length < 3) return 0;
+
+	let area = 0;
+	for (let i = 0; i < path.length - 1; i++) {
+		area += (path[i+1].x - path[i].x) * (path[i+1].y + path[i].y);
+	}
+	return area;
+}
+
+/**
+ * Normalizes winding order of paths to counter-clockwise
+ * Ensures consistent behavior regardless of how paths are drawn by user
+ * @param {Array} inputPaths - Array of paths (each path is array of {x, y} points)
+ * @returns {Array} All paths normalized to counter-clockwise winding order
+ */
+function normalizeWindingOrder(inputPaths) {
+	if (!inputPaths || inputPaths.length === 0) return inputPaths;
+
+	// Single path - normalize to counter-clockwise
+	if (inputPaths.length === 1) {
+		const signedArea = getSignedArea(inputPaths[0]);
+		if (signedArea < 0) {
+			// Clockwise - reverse to counter-clockwise
+			return [reversePath(inputPaths[0])];
+		}
+		return inputPaths;
+	}
+
+	// Multiple paths - identify outer (largest) vs inner (islands)
+	const pathsWithArea = inputPaths.map((path, idx) => ({
+		path: path,
+		area: Math.abs(getSignedArea(path)),
+		signedArea: getSignedArea(path),
+		isClockwise: getSignedArea(path) < 0,
+		index: idx
+	}));
+
+	// Largest area path is the outer boundary
+	const outerPathData = pathsWithArea.reduce((max, p) =>
+		p.area > max.area ? p : max
+	);
+
+	// Inner paths are islands/holes
+	const innerPathsData = pathsWithArea.filter(p => p.index !== outerPathData.index);
+
+	// Normalize winding - all paths to counter-clockwise
+	const normalized = [];
+
+	// Outer path should be counter-clockwise
+	if (outerPathData.isClockwise) {
+		normalized.push(reversePath(outerPathData.path));
+	} else {
+		normalized.push(outerPathData.path);
+	}
+
+	// Inner paths (islands) should also be counter-clockwise
+	for (let i = 0; i < innerPathsData.length; i++) {
+		const innerData = innerPathsData[i];
+		if (innerData.isClockwise) {
+			// Clockwise - reverse to counter-clockwise
+			normalized.push(reversePath(innerData.path));
+		} else {
+			// Already counter-clockwise - use as-is
+			normalized.push(innerData.path);
+		}
+	}
+
+	return normalized;
+}
+
 function generateClipperInfill(inputPaths, stepOverDistance, radius) {
+	// Normalize winding order to ensure consistent behavior regardless of user draw direction
+	const normalizedPaths = normalizeWindingOrder(inputPaths);
+
 	const clipper = new ClipperLib.Clipper();
 	// Determine the bounding box to generate infill lines
 	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-	inputPaths.flat().forEach(point => {
+	normalizedPaths.flat().forEach(point => {
 		minX = Math.min(minX, point.x);
 		minY = Math.min(minY, point.y);
 		maxX = Math.max(maxX, point.x);
@@ -3105,7 +3185,7 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 	// Add the boundary paths as the clip subject.
 	// The last parameter is `true` because boundaries are closed polygons.
 	// clipper.AddPaths() can handle multiple paths, including those for holes.
-	clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
+	clipper.AddPaths(normalizedPaths, ClipperLib.PolyType.ptClip, true);
 
 	// Add the infill lines as the subject to be clipped.
 	// The last parameter is `false` because they are open polylines.
@@ -3182,6 +3262,254 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 
 	// Return grouped structure instead of flat array
 	return groups;
+}
+
+/**
+ * Extracts connectivity chains from grouped infill paths
+ * Groups segments by continuity across Y-levels with endpoint-based zigzag matching
+ * Segments form a chain by tracking the last cutting endpoint and matching new segments to it
+ * Automatically reverses segments to maintain continuous zigzag pattern
+ * @param {Array} infillGroups - Array of groups from generateClipperInfill() (sorted by Y)
+ * @param {number} stepover - Stepover distance
+ * @returns {Array} Array of chains, each containing segments from one X-region
+ */
+function extractConnectivityChains(infillGroups, stepover) {
+	if (infillGroups.length === 0) return [];
+
+	const tolerance = stepover * 2;  // Tolerance for endpoint matching (accounts for Y-distance between segments)
+	const openChains = [];  // Chains still being built
+	const closedChains = [];  // Finalized chains
+	let previousWasSingleSegment = false;  // Track single-segment continuity
+
+	// Process Y-groups in order (already sorted by Y from generateClipperInfill)
+	for (let groupIdx = 0; groupIdx < infillGroups.length; groupIdx++) {
+		const group = infillGroups[groupIdx];
+		const sourceY = group.sourceLineY;
+
+		// Extract all segments from this Y-group
+		const segments = [];
+		for (let path of group.paths) {
+			// Each path is one segment (one side of an island or continuous region)
+			segments.push({ path: path });
+		}
+
+		// Sort segments by X position (left to right) for consistent ordering
+		segments.sort((a, b) => {
+			const aMinX = Math.min(a.path[0].x, a.path[a.path.length - 1].x);
+			const bMinX = Math.min(b.path[0].x, b.path[b.path.length - 1].x);
+			return aMinX - bMinX;
+		});
+
+		// Check if this Y-level has only one segment (no islands)
+		const isSingleSegment = segments.length === 1;
+
+		// Mark which open chains got updated this iteration
+		for (let chain of openChains) {
+			chain.wasUpdated = false;
+		}
+
+		// Match segments to open chains based on endpoint proximity
+		for (let segment of segments) {
+			// Special case: if both previous and current Y-levels have single segments,
+			// force continuity (no islands at either level, must be continuous)
+			if (isSingleSegment && previousWasSingleSegment && openChains.length > 0) {
+				// Force segment into existing chain(s)
+				// If there's only one open chain, add to it
+				// If multiple chains, add to first one (they should have been closed if truly separate)
+				const chain = openChains[0];
+
+				const segStart = segment.path[0];
+				const segEnd = segment.path[segment.path.length - 1];
+				const lastEndpoint = chain.lastEndpoint;
+
+				// Still determine if reversal is needed for smooth continuation
+				const distToStart = Math.hypot(
+					segStart.x - lastEndpoint.x,
+					segStart.y - lastEndpoint.y
+				);
+				const distToEnd = Math.hypot(
+					segEnd.x - lastEndpoint.x,
+					segEnd.y - lastEndpoint.y
+				);
+
+				let addedSegment = segment.path;
+				let newEndpoint;
+
+				if (distToEnd < distToStart) {
+					// End point is closer - reverse for continuity
+					addedSegment = reversePath(segment.path);
+					newEndpoint = addedSegment[0];
+				} else {
+					// Start point is closer - use as-is
+					newEndpoint = segment.path[segment.path.length - 1];
+				}
+
+				chain.segments.push(addedSegment);
+				chain.lastEndpoint = newEndpoint;
+				chain.wasUpdated = true;
+			} else {
+				// Normal tolerance-based matching for multi-segment or first segment
+				const segStart = segment.path[0];
+				const segEnd = segment.path[segment.path.length - 1];
+				let bestChain = null;
+				let bestDistance = Infinity;
+				let shouldReverse = false;
+
+				// Find open chain with closest matching endpoint
+				for (let chain of openChains) {
+					const lastEndpoint = chain.lastEndpoint;
+
+					// Calculate distance from last endpoint to this segment's start point
+					const distToStart = Math.hypot(
+						segStart.x - lastEndpoint.x,
+						segStart.y - lastEndpoint.y
+					);
+
+					// Calculate distance from last endpoint to this segment's end point
+					const distToEnd = Math.hypot(
+						segEnd.x - lastEndpoint.x,
+						segEnd.y - lastEndpoint.y
+					);
+
+					// Use whichever endpoint is closer
+					let closestDist, reverse;
+					if (distToStart < distToEnd) {
+						// Start point is closer - cut forward
+						closestDist = distToStart;
+						reverse = false;
+					} else {
+						// End point is closer - cut backward (reverse)
+						closestDist = distToEnd;
+						reverse = true;
+					}
+
+					// Update best match if this is within tolerance and closest
+					if (closestDist < tolerance && closestDist < bestDistance) {
+						bestChain = chain;
+						bestDistance = closestDist;
+						shouldReverse = reverse;
+					}
+				}
+
+				// Add segment to best matching chain or create new chain
+				if (bestChain) {
+					let addedSegment = segment.path;
+					let newEndpoint;
+
+					if (shouldReverse) {
+						// Reverse the segment for continuity
+						addedSegment = reversePath(segment.path);
+						newEndpoint = addedSegment[0];  // First point of reversed segment
+					} else {
+						// Use segment as-is
+						newEndpoint = segment.path[segment.path.length - 1];  // Last point
+					}
+
+					bestChain.segments.push(addedSegment);
+					bestChain.lastEndpoint = newEndpoint;  // Update endpoint for next match
+					bestChain.wasUpdated = true;
+				} else {
+					// Create new chain
+					openChains.push({
+						segments: [segment.path],
+						lastEndpoint: segment.path[segment.path.length - 1],  // End at last point
+						wasUpdated: true,
+						startY: sourceY
+					});
+				}
+			}
+		}
+
+		// Update tracking for next iteration
+		previousWasSingleSegment = isSingleSegment;
+
+		// Close chains that didn't get a segment this iteration
+		const remainingChains = [];
+		for (let chain of openChains) {
+			if (chain.wasUpdated) {
+				chain.endY = sourceY;
+				remainingChains.push(chain);
+			} else {
+				// Chain didn't get a segment - it's complete, can't continue without lifting
+				closedChains.push(chain);
+			}
+		}
+		openChains.length = 0;
+		openChains.push(...remainingChains);
+	}
+
+	// Finalize any remaining open chains
+	for (let chain of openChains) {
+		closedChains.push(chain);
+	}
+
+	// Convert chains to final format
+	return closedChains.map(chain => ({
+		segments: chain.segments,
+		startY: chain.startY,
+		endY: chain.endY
+	}));
+}
+
+/**
+ * Optimizes the order of infill chains using nearest-neighbor algorithm
+ * Chains are reordered to minimize tool travel distance between chains
+ * Parallel lines (chains) can be cut in either direction
+ * @param {Array} chains - Array of chain path objects
+ * @returns {Array} Reordered chains with minimal travel distance
+ */
+function optimizeChainOrder(chains) {
+	if (chains.length <= 1) return chains;
+
+	const optimized = [];
+	const remaining = chains.slice();
+
+	// Start with first chain
+	let current = remaining.shift();
+	optimized.push(current);
+	let currentEnd = getPathEndPoint(current.tpath);
+
+	// Nearest neighbor: repeatedly find closest uncut chain
+	while (remaining.length > 0) {
+		let nearestIdx = 0;
+		let nearestDist = Infinity;
+		let shouldReverse = false;
+
+		// Find nearest chain endpoint
+		for (let i = 0; i < remaining.length; i++) {
+			const chainPath = remaining[i].tpath;
+			const chainStart = getPathStartPoint(chainPath);
+			const chainEnd = getPathEndPoint(chainPath);
+
+			// Distance to start of this chain
+			const distToStart = distance(currentEnd, chainStart);
+			if (distToStart < nearestDist) {
+				nearestDist = distToStart;
+				nearestIdx = i;
+				shouldReverse = false;
+			}
+
+			// Distance to end of this chain (can reverse for parallel infill lines)
+			const distToEnd = distance(currentEnd, chainEnd);
+			if (distToEnd < nearestDist) {
+				nearestDist = distToEnd;
+				nearestIdx = i;
+				shouldReverse = true;
+			}
+		}
+
+		// Move nearest chain to optimized list
+		current = remaining.splice(nearestIdx, 1)[0];
+
+		if (shouldReverse) {
+			current = { ...current, tpath: reversePath(current.tpath) };
+		}
+
+		optimized.push(current);
+		currentEnd = getPathEndPoint(current.tpath);
+	}
+
+	return optimized;
 }
 
 function optimizePocketInfillOrder(paths) {
@@ -3271,13 +3599,23 @@ function doPocket() {
 	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
 	var inputPaths = [];
-	
+
 	var selected =  selectMgr.selectedPaths();
 	for(let svgpath of selected)
 		inputPaths.push(svgpath.path);
 
+	// Normalize ALL input paths to ensure consistent winding order
+	// This makes island detection work correctly regardless of how user drew the paths
+	inputPaths = normalizeWindingOrder(inputPaths);
+
 	var paths = [];
 	var offsetPaths = [];
+
+	// Use the original normalized outer path (first/largest) for containment testing
+	// This ensures pathIn() works with consistent winding order
+	let outerPathForTest = inputPaths[0];
+
+	// Get the union for offsetting operations
 	let outerPath = getUnionOfPaths(inputPaths)[0];
 
 	let tpath = offsetPath(outerPath, radius, false);
@@ -3292,7 +3630,7 @@ function doPocket() {
 	paths.push({ tpath: tpath[0], isContour: true });
 
 	for (p of inputPaths) {
-		if (pathIn(outerPath, p)) {
+		if (pathIn(outerPathForTest, p)) {
 			let tpath = offsetPath(p, radius, true);
 
 			// Apply doOutside() direction logic to hole contours
@@ -3309,37 +3647,38 @@ function doPocket() {
 
 	let tpaths = generateClipperInfill(offsetPaths, stepover, radius);
 
-	// Process grouped infill paths
-	// Each group represents paths from the same source infill line
-	for (let group of tpaths) {
-		// If a group has multiple paths (segments separated by islands), combine them into one path
-		const isMultiSegment = group.paths.length > 1;
+	// Extract connectivity chains - groups segments that can be cut together without crossing islands
+	let chains = extractConnectivityChains(tpaths, stepover);
 
-		if (isMultiSegment) {
-			// Combine all segments from this group into a single path object
-			// The combined path will have gaps where segments are separated
-			const combinedPath = [];
-			for (let segment of group.paths) {
-				combinedPath.push(...segment);
-			}
-
-			paths.push({
-				tpath: combinedPath,
-				isContour: false,
-				isMultiSegment: true
-			});
-		} else {
-			// Single segment - add as-is
-			paths.push({
-				tpath: group.paths[0],
-				isContour: false,
-				isMultiSegment: false
-			});
+	// Convert chains to path objects for processing
+	// Each chain represents a contiguous set of segments from the same Y-line that don't cross islands
+	const infillPaths = [];
+	for (let chain of chains) {
+		// Flatten all segments in this chain into a single path
+		const combinedPath = [];
+		for (let segment of chain.segments) {
+			combinedPath.push(...segment);
 		}
+
+		infillPaths.push({
+			tpath: combinedPath,
+			isContour: false,
+			isChain: true,
+			sourceY: chain.startY,
+			segmentCount: chain.segments.length
+		});
 	}
 
-	// Optimize infill alternating direction
-	optimizePocketInfillOrder(paths);
+	// Apply nearest-neighbor optimization to order chains
+	const optimizedChains = optimizeChainOrder(infillPaths);
+
+	// Separate contours that were added earlier
+	const contours = paths.filter(p => p.isContour);
+
+	// Reassemble: optimized chains first, then contours last
+	paths.length = 0;
+	paths.push(...optimizedChains);
+	paths.push(...contours);
 
 	// Collect all selected SVG path IDs for multi-path tracking
 	const selectedSvgIds = selectMgr.selectedPaths().map(p => p.id);
@@ -4632,7 +4971,8 @@ function toGcode() {
 
 					var firstInfillInPass = true;
 
-					// Process INFILL lines first (optimized zigzag pattern)
+					// Process INFILL chains first
+					// Chains are now atomic units - no gaps within a chain, only rapids between chains
 					for (var k = 0; k < paths.length; k++) {
 						var pathObj = paths[k];
 						if (pathObj.isContour) continue;  // Skip contours for now
@@ -4641,42 +4981,27 @@ function toGcode() {
 
 						if (path.length > 0) {
 							if (firstInfillInPass) {
-								// First infill of this pass: retract to safe height, rapid to start, plunge
+								// First infill chain of this pass: retract to safe height, rapid to start, plunge
 								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
 								output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
 								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
 								firstInfillInPass = false;
 							} else {
-								// Subsequent infill lines: cutto start at cutting depth (no retract)
+								// Subsequent infill chains: retract and rapid to chain start
+								// (Chains are separated by islands, so we need to rapid over them)
 								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
-								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+								output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
 							}
 
-							// Cut entire path, handling gaps in multi-segment lines
-							const hasGaps = pathObj.isMultiSegment;
-
+							// Cut entire chain - no gap detection needed since chains are atomic
+							// All points in a chain are connected without crossing islands
 							for (var j = 1; j < path.length; j++) {
 								var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-								var prevP = toGcodeUnits(path[j-1].x, path[j-1].y, useInches);
-
-								// Check if this is a gap (large distance between consecutive points)
-								const dx = p.x - prevP.x;
-								const dy = p.y - prevP.y;
-								const distance = Math.sqrt(dx*dx + dy*dy);
-
-								// If multi-segment and distance is large, it's a gap - retract/rapid/plunge
-								if (hasGaps && distance > 10) {  // 10 units threshold for gap detection
-									// Retract to safe height
-									output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
-									// Rapid to next point
-									output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-									// Plunge back to cutting depth
-									output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
-								} else {
-									// Normal cutting move
-									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-								}
+								// Normal cutting move - all moves within a chain are continuous
+								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 							}
 						}
 					}
