@@ -266,7 +266,14 @@ function initThree() {
 
   // Initialize visualizers
   toolpathVisualizer = new ToolpathVisualizer(scene);
+
+  // Save current speed before recreating ToolpathAnimation (preserves speed across tab switches)
+  const savedSpeed = toolpathAnimation?.speed || 1.0;
+
   toolpathAnimation = new ToolpathAnimation(workpieceManager, toolpathVisualizer, scene);
+
+  // Restore the saved speed to the newly created animation
+  toolpathAnimation.setSpeed(savedSpeed);
 
   // Expose to global scope for debugging from browser console
   window.toolpathAnimation = toolpathAnimation;
@@ -1545,7 +1552,6 @@ class ToolpathAnimation {
     // Parse G-code and extract all movements (G0 and G1) with feed rates
     this.flattenedPath = [];
     const movements = [];  // Track all movements with G0/G1 type and feed rate
-    let feedRate = 1000;  // Default feed rate mm/min
 
     // Store toolpaths for tool info access
     this.toolpaths = window.toolpaths || [];
@@ -1555,91 +1561,58 @@ class ToolpathAnimation {
     this.extractToolInfoFromGcode(gcode);
     timers.toolInfoTime = performance.now() - timers.toolInfoStart;
 
-    const lines = gcode.split('\n');
-    let currentX = 0, currentY = 0, currentZ = 5;  // Start at safe height
-    let useInches = false;
-    let g1Count = 0, g0Count = 0;  // Debug counters
-
-    // Check if we're using inches or mm by looking at G20/G21 commands
-    for (const line of lines) {
-      if (line.includes('G20')) useInches = true;
-      if (line.includes('G21')) useInches = false;
+    // Query the currently selected post-processor profile
+    const profile = window.currentGcodeProfile || null;
+    if (!profile) {
+      console.warn('No post-processor profile found, using defaults (G0/G1 with X Y Z)');
     }
+
+    // Create parse configuration from the post-processor profile
+    const parseConfig = createGcodeParseConfig(profile);
+
+    // Split G-code into lines for other processing (tool changes, etc)
+    const lines = gcode.split('\n');
+
+    // Use shared G-code parser to parse movements
+    timers.parseStart = performance.now();
+    const parsedMovements = parseGcodeFile(gcode, parseConfig);
+    timers.parseGcodeTime = performance.now() - timers.parseStart;
 
     // Add starting movement from safe position (0, 0, 5) to first actual position
     let firstPosition = null;
-
-    // Parse G-code commands to find first position and movements
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // Skip comments and empty lines
-      if (!trimmed || trimmed.startsWith('(') || trimmed.startsWith(';')) continue;
-
-      // Extract feed rate if present
-      const fMatch = trimmed.match(/F([\d.-]+)/i);
-      if (fMatch) {
-        feedRate = parseFloat(fMatch[1]);
-      }
-
-      // Check for G0 (rapid) or G1 (cutting) commands
-      const isG0 = trimmed.includes('G0 ') || trimmed.startsWith('G0');
-      const isG1 = trimmed.includes('G1 ') || trimmed.startsWith('G1');
-
-      if (isG0 || isG1) {
-        const isCutting = isG1;
-        if (isCutting) g1Count++;
-        else g0Count++;
-
-        // Extract X, Y, Z coordinates
-        const xMatch = trimmed.match(/X([\d.-]+)/i);
-        const yMatch = trimmed.match(/Y([\d.-]+)/i);
-        const zMatch = trimmed.match(/Z([\d.-]+)/i);
-
-        if (xMatch) currentX = parseFloat(xMatch[1]);
-        if (yMatch) currentY = parseFloat(yMatch[1]);
-        if (zMatch) currentZ = parseFloat(zMatch[1]);
-
-        // Record all movements with their type (G0 or G1) and feed rate
-        if (xMatch || yMatch || zMatch) {
-          // Save first position to add safe move before it
-          if (!firstPosition) {
-            firstPosition = { x: currentX, y: currentY, z: currentZ };
-          }
-
-          movements.push({
-            x: currentX,
-            y: currentY,
-            z: currentZ,
-            isG1: isCutting,  // true for G1 (cutting), false for G0 (rapid)
-            feedRate: isCutting ? feedRate : 6000  // Use parsed rate for G1, fast rate for G0
-          });
-
-          // Also track cutting movements for workpiece deformation
-          if (isCutting) {
-            this.flattenedPath.push({
-              x: currentX,
-              y: currentY,
-              z: currentZ,
-              isCutting: true
-            });
-          }
-
-        }
-      }
+    if (parsedMovements.length > 0) {
+      firstPosition = {
+        x: parsedMovements[0].x,
+        y: parsedMovements[0].y,
+        z: parsedMovements[0].z
+      };
     }
 
-    // Add safe position movement at the start (rapid move from (0,0,5) to first point)
+    // Build movements array with safe position at start
     if (firstPosition) {
-      movements.unshift({
+      movements.push({
         x: firstPosition.x,
         y: firstPosition.y,
-        z: firstPosition.z,
+        z: 5,  // Start at safe height
         isG1: false,  // Rapid move
         feedRate: 6000  // Fast rapid rate
       });
     }
 
+    // Add all parsed movements
+    movements.push(...parsedMovements);
+
+    // Build flattened path for cutting movements only
+    for (const movement of parsedMovements) {
+      if (movement.isCutting) {
+        this.flattenedPath.push({
+          x: movement.x,
+          y: movement.y,
+          z: movement.z,
+          isCutting: true
+        });
+      }
+    }
 
     // G-code parsing complete
     timers.parseGcodeTime = performance.now() - perfStart;
@@ -1650,7 +1623,7 @@ class ToolpathAnimation {
     timers.animationTime = performance.now() - timers.animationStart;
 
     // Build tool changes by time mapping for precise tool switching during animation
-    this.buildToolChangesByTime(lines);
+    this.buildToolChangesByTime(parseConfig, lines);
 
     // Visualize the complete toolpath with G0/G1 distinction
     timers.visualizeStart = performance.now();
@@ -1736,22 +1709,27 @@ class ToolpathAnimation {
     }
   }
 
-  buildToolChangesByTime(lines) {
+  buildToolChangesByTime(parseConfig, lines) {
     // Build a map of cumulative times where tool changes occur
     // This allows precise tool switching during animation playback
     this.toolChangesByTime = {};
 
-    // Count total G0/G1 command lines for percentage calculation
+    // Use profile-aware command detection instead of hardcoded G0/G1
+    const rapidCmd = parseConfig ? parseConfig.rapidCommand : 'G0';
+    const cutCmd = parseConfig ? parseConfig.cutCommand : 'G1';
+
+    // Count total movement command lines for percentage calculation
     let totalMovementLines = 0;
-    let movementLineIndices = [];  // Track which lines have G0/G1 commands
+    let movementLineIndices = [];  // Track which lines have movement commands
 
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
       if (!trimmed || trimmed.startsWith('(') || trimmed.startsWith(';')) continue;
 
-      const isG0 = trimmed.includes('G0 ') || trimmed.startsWith('G0');
-      const isG1 = trimmed.includes('G1 ') || trimmed.startsWith('G1');
-      if (isG0 || isG1) {
+      // Check for rapid or cutting commands (dynamically based on post-processor profile)
+      const isRapid = trimmed.includes(rapidCmd + ' ') || trimmed.startsWith(rapidCmd);
+      const isCut = trimmed.includes(cutCmd + ' ') || trimmed.startsWith(cutCmd);
+      if (isRapid || isCut) {
         movementLineIndices[totalMovementLines] = i;
         totalMovementLines++;
       }

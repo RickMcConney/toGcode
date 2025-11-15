@@ -2496,7 +2496,8 @@ async function saveProject() {
 		svgpaths: svgpaths,
 		origin: origin,
 		tools: tools,
-		options: options
+		options: options,
+		gcodeProfile: currentGcodeProfile  // Save the full post-processor profile
 	};
 
 	var json = JSON.stringify(project);
@@ -2576,6 +2577,28 @@ function loadProject(json) {
 			refreshOptionsDisplay();
 		}
 
+	}
+
+	// Restore G-code post-processor profile
+	if (project.gcodeProfile) {
+		// First, check if a profile with the same ID exists locally
+		var existingProfile = gcodeProfiles.find(p => p.recid === project.gcodeProfile.recid);
+
+		if (existingProfile) {
+			// Use the local profile (allows local updates to be applied)
+			currentGcodeProfile = existingProfile;
+		} else {
+			// Profile doesn't exist locally, so add the saved profile to the system
+			gcodeProfiles.push(project.gcodeProfile);
+			currentGcodeProfile = project.gcodeProfile;
+			// Save the updated profiles to localStorage so it persists
+			localStorage.setItem('gcodeProfiles', JSON.stringify(gcodeProfiles));
+		}
+
+		// Update the G-code profile selector UI to reflect the loaded profile
+		if (typeof populateGcodeProfileSelector === 'function') {
+			populateGcodeProfileSelector();
+		}
 	}
 
 	svgpathId = 1;
@@ -5316,75 +5339,51 @@ function parseGcodeForSimulation(gcode) {
 	var currentPos = { x: 0, y: 0, z: 5 }; // Start at safe height
 	var currentFeed = 600;
 	var currentTool = null;
-	var lines = gcode.split('\n');
 	const zbacklash = getOption("zbacklash");
 
-	// Get the current profile to extract rapid and cut command patterns
-	var profile = currentGcodeProfile || {
-		rapidTemplate: 'G0 X Y Z F',
-		cutTemplate: 'G1 X Y Z F'
-	};
+	// Get the current profile for post-processor configuration
+	var profile = currentGcodeProfile || null;
 
-	// Extract the G-code command from templates (e.g., "G0" from "G0 X Y Z F")
-	var rapidCommand = profile.rapidTemplate.split(' ')[0]; // e.g., "G0"
-	var cutCommand = profile.cutTemplate.split(' ')[0]; // e.g., "G1"
+	// Create parse configuration from post-processor profile
+	var parseConfig = createGcodeParseConfig(profile);
 
-	// Find current tool info from comments
+	// Use shared G-code parser to parse movements
+	var parsedMovements = parseGcodeFile(gcode, parseConfig);
+
+	// Build operation information from G-code comments
+	var lines = gcode.split('\n');
+	var operationsByLineIndex = {}; // Map line index to operation name
 	var currentOperation = '';
-	var currentToolDiameter = 6; // Default
 
 	for (var i = 0; i < lines.length; i++) {
 		var line = lines[i].trim();
 		if (line === '' || line.startsWith(';')) continue;
 
-		// Parse operation comments
+		// Parse operation and tool comments
 		if (line.startsWith('(') && line.endsWith(')')) {
 			var comment = line.substring(1, line.length - 1);
-			currentOperation = comment;
 
-			// Try to extract tool info from operation
-			for (var j = 0; j < toolpaths.length; j++) {
-				if (toolpaths[j].visible && comment.includes(toolpaths[j].id)) {
-					currentTool = toolpaths[j].tool;
-					currentToolDiameter = currentTool.diameter;
-					break;
-				}
-			}
-			continue;
-		}
-
-		var newPos = { x: currentPos.x, y: currentPos.y, z: currentPos.z };
-		var newFeed = currentFeed;
-		var moveType = 'rapid'; // Default to rapid
-		var lineCommand = null;
-
-		// Parse G-code commands
-		var parts = line.split(' ');
-		for (var j = 0; j < parts.length; j++) {
-			var part = parts[j];
-			if (part.startsWith('G')) {
-				// Store the G-code command found in this line
-				lineCommand = part;
-			} else if (part.startsWith('X')) {
-				newPos.x = parseFloat(part.substring(1));
-			} else if (part.startsWith('Y')) {
-				newPos.y = parseFloat(part.substring(1));
-			} else if (part.startsWith('Z')) {
-				newPos.z = parseFloat(part.substring(1));
-			} else if (part.startsWith('F')) {
-				newFeed = parseFloat(part.substring(1));
+			// Check if this is a tool info comment
+			if (!comment.includes('Tool:')) {
+				// It's an operation comment
+				currentOperation = comment;
+				operationsByLineIndex[i] = comment;
 			}
 		}
+	}
 
-		// Determine move type by comparing with profile templates
-		if (lineCommand) {
-			if (lineCommand === rapidCommand) {
-				moveType = 'rapid';
-			} else if (lineCommand === cutCommand) {
-				moveType = 'feed';
-			}
-			// If it doesn't match either, default to rapid (already set)
-		}
+	// Process parsed movements to calculate times and tool radii
+	// Each movement from parseGcodeFile() already has current tool info
+	for (var i = 0; i < parsedMovements.length; i++) {
+		var movement = parsedMovements[i];
+		var newPos = { x: movement.x, y: movement.y, z: movement.z };
+		var moveType = movement.isCutting ? 'feed' : 'rapid';
+		var newFeed = movement.feedRate;
+
+		// Use tool info from parsed movement (which tracks tool changes throughout G-code)
+		var currentToolDiameter = movement.toolDiameter || 6; // Default to 6 if not specified
+		var currentToolAngle = movement.toolAngle || 0;
+		var movementTool = movement.tool; // Tool name string
 
 		// Calculate move distance and time
 		var distance = Math.sqrt(
@@ -5400,9 +5399,9 @@ function parseGcodeForSimulation(gcode) {
 			var toolRadius = currentToolDiameter / 2;
 
 			// For V-carve operations, calculate radius based on Z depth
-			if (currentOperation.includes('VCarve') && currentTool && currentTool.angle > 0) {
+			if (currentOperation.includes('VCarve') && currentToolAngle > 0) {
 				if (newPos.z > zbacklash) toolRadius = 0; // Clamp to 0 max
-				else toolRadius = Math.abs(newPos.z) * Math.tan((currentTool.angle * Math.PI / 180) / 2);
+				else toolRadius = Math.abs(newPos.z) * Math.tan((currentToolAngle * Math.PI / 180) / 2);
 			}
 
 			moves.push({
@@ -5415,7 +5414,10 @@ function parseGcodeForSimulation(gcode) {
 				operation: currentOperation,
 				time: moveTime,
 				isCutting: newPos.z <= zbacklash,
-				tool: currentTool
+				tool: movementTool,
+				toolDiameter: currentToolDiameter,
+				toolAngle: currentToolAngle,
+				toolId: movement.toolId
 			});
 
 			totalTime += moveTime;
@@ -5749,13 +5751,22 @@ function runSmoothSimulation() {
 	stepSlider.value = simulationState.currentAnimationStep;
 	document.getElementById('step-display').textContent = `${simulationState.currentAnimationStep}/${allMaterialPoints.length}`;
 
-	// Update feed rate display
+	// Update feed rate and tool display
 	let currentFeedRate = 0;
 	if (simulationState.currentAnimationStep > 0 && simulationState.currentAnimationStep <= allMaterialPoints.length) {
 		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep - 1];
 		if (currentPoint.moveIndex < simulationData.moves.length) {
 			const currentMove = simulationData.moves[currentPoint.moveIndex];
 			currentFeedRate = currentMove.feed || 0;
+
+			// Update tool information based on current move's tool
+			// This allows tool changes to be displayed during animation
+			if (currentMove.tool) {
+				currentTool = { name: currentMove.tool };
+				if (currentMove.toolDiameter) {
+					currentTool.name += ` (${currentMove.toolDiameter}mm)`;
+				}
+			}
 		}
 	}
 	const feedRateDisplay = document.getElementById('feed-rate-display');
