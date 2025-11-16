@@ -29,7 +29,7 @@ function newZoom(delta, centerX, centerY) {
 	var world = screenToWorld(centerX, centerY);
 	// Update zoom level multiplicatively
 	var zoomFactor = (delta > 0) ? 1.1 : 1 / 1.1;
-	var newZoom = Math.max(0.2, Math.min(50, zoomLevel * zoomFactor));
+	var newZoom = Math.max(0.05, Math.min(50, zoomLevel * zoomFactor));
 	// Adjust pan so the world coordinate stays under the mouse
 	panX = centerX - world.x * newZoom;
 	panY = centerY - world.y * newZoom;
