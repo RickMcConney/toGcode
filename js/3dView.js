@@ -842,6 +842,23 @@ window.setToolpathVisibility3D = function(visible) {
   }
 };
 
+window.setWorkpieceVisibility3D = function(visible) {
+  // Toggle workpiece visibility
+  if (workpieceManager && workpieceManager.mesh) {
+    workpieceManager.mesh.visible = visible;
+  }
+
+  // Toggle filler workpiece boxes visibility
+  if (toolpathAnimation && toolpathAnimation.workpieceOutlineBox) {
+    toolpathAnimation.workpieceOutlineBox.visible = visible;
+  }
+
+  // Toggle voxel grid visibility
+  if (toolpathAnimation && toolpathAnimation.voxelGrid && toolpathAnimation.voxelGrid.mesh) {
+    toolpathAnimation.voxelGrid.mesh.visible = visible;
+  }
+};
+
 window.startSimulation3D = function() {
   if (toolpathAnimation && !toolpathAnimation.isPlaying) {
     if (toolpathAnimation.progress >= 1) {
@@ -879,6 +896,73 @@ window.setSimulation3DProgress = function(progress) {
   }
 };
 
+/**
+ * Format seconds to MM:SS format
+ * @param {number} seconds - Total seconds
+ * @returns {string} - Formatted time string "MM:SS"
+ */
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Update 2D simulation display elements
+ */
+function updateSimulation2DDisplays() {
+  if (!toolpathAnimation) return;
+
+  const lineDisplay = document.getElementById('2d-step-display');
+  const timeDisplay = document.getElementById('2d-simulation-time');
+  const totalTimeDisplay = document.getElementById('2d-total-time');
+  const feedRateDisplay = document.getElementById('2d-feed-rate-display');
+
+  if (lineDisplay) {
+    lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
+  }
+
+  if (timeDisplay) {
+    timeDisplay.textContent = formatTime(toolpathAnimation.elapsedTime);
+  }
+
+  if (totalTimeDisplay) {
+    totalTimeDisplay.textContent = formatTime(toolpathAnimation.totalAnimationTime);
+  }
+
+  if (feedRateDisplay) {
+    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)} mm/min`;
+  }
+}
+
+/**
+ * Update 3D simulation display elements
+ */
+function updateSimulation3DDisplays() {
+  if (!toolpathAnimation) return;
+
+  const lineDisplay = document.getElementById('3d-step-display');
+  const timeDisplay = document.getElementById('3d-simulation-time');
+  const totalTimeDisplay = document.getElementById('3d-total-time');
+  const feedRateDisplay = document.getElementById('3d-feed-rate-display');
+
+  if (lineDisplay) {
+    lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
+  }
+
+  if (timeDisplay) {
+    timeDisplay.textContent = formatTime(toolpathAnimation.elapsedTime);
+  }
+
+  if (totalTimeDisplay) {
+    totalTimeDisplay.textContent = formatTime(toolpathAnimation.totalAnimationTime);
+  }
+
+  if (feedRateDisplay) {
+    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)} mm/min`;
+  }
+}
+
 function updateSimulation3DUI() {
   const startBtn = document.getElementById('3d-start-simulation');
   const pauseBtn = document.getElementById('3d-pause-simulation');
@@ -901,6 +985,9 @@ function updateSimulation3DUI() {
     progressSlider.value = toolpathAnimation.getProgress() * 100;
     document.getElementById('3d-progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
   }
+
+  // Update time and feed rate displays
+  updateSimulation3DDisplays();
 }
 
 function animate() {
@@ -925,6 +1012,10 @@ function animate() {
       progressSlider.value = toolpathAnimation.getProgress() * 100;
       document.getElementById('3d-progress-display').textContent = Math.round(toolpathAnimation.getProgress() * 100) + '%';
     }
+
+    // Update simulation displays for both 2D and 3D
+    updateSimulation2DDisplays();
+    updateSimulation3DDisplays();
 
     // If animation has completed, update UI to re-enable play button
     if (toolpathAnimation.getProgress() >= 1 && !toolpathAnimation.isPlaying) {
@@ -1169,6 +1260,11 @@ class ToolpathAnimation {
     this.currentToolCommentIndex = 0;  // Track which tool comment we're currently using
     this.lastSegmentIndex = -1;  // Track last segment to detect segment changes
     this.toolChangesByTime = {};  // Map of cumulative time -> tool info for precise tool switching
+
+    // Display tracking for simulation controls
+    this.currentGcodeLineNumber = 0;  // Current G-code line being executed
+    this.currentFeedRate = 0;  // Current feed rate in mm/min
+    this.totalGcodeLines = 0;  // Total number of G-code lines
 
     // Voxel-based material removal
     this.voxelGrid = null;
@@ -1573,6 +1669,9 @@ class ToolpathAnimation {
     // Split G-code into lines for other processing (tool changes, etc)
     const lines = gcode.split('\n');
 
+    // Count total G-code lines (non-empty) for display
+    this.totalGcodeLines = lines.filter(line => line.trim() !== '').length;
+
     // Use shared G-code parser to parse movements
     timers.parseStart = performance.now();
     const parsedMovements = parseGcodeFile(gcode, parseConfig);
@@ -1786,7 +1885,8 @@ class ToolpathAnimation {
         cumulativeTime: cumulativeTime,
         feedRate: move.feedRate,
         isG1: move.isG1,
-        distance: distance
+        distance: distance,
+        gcodeLineNumber: move.gcodeLineNumber  // Track the original G-code line number
       });
 
       prevX = move.x;
@@ -2119,9 +2219,11 @@ class ToolpathAnimation {
       toolY = lastMove.y;
       toolZ = lastMove.z;
       isG1 = lastMove.isG1 || false;
+      this.currentGcodeLineNumber = lastMove.gcodeLineNumber || 0;
+      this.currentFeedRate = lastMove.feedRate || 0;
     } else {
       // Interpolate between current and next movement
-      const prevMove = segmentIndex > 0 ? this.movementTiming[segmentIndex - 1] : { cumulativeTime: 0, x: 0, y: 0, z: 5, isG1: false };
+      const prevMove = segmentIndex > 0 ? this.movementTiming[segmentIndex - 1] : { cumulativeTime: 0, x: 0, y: 0, z: 5, isG1: false, gcodeLineNumber: 0, feedRate: 0 };
       const currMove = this.movementTiming[segmentIndex];
 
       const timeSinceLastMove = this.elapsedTime - prevMove.cumulativeTime;
@@ -2139,6 +2241,9 @@ class ToolpathAnimation {
       toolZ = prevMove.z + (currMove.z - prevMove.z) * t;
       isG1 = currMove.isG1 || false;  // Only remove material on cutting moves
 
+      // Update current G-code line and feed rate
+      this.currentGcodeLineNumber = currMove.gcodeLineNumber || 0;
+      this.currentFeedRate = currMove.feedRate || 0;
     }
 
     // Remove material from voxel grid if enabled

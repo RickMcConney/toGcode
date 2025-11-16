@@ -94,7 +94,8 @@ function parseGcodeFile(gcode, parseConfig) {
     let currentToolAngle = 0;
     let currentStepDown = 0;
 
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const line = lines[lineIndex];
         const trimmed = line.trim();
 
         // Skip empty lines
@@ -201,7 +202,8 @@ function parseGcodeFile(gcode, parseConfig) {
             toolType: currentToolType,
             toolDiameter: currentToolDiameter,
             toolAngle: currentToolAngle,
-            stepDown: currentStepDown
+            stepDown: currentStepDown,
+            gcodeLineNumber: lineIndex + 1  // 1-indexed line number from G-code file
         };
 
         // Only add if position actually changed

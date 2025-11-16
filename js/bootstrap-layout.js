@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-15";
+var APP_VERSION = "Ver 2025-11-16";
 
 var mode = "Select";
 var options = [];
@@ -1893,19 +1893,23 @@ function create2DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Step:</span>
+                <span class="small">Progress:</span>
                 <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 150px;" disabled>
-                <span id="step-display" class="small">0/0</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">G-code:</span>
+                <span id="2d-step-display" class="small">0 / 0</span>
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Time:</span>
-                <span class="small"><span id="simulation-time">0:00</span>/<span id="total-time">0:00</span></span>
+                <span class="small"><span id="2d-simulation-time">0:00</span>/<span id="2d-total-time">0:00</span></span>
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Feed:</span>
-                <span class="small"><span id="feed-rate-display">0</span> mm/min</span>
+                <span class="small"><span id="2d-feed-rate-display">0</span> mm/min</span>
             </div>
         </div>
     `;
@@ -1934,7 +1938,7 @@ function create2DSimulationControls() {
         }
     });
 
-    // Simulation step control
+    // Simulation step control (progress slider)
     document.getElementById('simulation-step').addEventListener('input', function (e) {
         const step = parseInt(e.target.value);
         if (typeof setSimulationStep === 'function') {
@@ -1966,12 +1970,6 @@ function create3DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Progress:</span>
-                <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="100" step="1" value="0" style="width: 150px;">
-                <span id="3d-progress-display" class="small">0%</span>
-            </div>
-
-            <div class="col-auto d-flex align-items-center gap-2">
                 <label class="form-check-label small" style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
                     <input type="checkbox" class="form-check-input" id="3d-show-axes" checked style="margin: 0; cursor: pointer;">
                     <span>Axes</span>
@@ -1983,6 +1981,34 @@ function create3DSimulationControls() {
                     <input type="checkbox" class="form-check-input" id="3d-show-toolpath" checked style="margin: 0; cursor: pointer;">
                     <span>Toolpath</span>
                 </label>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <label class="form-check-label small" style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" class="form-check-input" id="3d-show-workpiece" checked style="margin: 0; cursor: pointer;">
+                    <span>Workpiece</span>
+                </label>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Progress:</span>
+                <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="100" step="1" value="0" style="width: 150px;">
+                <span id="3d-progress-display" class="small">0%</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">G-code:</span>
+                <span id="3d-step-display" class="small">0 / 0</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Time:</span>
+                <span class="small"><span id="3d-simulation-time">0:00</span>/<span id="3d-total-time">0:00</span></span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Feed:</span>
+                <span class="small"><span id="3d-feed-rate-display">0</span> mm/min</span>
             </div>
         </div>
     `;
@@ -2034,6 +2060,12 @@ function create3DSimulationControls() {
     document.getElementById('3d-show-toolpath').addEventListener('change', function (e) {
         if (typeof setToolpathVisibility3D === 'function') {
             setToolpathVisibility3D(e.target.checked);
+        }
+    });
+
+    document.getElementById('3d-show-workpiece').addEventListener('change', function (e) {
+        if (typeof setWorkpieceVisibility3D === 'function') {
+            setWorkpieceVisibility3D(e.target.checked);
         }
     });
 }

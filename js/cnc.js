@@ -5372,6 +5372,9 @@ function parseGcodeForSimulation(gcode) {
 		}
 	}
 
+	// Count total G-code lines (for display purposes)
+	var totalGcodeLines = lines.filter(line => line.trim() !== '').length;
+
 	// Process parsed movements to calculate times and tool radii
 	// Each movement from parseGcodeFile() already has current tool info
 	for (var i = 0; i < parsedMovements.length; i++) {
@@ -5417,7 +5420,8 @@ function parseGcodeForSimulation(gcode) {
 				tool: movementTool,
 				toolDiameter: currentToolDiameter,
 				toolAngle: currentToolAngle,
-				toolId: movement.toolId
+				toolId: movement.toolId,
+				gcodeLineNumber: movement.gcodeLineNumber || 0  // Track G-code line number
 			});
 
 			totalTime += moveTime;
@@ -5429,7 +5433,8 @@ function parseGcodeForSimulation(gcode) {
 
 	return {
 		moves: moves,
-		totalTime: totalTime
+		totalTime: totalTime,
+		totalGcodeLines: totalGcodeLines
 	};
 }
 
@@ -5553,6 +5558,7 @@ function startSimulation() {
 	simulationState.currentAnimationStep = 0;
 	simulationState.startTime = Date.now();
 	simulationState.totalTime = simulationData.totalTime;
+	simulationState.totalGcodeLines = simulationData.totalGcodeLines || 0;  // Store total line count
 	materialRemovalPoints = [];
 	simulationState.travelMoves = [];
 	simulationState.lastPosition = null;
@@ -5561,14 +5567,15 @@ function startSimulation() {
 	document.getElementById('start-simulation').disabled = true;
 	document.getElementById('pause-simulation').disabled = false;
 	document.getElementById('stop-simulation').disabled = false;
-	document.getElementById('total-time').textContent = formatTime(simulationData.totalTime);
+	document.getElementById('2d-total-time').textContent = formatTime(simulationData.totalTime);
 
-	// Setup step slider
+	// Setup step slider - note: 2D simulation step slider removed, display only shows line numbers
 	const stepSlider = document.getElementById('simulation-step');
-	stepSlider.max = allMaterialPoints.length;
-	stepSlider.value = 0;
-	stepSlider.disabled = false;
-	document.getElementById('step-display').textContent = `0/${allMaterialPoints.length}`;
+	if (stepSlider) {
+		stepSlider.max = allMaterialPoints.length;
+		stepSlider.value = 0;
+		stepSlider.disabled = false;
+	}
 
 	// Start animation
 	runSmoothSimulation();
@@ -5606,12 +5613,19 @@ function stopSimulation() {
 		cancelAnimationFrame(simulationState.animationFrame);
 	}
 
-	// Reset step slider
+	// Reset step slider (if it exists)
 	const stepSlider = document.getElementById('simulation-step');
-	stepSlider.max = 100;
-	stepSlider.value = 0;
-	stepSlider.disabled = true;
-	document.getElementById('step-display').textContent = '0/0';
+	if (stepSlider) {
+		stepSlider.max = 100;
+		stepSlider.value = 0;
+		stepSlider.disabled = true;
+	}
+
+	// Reset displays
+	const lineDisplay = document.getElementById('2d-step-display');
+	if (lineDisplay) {
+		lineDisplay.textContent = '0 / 0';
+	}
 
 	// Update UI
 	document.getElementById('start-simulation').innerHTML = '<i data-lucide="Play"></i> Play';
@@ -5619,7 +5633,7 @@ function stopSimulation() {
 	document.getElementById('pause-simulation').disabled = true;
 	document.getElementById('stop-simulation').disabled = true;
 	document.getElementById('pause-simulation').innerHTML = '<i data-lucide="pause"></i> Pause';
-	document.getElementById('simulation-time').textContent = '0:00';
+	document.getElementById('2d-simulation-time').textContent = '0:00';
 	lucide.createIcons();
 
 	// Restore normal status
@@ -5678,9 +5692,8 @@ function setSimulationStep(step) {
 	}
 
 	// Update UI
-	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
+	document.getElementById('2d-simulation-time').textContent = formatTime(elapsedTime);
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
-	document.getElementById('step-display').textContent = `${step}/${allMaterialPoints.length}`;
 
 	// Update feed rate display
 	let currentFeedRate = 0;
@@ -5691,7 +5704,7 @@ function setSimulationStep(step) {
 			currentFeedRate = currentMove.feed || 0;
 		}
 	}
-	const feedRateDisplay = document.getElementById('feed-rate-display');
+	const feedRateDisplay = document.getElementById('2d-feed-rate-display');
 	if (feedRateDisplay) {
 		feedRateDisplay.textContent = Math.round(currentFeedRate);
 	}
@@ -5743,13 +5756,26 @@ function runSmoothSimulation() {
 	}
 
 	// Update UI
-	document.getElementById('simulation-time').textContent = formatTime(elapsedTime);
+	document.getElementById('2d-simulation-time').textContent = formatTime(elapsedTime);
+	document.getElementById('2d-total-time').textContent = formatTime(simulationState.totalTime);
 	updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
 
-	// Update step slider to show current position
-	const stepSlider = document.getElementById('simulation-step');
-	stepSlider.value = simulationState.currentAnimationStep;
-	document.getElementById('step-display').textContent = `${simulationState.currentAnimationStep}/${allMaterialPoints.length}`;
+	// Update G-code line display
+	const lineDisplay = document.getElementById('2d-step-display');
+	if (lineDisplay) {
+		let currentGcodeLine = 0;
+
+		// Get the current G-code line from the current animation step
+		if (simulationState.currentAnimationStep > 0 && simulationState.currentAnimationStep <= allMaterialPoints.length) {
+			const currentPoint = allMaterialPoints[simulationState.currentAnimationStep - 1];
+			if (currentPoint.moveIndex < simulationData.moves.length) {
+				const currentMove = simulationData.moves[currentPoint.moveIndex];
+				currentGcodeLine = currentMove.gcodeLineNumber || 0;
+			}
+		}
+
+		lineDisplay.textContent = `${currentGcodeLine} / ${simulationState.totalGcodeLines}`;
+	}
 
 	// Update feed rate and tool display
 	let currentFeedRate = 0;
@@ -5769,7 +5795,7 @@ function runSmoothSimulation() {
 			}
 		}
 	}
-	const feedRateDisplay = document.getElementById('feed-rate-display');
+	const feedRateDisplay = document.getElementById('2d-feed-rate-display');
 	if (feedRateDisplay) {
 		feedRateDisplay.textContent = Math.round(currentFeedRate);
 	}
