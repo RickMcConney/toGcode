@@ -8,8 +8,15 @@ var AVAILABLE_SHAPES = [
     { value: 'Polygon', label: "Polygon" },
     { value: 'Rectangle', label: "Rentangle" },
     { value: 'RoundRectangle', label: "Round Rentangle" },
+    { value: 'Sign', label: "Sign" },
     { value: 'Star', label: "Star" }
 ]
+
+function invertArc(arc) {
+    var chord = new makerjs.paths.Chord(arc);
+    var midPoint = makerjs.point.middle(chord);
+    makerjs.path.rotate(arc, 180, midPoint);
+}
 
 function Heart(r, a2) {
 
@@ -53,6 +60,9 @@ class Shape extends Operation {
                 case "Star":
                     meta = makerjs.models.Star.metaParameters;
                     meta = meta.slice(0, 3);
+                    meta[0].value = 5;
+                    meta[1].value = 40;
+                    meta[2].value = 20;
                     break;
                 case "Belt":
                     meta = makerjs.models.Belt.metaParameters;
@@ -71,9 +81,18 @@ class Shape extends Operation {
                     break;
                 case "Rectangle":
                     meta = makerjs.models.Rectangle.metaParameters;
+                    meta[0].value = 100;
+                    meta[1].value = 50;
                     break;
                 case "RoundRectangle":
                     meta = makerjs.models.RoundRectangle.metaParameters;
+                    meta[0].value = 100;
+                    meta[1].value = 50;
+                    break;
+                case "Sign":
+                    meta = makerjs.models.RoundRectangle.metaParameters;
+                    meta[0].value = 100;
+                    meta[1].value = 50;
                     break;
                 case "Heart":
                     meta = [{ title: 'radius', value: 20, min: 1, max: 100 },
@@ -106,11 +125,11 @@ class Shape extends Operation {
         let arg = [];
         for (let i = 0; i < param.length; i++) {
             let name = param[i].paramName;
-            if(this.isDimension(name)){
+            if (this.isDimension(name)) {
                 let value = this.getProperty(name);
                 arg[i] = parseDimension(value);
             }
-            else    
+            else
                 arg[i] = this.getProperty(name);
         }
         return arg;
@@ -120,6 +139,18 @@ class Shape extends Operation {
     toInternal(value) {
         return value * viewScale;
     }
+
+
+
+    walkOptions = {
+        onPath: function (wp) {
+            if (wp.pathContext.type === 'arc') {
+                invertArc(wp.pathContext);
+            }
+        }
+    };
+
+
 
     makeShape(shape, x, y, svgPath, data) {
 
@@ -143,6 +174,11 @@ class Shape extends Operation {
             case 'Polygon':
                 this.model = new makerjs.models.Polygon(arg[0], this.toInternal(arg[1]), arg[2], false);
                 break;
+            case 'Sign':
+                var sign = new makerjs.models.RoundRectangle(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
+                makerjs.model.walk(sign, this.walkOptions);
+                this.model = sign;
+                break;
             case 'Rectangle':
                 this.model = new makerjs.models.Rectangle(this.toInternal(arg[0]), this.toInternal(arg[1]));
                 break;
@@ -155,7 +191,7 @@ class Shape extends Operation {
         }
 
         this.model.origin = [x, y];
-        if (shape == "Rectangle" || shape == "RoundRectangle")
+        if (shape == "Rectangle" || shape == "RoundRectangle" || shape == "Sign")
             this.model.origin = [x - this.toInternal(arg[0]) / 2, y - this.toInternal(arg[1]) / 2];
         var chain = makerjs.model.findSingleChain(this.model);
         if (!chain) return;
@@ -166,7 +202,7 @@ class Shape extends Operation {
         for (let p of this.points) {
             path.push({ x: p[0], y: p[1] });
         }
-        if(path[0].x == path[path.length-1].x && path[0].y == path[path.length-1].y )
+        if (path[0].x == path[path.length - 1].x && path[0].y == path[path.length - 1].y)
             path.pop();
 
         path.push(path[0]);
@@ -180,7 +216,7 @@ class Shape extends Operation {
         if (svgPath == null) {
             addUndo(false, true, false);
             svgPath = {
-                closed:true,
+                closed: true,
                 svgpathId: svgpathId,
                 id: shape + '_' + svgpathId,
                 type: 'path',
@@ -217,10 +253,10 @@ class Shape extends Operation {
         addOrReplaceSvgPath(oldId, svgPath.id, svgPath.name);
         selectMgr.unselectAll();
         selectMgr.selectPath(svgPath);
-  
+
         const title = document.getElementById('tool-properties-title');
         title.textContent = `Edit ${shape} - ${svgPath.name}`;
-        
+
         redraw();
     }
 
@@ -347,8 +383,7 @@ class Shape extends Operation {
 
     }
 
-    update(path)
-    {
+    update(path) {
         let shape = path.creationProperties.shape;
         this.showProperties(shape);
         this.properties = { ...this.properties, ...path.creationProperties.properties };
@@ -358,7 +393,7 @@ class Shape extends Operation {
         document.getElementById(key).value = value;
     }
 
-    getProperty(key){
+    getProperty(key) {
         return document.getElementById(key).value;
     }
 
@@ -375,7 +410,7 @@ class Shape extends Operation {
             if (this.isDimension(key)) {
                 this.properties[key] = parseDimension(value);
                 data[key] = parseDimension(value);
-                this.updateProperty(key, formatDimension(this.properties[key],true));
+                this.updateProperty(key, formatDimension(this.properties[key], true));
             }
             else {
                 value = parseFloat(value);

@@ -856,6 +856,11 @@ window.setWorkpieceVisibility3D = function(visible) {
   // Toggle voxel grid visibility
   if (toolpathAnimation && toolpathAnimation.voxelGrid && toolpathAnimation.voxelGrid.mesh) {
     toolpathAnimation.voxelGrid.mesh.visible = visible;
+    // When showing the voxel grid, ensure GPU syncs instance colors
+    // (prevents blotchy rendering due to stale GPU color buffer)
+    if (visible && toolpathAnimation.voxelGrid.mesh.instanceColor) {
+      toolpathAnimation.voxelGrid.mesh.instanceColor.needsUpdate = true;
+    }
   }
 };
 
