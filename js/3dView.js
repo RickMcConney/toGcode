@@ -843,24 +843,24 @@ window.setToolpathVisibility3D = function(visible) {
 };
 
 window.setWorkpieceVisibility3D = function(visible) {
-  // Toggle workpiece visibility
+  // Instead of toggling visibility (which causes GPU corruption), move meshes off-screen
+  // This keeps them rendering but hidden from view, avoiding blotchy discoloration
+  const offscreenPosition = new THREE.Vector3(10000, 10000, 10000);  // Far behind camera
+  const originalPosition = new THREE.Vector3(0, 0, 0);  // Original position at origin
+
+  // Move workpiece
   if (workpieceManager && workpieceManager.mesh) {
-    workpieceManager.mesh.visible = visible;
+    workpieceManager.mesh.position.copy(visible ? originalPosition : offscreenPosition);
   }
 
-  // Toggle filler workpiece boxes visibility
+  // Move filler workpiece boxes
   if (toolpathAnimation && toolpathAnimation.workpieceOutlineBox) {
-    toolpathAnimation.workpieceOutlineBox.visible = visible;
+    toolpathAnimation.workpieceOutlineBox.position.copy(visible ? originalPosition : offscreenPosition);
   }
 
-  // Toggle voxel grid visibility
+  // Move voxel grid
   if (toolpathAnimation && toolpathAnimation.voxelGrid && toolpathAnimation.voxelGrid.mesh) {
-    toolpathAnimation.voxelGrid.mesh.visible = visible;
-    // When showing the voxel grid, ensure GPU syncs instance colors
-    // (prevents blotchy rendering due to stale GPU color buffer)
-    if (visible && toolpathAnimation.voxelGrid.mesh.instanceColor) {
-      toolpathAnimation.voxelGrid.mesh.instanceColor.needsUpdate = true;
-    }
+    toolpathAnimation.voxelGrid.mesh.position.copy(visible ? originalPosition : offscreenPosition);
   }
 };
 
