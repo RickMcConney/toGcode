@@ -19,7 +19,7 @@ class ToolpathPropertiesManager {
             },
             'Pocket': {
                 compatibleBits: ['End Mill', 'Ball Nose'],
-                fields: ['tool', 'depth', 'step', 'stepover', 'direction'],
+                fields: ['tool', 'depth', 'step', 'stepover', 'angle', 'direction'],
                 description: 'Remove all material inside the path'
             },
             'VCarve': {
@@ -74,6 +74,7 @@ class ToolpathPropertiesManager {
                 depth: workpieceThickness,
                 step: workpieceThickness * 0.25,
                 stepover: 25,
+                angle: 0, // Default to horizontal (0°) for infill lines
                 inside: 'inside', // Default to 'inside' for inside/outside option
                 direction: 'climb' // Default to 'climb' for direction option
             };
@@ -264,6 +265,24 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Generate HTML for infill angle input
+     */
+    generateAngleInputHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).angle;
+        }
+
+        let html = '<div class="mb-3">';
+        html += '<label for="angle-input" class="form-label small"><strong>Infill Angle (°):</strong></label>';
+        html += '<input type="number" class="form-control form-control-sm" id="angle-input" name="angle" ';
+        html += `value="${value}" step="1" min="0" max="180" required>`;
+        html += '<div class="form-text">Angle of infill lines from horizontal (0-180°)</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
      * Generate complete properties form HTML for an operation
      */
     generatePropertiesHTML(operationName, existingProperties = null) {
@@ -309,6 +328,12 @@ class ToolpathPropertiesManager {
             html += this.generateStepoverInputHTML(operationName, stepover);
         }
 
+        // Angle input
+        if (config.fields.includes('angle')) {
+            const angle = existingProperties?.angle || null;
+            html += this.generateAngleInputHTML(operationName, angle);
+        }
+
         // Update button (only shown when there's an active toolpath to update)
         html += '<div class="mb-3">';
         html += '<button type="button" class="btn btn-primary btn-sm w-100" id="update-toolpath-button">';
@@ -330,6 +355,7 @@ class ToolpathPropertiesManager {
         const depthInput = document.getElementById('depth-input');
         const stepInput = document.getElementById('step-input');
         const stepoverInput = document.getElementById('stepover-input');
+        const angleInput = document.getElementById('angle-input');
         const insideInput = document.getElementById('inside-select');
         const directionInput = document.getElementById('direction-select');
 
@@ -350,6 +376,9 @@ class ToolpathPropertiesManager {
         }
         if (stepoverInput) {
             data.stepover = parseFloat(stepoverInput.value);
+        }
+        if (angleInput) {
+            data.angle = parseFloat(angleInput.value);
         }
 
         return data;
@@ -387,6 +416,12 @@ class ToolpathPropertiesManager {
         if (config.fields.includes('stepover')) {
             if (!data.stepover || data.stepover <= 0 || data.stepover > 100) {
                 errors.push('Stepover must be between 1 and 100%');
+            }
+        }
+
+        if (config.fields.includes('angle')) {
+            if (data.angle === null || data.angle === undefined || data.angle < 0 || data.angle > 180) {
+                errors.push('Infill angle must be between 0 and 180°');
             }
         }
 

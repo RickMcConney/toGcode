@@ -3174,13 +3174,51 @@ function normalizeWindingOrder(inputPaths) {
 	return normalized;
 }
 
-function generateClipperInfill(inputPaths, stepOverDistance, radius) {
+/**
+ * Rotate a point around a center by a given angle in radians
+ * @param {Object} point - Point with x, y coordinates
+ * @param {number} centerX - Center X coordinate
+ * @param {number} centerY - Center Y coordinate
+ * @param {number} angleRad - Rotation angle in radians
+ * @returns {Object} Rotated point
+ */
+function rotatePoint(point, centerX, centerY, angleRad) {
+	const cos = Math.cos(angleRad);
+	const sin = Math.sin(angleRad);
+	const dx = point.x - centerX;
+	const dy = point.y - centerY;
+	return {
+		x: centerX + dx * cos - dy * sin,
+		y: centerY + dx * sin + dy * cos
+	};
+}
+
+function generateClipperInfill(inputPaths, stepOverDistance, radius, angle = 0) {
 	// Normalize winding order to ensure consistent behavior regardless of user draw direction
-	const normalizedPaths = normalizeWindingOrder(inputPaths);
+	let normalizedPaths = normalizeWindingOrder(inputPaths);
+
+	// Calculate center point for rotation
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	normalizedPaths.flat().forEach(point => {
+		minX = Math.min(minX, point.x);
+		minY = Math.min(minY, point.y);
+		maxX = Math.max(maxX, point.x);
+		maxY = Math.max(maxY, point.y);
+	});
+	const centerX = (minX + maxX) / 2;
+	const centerY = (minY + maxY) / 2;
+
+	// If angle is not 0, rotate input boundaries by -angle for horizontal infill generation
+	if (angle !== 0) {
+		const angleRad = -angle * Math.PI / 180;
+		normalizedPaths = normalizedPaths.map(path =>
+			path.map(point => rotatePoint(point, centerX, centerY, angleRad))
+		);
+	}
 
 	const clipper = new ClipperLib.Clipper();
-	// Determine the bounding box to generate infill lines
-	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	// Determine the bounding box to generate infill lines (for rotated paths if angle != 0)
+	minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
 	normalizedPaths.flat().forEach(point => {
 		minX = Math.min(minX, point.x);
 		minY = Math.min(minY, point.y);
@@ -3283,6 +3321,20 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
 		}
 	}
 
+	// If angle is not 0, rotate all result paths back by +angle to original orientation
+	if (angle !== 0) {
+		const angleRad = angle * Math.PI / 180;
+		for (let group of groups) {
+			for (let path of group.paths) {
+				for (let point of path) {
+					const rotated = rotatePoint(point, centerX, centerY, angleRad);
+					point.x = rotated.x;
+					point.y = rotated.y;
+				}
+			}
+		}
+	}
+
 	// Return grouped structure instead of flat array
 	return groups;
 }
@@ -3292,11 +3344,12 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius) {
  * Groups segments by continuity across Y-levels with endpoint-based zigzag matching
  * Segments form a chain by tracking the last cutting endpoint and matching new segments to it
  * Automatically reverses segments to maintain continuous zigzag pattern
- * @param {Array} infillGroups - Array of groups from generateClipperInfill() (sorted by Y)
+ * @param {Array} infillGroups - Array of groups from generateClipperInfill() (sorted by Y, paths already rotated)
  * @param {number} stepover - Stepover distance
+ * @param {number} angle - Infill angle (paths already rotated back to original orientation by generateClipperInfill)
  * @returns {Array} Array of chains, each containing segments from one X-region
  */
-function extractConnectivityChains(infillGroups, stepover) {
+function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 	if (infillGroups.length === 0) return [];
 
 	const tolerance = stepover * 2;  // Tolerance for endpoint matching (accounts for Y-distance between segments)
@@ -3621,6 +3674,7 @@ function doPocket() {
 	var radius = toolRadius();
 	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
+	var angle = window.currentToolpathProperties?.angle || 0;  // Get infill angle, default to 0° (horizontal)
 	var inputPaths = [];
 
 	var selected =  selectMgr.selectedPaths();
@@ -3668,10 +3722,10 @@ function doPocket() {
 		}
 	}
 
-	let tpaths = generateClipperInfill(offsetPaths, stepover, radius);
+	let tpaths = generateClipperInfill(offsetPaths, stepover, radius, angle);
 
 	// Extract connectivity chains - groups segments that can be cut together without crossing islands
-	let chains = extractConnectivityChains(tpaths, stepover);
+	let chains = extractConnectivityChains(tpaths, stepover, angle);
 
 	// Convert chains to path objects for processing
 	// Each chain represents a contiguous set of segments from the same Y-line that don't cross islands
