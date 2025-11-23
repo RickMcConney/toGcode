@@ -936,7 +936,7 @@ function updateSimulation2DDisplays() {
   }
 
   if (feedRateDisplay) {
-    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)} mm/min`;
+    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)}`;
   }
 }
 
@@ -964,7 +964,7 @@ function updateSimulation3DDisplays() {
   }
 
   if (feedRateDisplay) {
-    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)} mm/min`;
+    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)}`;
   }
 }
 

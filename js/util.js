@@ -1,0 +1,618 @@
+function worldToScreen(x, y) {
+	return {
+		x: (x * zoomLevel + panX),
+		y: (y * zoomLevel + panY)
+	};
+}
+
+function screenToWorld(x, y) {
+	return {
+		x: (x - panX) / zoomLevel,
+		y: (y - panY) / zoomLevel
+	};
+}
+
+// ============================================================================
+// UNIT CONVERSION CONSTANTS & FUNCTIONS
+// ============================================================================
+
+var MM_PER_INCH = 25.4;
+
+// Convert decimal inches to nearest fraction
+// Returns {whole, numerator, denominator} or null if should show decimal
+function decimalToFraction(decimal, maxDenominator) {
+	maxDenominator = maxDenominator || 64;
+
+	// Extract whole number part
+	var whole = Math.floor(Math.abs(decimal));
+	var fractional = Math.abs(decimal) - whole;
+
+	// If very close to whole number, return it
+	if (fractional < 0.001) {
+		return { whole: whole * Math.sign(decimal || 1), numerator: 0, denominator: 1 };
+	}
+
+	// Try common woodworking denominators: 2, 4, 8, 16, 32, 64
+	var denominators = [2, 4, 8, 16, 32, 64].filter(d => d <= maxDenominator);
+	var bestDenom = 1;
+	var bestNumer = 0;
+	var bestError = 1;
+
+	for (var i = 0; i < denominators.length; i++) {
+		var denom = denominators[i];
+		var numer = Math.round(fractional * denom);
+		var error = Math.abs(fractional - numer / denom);
+
+		if (error < bestError) {
+			bestError = error;
+			bestDenom = denom;
+			bestNumer = numer;
+		}
+	}
+
+	// If error is too large, return null to indicate decimal display
+	if (bestError > 0.01) {
+		return null;
+	}
+
+	// Simplify fraction
+	var gcd = function (a, b) { return b ? gcd(b, a % b) : a; };
+	var divisor = gcd(bestNumer, bestDenom);
+	bestNumer /= divisor;
+	bestDenom /= divisor;
+
+	// If fraction equals 1 (numerator == denominator), add to whole number
+	if (bestNumer === bestDenom) {
+		return {
+			whole: (whole + 1) * Math.sign(decimal || 1),
+			numerator: 0,
+			denominator: 1
+		};
+	}
+
+	return {
+		whole: whole * Math.sign(decimal || 1),
+		numerator: bestNumer,
+		denominator: bestDenom
+	};
+}
+
+// Format a dimension in mm to display string (mm or inches with fractions)
+function formatDimension(mm, showFractions) {
+
+	var useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+	if (!useInches) {
+		// Metric display
+		return parseFloat(mm).toFixed(1)+' mm';
+	}
+
+	// Convert to inches
+	var inches = mm / MM_PER_INCH;
+
+	// For very small values, show decimal
+	if (Math.abs(inches) < 0.01) {
+		return inches.toFixed(3)+' in';
+	}
+
+	if (!showFractions) {
+		// Decimal inches
+		return inches.toFixed(3)+' in';
+	}
+
+	// Try to convert to fraction
+	var frac = decimalToFraction(inches, 64);
+
+	if (!frac) {
+		// Couldn't convert to clean fraction, use decimal
+		return inches.toFixed(3)+' in';
+	}
+
+	// Build fraction string
+	var result = '';
+	var sign = frac.whole < 0 || inches < 0 ? '-' : '';
+	var absWhole = Math.abs(frac.whole);
+
+	if (absWhole > 0) {
+		result += sign + absWhole;
+		if (frac.numerator > 0) {
+			result += ' ';
+		}
+	} else if (frac.numerator > 0) {
+		// No whole part, just fraction - include sign
+		result = sign;
+	}
+
+	if (frac.numerator > 0) {
+		result += frac.numerator + '/' + frac.denominator;
+	}
+
+	return result + ' in' || '0' + ' in';
+}
+
+// Parse user input dimension back to mm
+function parseDimension(value) {
+	if (!value) return 0;
+	var isInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
+	// Convert to string and trim
+	value = String(value).trim();
+
+	if(value.indexOf("m")>0) isInches = false;
+	else if(value.indexOf("i")>0) isInches = true;
+
+	if (!isInches) {
+		// Parse as mm
+		return parseFloat(value) || 0;
+	}
+
+	// Parse inches - could be decimal or fraction
+	// Support formats: "3.5", "3 1/2", "1/4", "3-1/2"
+
+	var whole = 0;
+	var numerator = 0;
+	var denominator = 1;
+
+	// Check for fraction
+	var fractionMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
+	if (fractionMatch) {
+		numerator = parseInt(fractionMatch[1]);
+		denominator = parseInt(fractionMatch[2]);
+
+		// Check for whole number before fraction
+		var wholeMatch = value.match(/^(-?\d+)\s+\d+\/\d+/);
+		if (wholeMatch) {
+			whole = parseInt(wholeMatch[1]);
+		}
+	} else {
+		// Just a decimal or whole number
+		whole = parseFloat(value) || 0;
+	}
+
+	// Combine and convert to mm
+	var totalInches = Math.abs(whole) + (numerator / denominator);
+	if (whole < 0 || value.trim().startsWith('-')) {
+		totalInches = -totalInches;
+	}
+
+	return totalInches * MM_PER_INCH;
+}
+
+// Simple conversions
+function mmToInches(mm) {
+	return mm / MM_PER_INCH;
+}
+
+function inchesToMm(inches) {
+	return inches * MM_PER_INCH;
+}
+
+function closestPath(pt, clear) {
+	var min = 100;
+	var svgpath = null;
+	var possiblePath = [];
+
+
+	for (var i = 0; i < svgpaths.length; i++) {
+		if (!svgpaths[i].visible) continue;
+		if (clear)
+			svgpaths[i].highlight = false;
+		var bbox = svgpaths[i].bbox;
+		if (pointInBoundingBox(pt, bbox)) {
+			possiblePath.push(svgpaths[i]);
+		}
+	}
+	if (possiblePath.length == 1)
+		svgpath = possiblePath[0];
+	else {
+		for (var i = 0; i < possiblePath.length; i++) {
+			var path = possiblePath[i].path;
+			for (var j = 0; j < path.length; j++) {
+				var k = (j + 1) % path.length;
+				var start = path[j];
+				var end = path[k];
+				var dist = distToSegmentSquared(pt, start, end);
+				if (dist < min) {
+					min = dist;
+					svgpath = possiblePath[i];
+				}
+			}
+		}
+	}
+	if (svgpath) {
+		svgpath.highlight = true;
+	}
+	return svgpath;
+}
+
+function closestPoint(pt) {
+	var min = 10000;
+	var cx;
+	var cy;
+
+	var possiblePath = [];
+
+
+	for (var i = 0; i < svgpaths.length; i++) {
+		if (!svgpaths[i].visible) continue;
+		svgpaths[i].highlight = false;
+		var bbox = svgpaths[i].bbox;
+		if (pointInBoundingBox(pt, bbox)) {
+			possiblePath.push(svgpaths[i].path);
+		}
+	}
+
+	for (var i = 0; i < possiblePath.length; i++) {
+
+		var path = possiblePath[i];
+
+		for (var j = 0; j < path.length; j++) {
+			var k = (j + 1) % path.length;
+			var midx = path[j].x + (path[k].x - path[j].x) / 2;
+			var midy = path[j].y + (path[k].y - path[j].y) / 2;
+			var dx = path[j].x - pt.x;
+			var dy = path[j].y - pt.y;
+			var dist = dx * dx + dy * dy;
+			if (dist < min) {
+				min = dist;
+				cx = path[j].x;
+				cy = path[j].y;
+			}
+			dx = midx - pt.x;
+			dy = midy - pt.y;
+			dist = dx * dx + dy * dy;
+			if (dist < min) {
+				min = dist;
+				cx = midx;
+				cy = midy;
+			}
+		}
+	}
+	return { x: cx, y: cy, dist: min };
+}
+
+function boundingBoxPaths(paths) {
+	var outterbbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity }
+	for (var i = 0; i < paths.length; i++) {
+
+		var bbox = paths[i].bbox;
+		if (outterbbox.minx > bbox.minx) outterbbox.minx = bbox.minx;
+		if (outterbbox.miny > bbox.miny) outterbbox.miny = bbox.miny;
+		if (outterbbox.maxx < bbox.maxx) outterbbox.maxx = bbox.maxx;
+		if (outterbbox.maxy < bbox.maxy) outterbbox.maxy = bbox.maxy;
+	}
+	return outterbbox;
+}
+
+function boundingBox(path) {
+	var bbox = { minx: path[0].x, miny: path[0].y, maxx: path[0].x, maxy: path[0].y }
+	for (var i = 0; i < path.length; i++) {
+		if (bbox.minx > path[i].x) bbox.minx = path[i].x;
+		if (bbox.miny > path[i].y) bbox.miny = path[i].y;
+		if (bbox.maxx < path[i].x) bbox.maxx = path[i].x;
+		if (bbox.maxy < path[i].y) bbox.maxy = path[i].y;
+	}
+	if (bbox.maxx - bbox.minx < 2) { bbox.maxx++; bbox.minx--; }
+	if (bbox.maxy - bbox.miny < 2) { bbox.maxy++; bbox.miny--; }
+	return bbox;
+}
+
+function isClockwise(path) {
+	var area = 0;
+	for (var i = 0; i < path.length; i++) {
+		j = (i + 1) % path.length;
+		area += path[i].x * path[j].y;
+		area -= path[j].x * path[i].y;
+	}
+	return (area < 0);
+}
+
+function sqr(x) {
+	return x * x
+}
+function dist2(v, w) {
+	return sqr(v.x - w.x) + sqr(v.y - w.y)
+}
+
+function distToSegmentSquared(p, v, w) {
+	var l2 = dist2(v, w);
+
+	if (l2 == 0) {
+		return dist2(p, v);
+	}
+
+
+	var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+
+	if (t < 0) return dist2(p, v);
+	if (t > 1) return dist2(p, w);
+
+
+	return dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+}
+
+function distanceToClosestPath(pt, path, r) {
+
+	var rs = r * r;
+	min = Infinity
+
+	for (var i = 0; i < path.length - 1; i++) {
+		var j = (i + 1) % path.length;
+		var start = path[i];
+		var end = path[j];
+		var dist = distToSegmentSquared(pt, start, end);
+		if (dist < min) min = dist;
+	}
+	return Math.sqrt(min);
+}
+
+
+function isPointInCircle(pt, path, r) {
+
+	var rs = r * r;
+
+	for (var i = 0; i < path.length - 1; i++) {
+		var j = (i + 1) % path.length;
+		var start = path[i];
+		var end = path[j];
+		var dist = distToSegmentSquared(pt, start, end);
+
+		if (dist < rs) {
+			var diff = rs - dist;
+			if (diff > 0.01) {
+				//debug.push({p:pt,s:start,e:end});
+				//console.log("diff = "+(rs-dist));
+				return Math.sqrt(dist);
+			}
+		}
+	}
+	return r;
+}
+
+function pointInBoundingBox(point, bbox) {
+	return (point.x > bbox.minx && point.x < bbox.maxx && point.y > bbox.miny && point.y < bbox.maxy);
+}
+
+function nearbyPaths(svgpath, radius) {
+	nearbypaths = [];
+	var bbox = {};
+	var d = 2 * radius;
+
+	Object.assign(bbox, svgpath.bbox);
+	bbox.minx -= d;
+	bbox.maxx += d;
+	bbox.miny -= d;
+	bbox.maxy += d;
+
+	var paths = [];
+	for (var j = 0; j < svgpaths.length; j++) {
+		if (svgpaths[j].visible) {
+			var p1 = { x: svgpaths[j].bbox.minx, y: svgpaths[j].bbox.miny };
+			var p2 = { x: svgpaths[j].bbox.minx, y: svgpaths[j].bbox.maxy };
+			var p3 = { x: svgpaths[j].bbox.maxx, y: svgpaths[j].bbox.maxy };
+			var p4 = { x: svgpaths[j].bbox.maxx, y: svgpaths[j].bbox.miny };
+			if (pointInBoundingBox(p1, bbox) || pointInBoundingBox(p2, bbox) || pointInBoundingBox(p3, bbox) || pointInBoundingBox(p4, bbox))
+				paths.push(svgpaths[j]);
+		}
+	}
+	return paths;
+}
+
+function checkLineIntersection(line1Start, line1End, line2Start, line2End) {
+	// if the lines intersect, the result contains the x and y of the
+	// intersection (treating the lines as infinite) and booleans for whether
+	// line segment 1 or line segment 2 contain the point
+	var denominator, a, b, numerator1, numerator2, result = {
+		x: null,
+		y: null,
+		onLine1: false,
+		onLine2: false
+	};
+	denominator = ((line2End.y - line2Start.y) * (line1End.x - line1Start.x)) - ((line2End.x - line2Start.x) * (line1End.y - line1Start.y));
+	if (denominator == 0) {
+		return result;
+	}
+	a = line1Start.y - line2Start.y;
+	b = line1Start.x - line2Start.x;
+	numerator1 = ((line2End.x - line2Start.x) * a) - ((line2End.y - line2Start.y) * b);
+	numerator2 = ((line1End.x - line1Start.x) * a) - ((line1End.y - line1Start.y) * b);
+	a = numerator1 / denominator;
+	b = numerator2 / denominator;
+
+	// if we cast these lines infinitely in both directions, they intersect
+	// here:
+	result.x = line1Start.x + (a * (line1End.x - line1Start.x));
+	result.y = line1Start.y + (a * (line1End.y - line1Start.y));
+
+	// if line1 is a segment and line2 is infinite, they intersect if:
+	if (a > 0 && a < 1) {
+		result.onLine1 = true;
+	}
+	// if line2 is a segment and line1 is infinite, they intersect if:
+	if (b > 0 && b < 1) {
+		result.onLine2 = true;
+	}
+	// if line1 and line2 are segments, they intersect if both of the above are
+	// true
+	return result;
+}
+
+function lineIntersectsPath(p0, p1, path) {
+	count = 0;
+	for (var i = 0, j = path.length - 2; i < path.length - 1; j = i++) {
+		var p2 = { x: path[i].x, y: path[i].y };
+		var p3 = { x: path[j].x, y: path[j].y };
+		count += lineIntersects(p0, p1, p2, p3);
+	}
+	return count;
+}
+
+function lineIntersects(p0, p1, p2, p3) {
+
+	var s1_x, s1_y, s2_x, s2_y;
+	s1_x = p1.x - p0.x;
+	s1_y = p1.y - p0.y;
+	s2_x = p3.x - p2.x;
+	s2_y = p3.y - p2.y;
+
+	var s, t;
+	s = (-s1_y * (p0.x - p2.x) + s1_x * (p0.y - p2.y)) / (-s2_x * s1_y + s1_x * s2_y);
+	t = (s2_x * (p0.y - p2.y) - s2_y * (p0.x - p2.x)) / (-s2_x * s1_y + s1_x * s2_y);
+
+	if (s >= 0 && s <= 1 && t >= 0 && t <= 1) {
+		// Collision detected
+		return 1;
+	}
+
+	return 0; // No collision
+}
+
+function pointInPolygon(point, path) {
+
+	var x = point.x, y = point.y;
+
+	var inside = false;
+	for (var i = 0, j = path.length - 2; i < path.length - 1; j = i++) {
+		var xi = path[i].x, yi = path[i].y;
+		var xj = path[j].x, yj = path[j].y;
+
+		var intersect = ((yi > y) != (yj > y))
+			&& (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+		if (intersect) inside = !inside;
+	}
+
+	return inside;
+}
+
+// Calculate origin coordinates based on position and workpiece dimensions
+function calculateOriginFromPosition(position, width, length) {
+	switch (position) {
+		case 'top-left':
+			return { x: 0, y: 0 };
+		case 'top-center':
+			return { x: width / 2, y: 0 };
+		case 'top-right':
+			return { x: width, y: 0 };
+		case 'middle-left':
+			return { x: 0, y: length / 2 };
+		case 'middle-center':
+			return { x: width / 2, y: length / 2 };
+		case 'middle-right':
+			return { x: width, y: length / 2 };
+		case 'bottom-left':
+			return { x: 0, y: length };
+		case 'bottom-center':
+			return { x: width / 2, y: length };
+		case 'bottom-right':
+			return { x: width, y: length };
+		default:
+			return { x: width / 2, y: length / 2 };
+	}
+}
+
+/**
+ * Calculates the signed area of a path
+ * Used to determine winding order (clockwise vs counter-clockwise)
+ * @param {Array} path - Array of {x, y} points
+ * @returns {number} Signed area - positive for counter-clockwise, negative for clockwise
+ */
+function getSignedArea(path) {
+	if (!path || path.length < 3) return 0;
+
+	let area = 0;
+	for (let i = 0; i < path.length - 1; i++) {
+		area += (path[i+1].x - path[i].x) * (path[i+1].y + path[i].y);
+	}
+	return area;
+}
+
+/**
+ * Normalizes winding order of paths to counter-clockwise
+ * Ensures consistent behavior regardless of how paths are drawn by user
+ * @param {Array} inputPaths - Array of paths (each path is array of {x, y} points)
+ * @returns {Array} All paths normalized to counter-clockwise winding order
+ */
+function normalizeWindingOrder(inputPaths) {
+	if (!inputPaths || inputPaths.length === 0) return inputPaths;
+
+	// Single path - normalize to counter-clockwise
+	if (inputPaths.length === 1) {
+		const signedArea = getSignedArea(inputPaths[0]);
+		if (signedArea < 0) {
+			// Clockwise - reverse to counter-clockwise
+			return [reversePath(inputPaths[0])];
+		}
+		return inputPaths;
+	}
+
+	// Multiple paths - identify outer (largest) vs inner (islands)
+	const pathsWithArea = inputPaths.map((path, idx) => ({
+		path: path,
+		area: Math.abs(getSignedArea(path)),
+		signedArea: getSignedArea(path),
+		isClockwise: getSignedArea(path) < 0,
+		index: idx
+	}));
+
+	// Largest area path is the outer boundary
+	const outerPathData = pathsWithArea.reduce((max, p) =>
+		p.area > max.area ? p : max
+	);
+
+	// Inner paths are islands/holes
+	const innerPathsData = pathsWithArea.filter(p => p.index !== outerPathData.index);
+
+	// Normalize winding - all paths to counter-clockwise
+	const normalized = [];
+
+	// Outer path should be counter-clockwise
+	if (outerPathData.isClockwise) {
+		normalized.push(reversePath(outerPathData.path));
+	} else {
+		normalized.push(outerPathData.path);
+	}
+
+	// Inner paths (islands) should also be counter-clockwise
+	for (let i = 0; i < innerPathsData.length; i++) {
+		const innerData = innerPathsData[i];
+		if (innerData.isClockwise) {
+			// Clockwise - reverse to counter-clockwise
+			normalized.push(reversePath(innerData.path));
+		} else {
+			// Already counter-clockwise - use as-is
+			normalized.push(innerData.path);
+		}
+	}
+
+	return normalized;
+}
+/**
+ * Rotate a point around a center by a given angle in radians
+ * @param {Object} point - Point with x, y coordinates
+ * @param {number} centerX - Center X coordinate
+ * @param {number} centerY - Center Y coordinate
+ * @param {number} angleRad - Rotation angle in radians
+ * @returns {Object} Rotated point
+ */
+function rotatePoint(point, centerX, centerY, angleRad) {
+	const cos = Math.cos(angleRad);
+	const sin = Math.sin(angleRad);
+	const dx = point.x - centerX;
+	const dy = point.y - centerY;
+	return {
+		x: centerX + dx * cos - dy * sin,
+		y: centerY + dx * sin + dy * cos
+	};
+}
+
+function pathIn(outer, inner) {
+	for (var i in inner) {
+		var p = inner[i];
+		if (!pointInPolygon(p, outer))
+			return false;
+	}
+	return true;
+}
+
+// Helper function: Calculate distance between two points
+function distance(p1, p2) {
+	return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+}
