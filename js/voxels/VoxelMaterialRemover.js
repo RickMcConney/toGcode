@@ -50,7 +50,9 @@ class VoxelMaterialRemover {
    * @returns {Array} Array of removed voxel indices in this operation
    */
   removeAtToolPosition(voxelGrid, toolX, toolY, toolZ, toolInfo) {
-    if (!voxelGrid || !toolInfo) return [];
+    if (!voxelGrid || !toolInfo) {
+      return [];
+    }
 
     // Pre-calculate tool constants if tool has changed
     if (this.lastToolInfo !== toolInfo) {
@@ -88,7 +90,9 @@ class VoxelMaterialRemover {
    * @returns {number} Total voxels removed in this operation
    */
   removeAlongPath(voxelGrid, startPos, endPos, toolInfo, stepDistance = 1.0) {
-    if (!voxelGrid || !toolInfo) return 0;
+    if (!voxelGrid || !toolInfo) {
+      return 0;
+    }
 
     // Calculate path length
     const dx = endPos.x - startPos.x;
@@ -104,6 +108,7 @@ class VoxelMaterialRemover {
 
     // Sample along the path
     const numSteps = Math.ceil(pathLength / stepDistance);
+
     for (let i = 0; i <= numSteps; i++) {
       const t = numSteps > 0 ? i / numSteps : 0;
       const x = startPos.x + dx * t;
@@ -122,6 +127,9 @@ class VoxelMaterialRemover {
   reset() {
     this.totalVoxelsRemoved = 0;
     this.lastToolPosition = null;
+    this.lastToolInfo = null;  // IMPORTANT: Also reset the cached tool info
+    this.toolRadiusSq = null;
+    this.vbitTangent = null;
   }
 
   /**

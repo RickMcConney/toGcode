@@ -1903,11 +1903,6 @@ function create2DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Time:</span>
-                <span class="small"><span id="2d-simulation-time">0:00</span>/<span id="2d-total-time">0:00</span></span>
-            </div>
-
-            <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Feed:</span>
                 <span class="small"><span id="2d-feed-rate-display">0</span> mm/min</span>
             </div>
@@ -1991,9 +1986,9 @@ function create3DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Progress:</span>
-                <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="100" step="1" value="0" style="width: 150px;">
-                <span id="3d-progress-display" class="small">0%</span>
+                <span class="small">Line:</span>
+                <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="1" step="1" value="0" style="width: 150px;">
+                <span id="3d-progress-display" class="small">Line 0 (0%)</span>
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
@@ -2001,10 +1996,6 @@ function create3DSimulationControls() {
                 <span id="3d-step-display" class="small">0 / 0</span>
             </div>
 
-            <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Time:</span>
-                <span class="small"><span id="3d-simulation-time">0:00</span>/<span id="3d-total-time">0:00</span></span>
-            </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Feed:</span>
@@ -2041,12 +2032,11 @@ function create3DSimulationControls() {
         }
     });
 
-    // Progress control
+    // Progress control - now line-based instead of percentage-based
     document.getElementById('3d-simulation-progress').addEventListener('input', function (e) {
-        const progress = parseFloat(e.target.value);
-        document.getElementById('3d-progress-display').textContent = Math.round(progress) + '%';
+        const lineNumber = parseInt(e.target.value);
         if (typeof setSimulation3DProgress === 'function') {
-            setSimulation3DProgress(progress / 100);
+            setSimulation3DProgress(lineNumber);
         }
     });
 
