@@ -1008,7 +1008,7 @@ function medialAxis(name, path, holes, svgId) {
 	pushToolPath(paths, name, 'VCarve', svgId);
 }
 
-function compute(outside, name) {
+function computeWithMedialAxis(outside, name) {
 	var selected = selectMgr.selectedPaths();
 	var paths = [];
 
@@ -1029,7 +1029,7 @@ function compute(outside, name) {
 
 }
 
-function oldcompute(outside, name) {
+function computeVcarve(outside, name) {
 	var radius = vbitRadius(currentTool) * viewScale;
 
 	for (var i = 0; i < svgpaths.length; i++) {

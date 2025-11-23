@@ -471,9 +471,9 @@ function getTabLiftAmount(z, tabs, workpieceThickness, tabHeight) {
 	return 0;
 }
 
-function toGcode() {
-	// Get current G-code profile
-	var profile = currentGcodeProfile || {
+// HELPER FUNCTION: Setup G-code profile with defaults
+function _setupGcodeProfile() {
+	return currentGcodeProfile || {
 		startGcode: 'G0 G54 G17 G21 G90 G94',
 		endGcode: 'M5\nG0 Z5',
 		toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
@@ -485,10 +485,46 @@ function toGcode() {
 		commentsEnabled: true,
 		gcodeUnits: 'mm'
 	};
+}
 
-	// Check if G-code should be output in inches
-	var useInches = profile.gcodeUnits === 'inches';
+// HELPER FUNCTION: Prepare and sort toolpaths by priority
+function _prepareAndSortToolpaths(allToolpaths) {
+	var sortedByOperation = getSortedToolpaths(allToolpaths);
 
+	// Separate drill and non-drill paths
+	var drillPaths = [];
+	var nonDrillPaths = [];
+
+	for (var i = 0; i < sortedByOperation.length; i++) {
+		if (sortedByOperation[i].operation === 'Drill') {
+			drillPaths.push(sortedByOperation[i]);
+		} else {
+			nonDrillPaths.push(sortedByOperation[i]);
+		}
+	}
+
+	// Optimize drill paths order
+	drillPaths = optimizePathOrder(drillPaths);
+
+	// Combine: drills first, then other operations
+	return drillPaths.concat(nonDrillPaths);
+}
+
+// HELPER FUNCTION: Get spindle speed from first visible toolpath
+function _getInitialSpindleSpeed(sortedToolpaths) {
+	var defaultRPM = 18000;
+
+	for (var i = 0; i < sortedToolpaths.length; i++) {
+		if (sortedToolpaths[i].visible && sortedToolpaths[i].tool && sortedToolpaths[i].tool.rpm) {
+			return sortedToolpaths[i].tool.rpm;
+		}
+	}
+
+	return defaultRPM;
+}
+
+// HELPER FUNCTION: Generate G-code header
+function _generateGcodeHeader(profile, spindleSpeed, useInches) {
 	var output = "";
 
 	// Add start G-code if provided
@@ -496,442 +532,34 @@ function toGcode() {
 		output += profile.startGcode + '\n';
 	}
 
-	// Sort toolpaths by operation priority for safe machining order
-	// Order: Drill -> VCarve -> Pocket -> Profiles
-	var sortedByOperation = getSortedToolpaths(toolpaths);
-
-	var drillPaths = [];
-	for (var i = 0; i < sortedByOperation.length; i++) {
-
-		var operation = sortedByOperation[i].operation;
-		if (operation == 'Drill')
-			drillPaths.push(sortedByOperation[i])
-	}
-	drillPaths = optimizePathOrder(drillPaths);
-
-	//todo finish optimization for profile paths with same tool
-	var sortedToolpaths = [];
-
-	for (path of drillPaths) {
-		sortedToolpaths.push(path);
-	}
-	for (var i = 0; i < sortedByOperation.length; i++) {
-
-		var operation = sortedByOperation[i].operation;
-		if (operation != 'Drill')
-			sortedToolpaths.push(sortedByOperation[i])
-	}
-
-	// Get spindle speed from first visible toolpath, or use default
-	var spindleSpeed = 18000; // Default RPM
-	for (var i = 0; i < sortedToolpaths.length; i++) {
-		if (sortedToolpaths[i].visible && sortedToolpaths[i].tool && sortedToolpaths[i].tool.rpm) {
-			spindleSpeed = sortedToolpaths[i].tool.rpm;
-			break;
-		}
-	}
-
 	// Add spindle on command if provided
 	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
 		output += applyGcodeTemplate(profile.spindleOnGcode, { s: spindleSpeed }) + '\n';
 	}
 
-	var lastToolId = null;
-
-	for (var i = 0; i < sortedToolpaths.length; i++) {
-		var visible = sortedToolpaths[i].visible;
-		if (visible) {
-			var name = sortedToolpaths[i].id;
-			var operation = sortedToolpaths[i].operation;
-			var toolStep = sortedToolpaths[i].tool.step || 0;
-			var bit = sortedToolpaths[i].tool.bit;
-			var radius = sortedToolpaths[i].tool.diameter / 2;
-			var depth = sortedToolpaths[i].tool.depth;
-			var woodSpecies = getOption("woodSpecies");
-			var feed = calculateFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
-			var zfeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
-			var angle = sortedToolpaths[i].tool.angle;
-
-			var paths = sortedToolpaths[i].paths;
-			var zbacklash = getOption("zbacklash");
-			var safeHeight = getOption("safeHeight") + zbacklash;
-
-			// Check for tool change
-			var currentToolId = sortedToolpaths[i].tool.recid;
-			if (lastToolId !== null && lastToolId !== currentToolId) {
-				// Insert tool change G-code
-				if (profile.toolChangeGcode && profile.toolChangeGcode.trim() !== '') {
-					output += profile.toolChangeGcode + '\n';
-				}
-				// Add spindle on command with new tool's RPM
-				var toolRpm = sortedToolpaths[i].tool.rpm || 18000;
-				if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
-					output += applyGcodeTemplate(profile.spindleOnGcode, { s: toolRpm }) + '\n';
-				}
-			}
-			lastToolId = currentToolId;
-
-			// Add tool information comment for 3D visualization
-			var toolInfo = 'Tool: ID=' + currentToolId +
-				' Type=' + (sortedToolpaths[i].tool.bit || 'End Mill') +
-				' Diameter=' + sortedToolpaths[i].tool.diameter +
-				' Angle=' + (sortedToolpaths[i].tool.angle || 0) +
-				' StepDown=' + toolStep;
-			var toolComment = formatComment(toolInfo, profile);
-			if (toolComment) output += toolComment + '\n';
-
-			// Handle pocket operations differently - complete each layer before going deeper
-			if (operation == 'Pocket') {
-				var comment = formatComment(operation + ' ' + name, profile);
-				if (comment) output += comment + '\n';
-
-				var z = safeHeight;
-				output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
-
-				var left = depth;
-				var pass = 0;
-
-				// Loop through depth passes
-				while (left > 0) {
-					pass++;
-					left -= toolStep;
-					if (left < 0 || toolStep <= 0) left = 0;
-
-					z = left - depth;
-					var passComment = formatComment('pass ' + pass, profile);
-					if (passComment) output += passComment + '\n';
-
-					// Convert feed rates based on profile units
-					var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
-					var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
-					var zCoord = toGcodeUnitsZ(z, useInches);
-
-					var firstInfillInPass = true;
-
-					// Process INFILL chains first
-					// Chains are now atomic units - no gaps within a chain, only rapids between chains
-					for (var k = 0; k < paths.length; k++) {
-						var pathObj = paths[k];
-						if (pathObj.isContour) continue;  // Skip contours for now
-
-						var path = pathObj.tpath;
-
-						if (path.length > 0) {
-							if (firstInfillInPass) {
-								// First infill chain of this pass: retract to safe height, rapid to start, plunge
-								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
-								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
-								firstInfillInPass = false;
-							} else {
-								// Subsequent infill chains: retract and rapid to chain start
-								// (Chains are separated by islands, so we need to rapid over them)
-								var p = toGcodeUnits(path[0].x, path[0].y, useInches);
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
-								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
-							}
-
-							// Cut entire chain - no gap detection needed since chains are atomic
-							// All points in a chain are connected without crossing islands
-							for (var j = 1; j < path.length; j++) {
-								var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-								// Normal cutting move - all moves within a chain are continuous
-								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-							}
-						}
-					}
-
-					// Process CONTOUR lines last (finishing operation)
-					for (var k = 0; k < paths.length; k++) {
-						var pathObj = paths[k];
-						if (!pathObj.isContour) continue;  // Only process contours
-
-						var path = pathObj.tpath;
-
-						if (path.length > 0) {
-							// Every contour gets full retract/rapid/plunge treatment
-							var p = toGcodeUnits(path[0].x, path[0].y, useInches);
-							output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
-							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-							output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
-
-							// Cut entire contour path
-							for (var j = 1; j < path.length; j++) {
-								var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-								output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-							}
-						}
-					}
-				}
-			}
-			else // Non-pocket operations (Drill, VCarve, profiles)
-			{
-				for (var k = 0; k < paths.length; k++) {
-					var path = paths[k].tpath;
-
-					var comment = formatComment(operation + ' ' + name, profile);
-					if (comment) output += comment + '\n';
-
-					var z = safeHeight;
-					var lastZ = z;
-					var movingUp = false;
-
-					// Convert units for this section
-					var zCoordSafe = toGcodeUnitsZ(z, useInches);
-					var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
-					var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
-
-					output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
-
-					if (operation == 'Drill') {
-						z = 0;
-						var left = depth;
-						var pass = 0;
-						path = paths[k].path;
-						for (var j = 0; j < path.length; j++) {
-							// Retract to safe height before moving to next hole
-							if (j > 0) {
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
-							}
-
-							// Move to hole position at safe height
-							var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-							output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-
-							// Reset left for this hole
-							left = depth;
-
-							while (left > 0) {
-								left -= toolStep;
-								if (left < 0 || toolStep <= 0) left = 0;
-
-								z = left - depth;
-								var zCoord = toGcodeUnitsZ(z, useInches);
-								var zCoordPullUp = toGcodeUnitsZ(z + toolStep + zbacklash, useInches);
-								output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';  // Use G1 for cutting move
-								output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordPullUp, f: feedZ / 2 }) + '\n'; // pull up to clear chip at rapid
-							}
-						}
-
-						// Retract to safe height after drilling hole is complete
-						output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
-					}
-					else if (operation == 'VCarve In' || operation == 'VCarve Out' || operation == 'VCarve') {
-						z = 0;
-
-						for (var j = 0; j < path.length; j++) {
-
-							var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-							var cz = toolDepth(angle, path[j].r);
-							cz = -toGcodeUnitsZ(cz, useInches);
-
-							if (movingUp == false && lastZ < cz) movingUp = true;
-							else movingUp = false;
-
-							lastZ = cz;
-
-							if (movingUp) {
-								cz += (useInches ? zbacklash / MM_PER_INCH : zbacklash);
-								cz = Math.round((cz + 0.00001) * 10000) / 10000;
-								var vcarveZFeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation) / 2;
-								feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
-							}
-							else {
-								var vcarveZFeed = calculateZFeedRate(sortedToolpaths[i].tool, woodSpecies, operation);
-								feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
-							}
-
-
-							if (j == 0) {
-								// Move to first point at safe height, then plunge
-								output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-							}
-
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: feedZ }) + '\n';
-						}
-
-					}
-					else // path profile
-					{
-						z = 0;
-
-						//if (bit == 'VBit') {
-						//	let maxRadius = vbitRadius(sortedToolpaths[i].tool);
-						//	depth = toolDepth(angle, maxRadius);
-						//}
-						var left = depth;
-						var pass = 0;
-						var isFirstPass = true;
-
-						// Get tabs from source SVG path for tab avoidance
-						var svgPath = null;
-						var tabs = [];
-						var toolRadiusWorld = radius * viewScale; // Convert MM radius to world units
-						var workpieceThickness = getOption("workpieceThickness");
-
-						if (sortedToolpaths[i].svgId) {
-							for (var spIdx = 0; spIdx < svgpaths.length; spIdx++) {
-								if (svgpaths[spIdx].id === sortedToolpaths[i].svgId) {
-									svgPath = svgpaths[spIdx];
-									break;
-								}
-							}
-						}
-
-						if (svgPath && svgPath.creationProperties && svgPath.creationProperties.tabs) {
-							tabs = svgPath.creationProperties.tabs;
-						}
-
-						// Pre-calculate tab markers with tool radius offset included
-						const tabLengthMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabLength || 0) : 0;
-						const tabHeightMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabHeight || 0) : 0;
-						const markers = (tabs.length > 0) ? calculateTabMarkers(path, tabs, tabLengthMM, toolRadiusWorld, viewScale) : [];
-
-						const augmentedPath = (markers.length > 0) ? augmentToolpathWithMarkers(path, markers) : path;
-
-						while (augmentedPath.length && left > 0) {
-							var currentlyLifted = false;  // Persistent state across segments
-							var firstMarkerPos = null;    // Track first marker for cleanup
-							var startedLifted = false;    // Track if we started lifted
-
-							for (var j = 0; j < augmentedPath.length; j++) {
-								var pt = augmentedPath[j];
-								var p = toMM(pt.x, pt.y);
-
-								if (j == 0) {
-									pass++;
-									left -= toolStep;
-									if (left < 0 || toolStep <= 0) left = 0;
-
-									z = left - depth;
-									var passComment = formatComment('pass ' + pass, profile);
-									if (passComment) output += passComment + '\n';
-
-									// Calculate tab lift amount for this depth
-									var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
-
-									// Find first marker in augmented path to detect if tab blocks path start
-									let firstMarkerIndex = -1;
-									for (let mIdx = 1; mIdx < augmentedPath.length; mIdx++) {
-										if (augmentedPath[mIdx].marker) {
-											firstMarkerIndex = mIdx;
-											firstMarkerPos = augmentedPath[mIdx];
-											break;
-										}
-									}
-
-									// Determine if tab is blocking path start
-									// If first marker is closer than 2*toolRadius from start, tab is in the way
-									let distToFirstMarker = Infinity;
-									if (firstMarkerPos) {
-										const pt0 = augmentedPath[0];
-										const dx = firstMarkerPos.x - pt0.x;
-										const dy = firstMarkerPos.y - pt0.y;
-										distToFirstMarker = Math.sqrt(dx * dx + dy * dy);
-									}
-
-									const tabBlocksStart = (distToFirstMarker <= 2 * toolRadiusWorld);
-
-									var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
-
-									if (isFirstPass) {
-										// FIRST PASS: Retract to safe height, rapid to start XY position
-										output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed / 2 }) + '\n';
-										output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
-										isFirstPass = false;
-									}
-									// MIDDLE PASSES: Already at correct XY from end of previous pass (closed path)
-									// No retract or XY movement needed - just plunge to new depth below
-
-									// Determine plunge depth based on whether tab blocks start at this new depth
-									var startZCoord;
-									if (tabBlocksStart && tabLift > 0) {
-										// Plunge to lifted height to clear tab at start
-										startZCoord = toGcodeUnitsZ(z + tabLift, useInches);
-										currentlyLifted = true;
-										startedLifted = true;
-									} else {
-										// Plunge to full cutting depth
-										startZCoord = toGcodeUnitsZ(z, useInches);
-										currentlyLifted = false;
-										startedLifted = false;
-									}
-
-									// Plunge Z with cutting feed (G1, not rapid G0)
-									output += applyGcodeTemplate(profile.cutTemplate, { z: startZCoord, f: zfeed }) + '\n';
-
-									// Cutting move to first point
-									output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: startZCoord, f: feed }) + '\n';
-								}
-								else {
-									// Process augmented path point with possible marker
-									if (pt.marker) {
-										// This point is a marker (lift or lower)
-										var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
-
-										if (pt.marker === 'lift') {
-											// First: Cut to marker position at normal depth
-											var zNormalCoord = toGcodeUnitsZ(z, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
-
-											// Then: Lift at marker position (cutting move, in case tool radius cuts top of material)
-											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
-
-											// Mark as lifted - maintains state across subsequent segments
-											currentlyLifted = true;
-										}
-										else if (pt.marker === 'lower') {
-											// First: Move to marker position at lifted height (cutting move to cut top of material over tabs)
-											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
-
-											// Then: Lower back to cutting depth at this position (cutting move)
-											var zNormalCoord = toGcodeUnitsZ(z, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
-
-											// No longer lifted
-											currentlyLifted = false;
-										}
-									}
-									else {
-										// Regular path point
-										if (currentlyLifted) {
-											// Continue at lifted height (cutting move to cut top of material over tabs) - maintain lifted state
-											var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
-											var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
-										}
-										else {
-											// Normal cutting move (not lifted)
-											var zNormalCoord = toGcodeUnitsZ(z, useInches);
-											output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
-										}
-									}
-								}
-							}
-
-							// If we started lifted due to tab at path start, cut remaining material at end of pass
-							if (startedLifted && firstMarkerPos) {
-								// Move back toward the first marker position to cut skipped material at path start
-								var cleanupZCoord = toGcodeUnitsZ(z, useInches);
-								var markerMM = toMM(firstMarkerPos.x, firstMarkerPos.y);
-								output += applyGcodeTemplate(profile.cutTemplate, { x: markerMM.x, y: markerMM.y, z: cleanupZCoord, f: feed }) + '\n';
-							}
-						}
-					}
-				}
-			}
-
-			// Retract to safe height after finishing shape (before moving to next shape)
-			output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: zfeed / 2 }) + '\n';
-		}
+	return output;
+}
+
+// HELPER FUNCTION: Generate tool change G-code
+function _generateToolChangeGcode(tool, profile) {
+	var output = "";
+
+	if (profile.toolChangeGcode && profile.toolChangeGcode.trim() !== '') {
+		output += profile.toolChangeGcode + '\n';
 	}
 
-	// Add final retract to safe height
-	output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: zfeed / 2 }) + '\n';
+	// Add spindle on command with new tool's RPM
+	var toolRpm = tool.rpm || 18000;
+	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
+		output += applyGcodeTemplate(profile.spindleOnGcode, { s: toolRpm }) + '\n';
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Generate G-code footer
+function _generateGcodeFooter(profile) {
+	var output = "";
 
 	// Add spindle off command if provided
 	if (profile.spindleOffGcode && profile.spindleOffGcode.trim() !== '') {
@@ -942,6 +570,430 @@ function toGcode() {
 	if (profile.endGcode && profile.endGcode.trim() !== '') {
 		output += profile.endGcode + '\n';
 	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process drill operations
+function _generateDrillOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, depth, toolStep, woodSpecies, safeHeight, zbacklash } = settings;
+	var paths = toolpath.paths;
+
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].path;
+		var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+		if (comment) output += comment + '\n';
+
+		var z = safeHeight;
+		var zCoordSafe = toGcodeUnitsZ(z, useInches);
+		var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+		var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+
+		z = 0;
+		var left = depth;
+
+		for (var j = 0; j < path.length; j++) {
+			// Retract to safe height before moving to next hole
+			if (j > 0) {
+				output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+			}
+
+			// Move to hole position at safe height
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+
+			// Reset left for this hole
+			left = depth;
+
+			while (left > 0) {
+				left -= toolStep;
+				if (left < 0 || toolStep <= 0) left = 0;
+
+				z = left - depth;
+				var zCoord = toGcodeUnitsZ(z, useInches);
+				var zCoordPullUp = toGcodeUnitsZ(z + toolStep + zbacklash, useInches);
+				output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+				output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordPullUp, f: feedZ / 2 }) + '\n';
+			}
+		}
+
+		// Retract to safe height after drilling
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process V-carve operations
+function _generateVcarveOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, angle, woodSpecies, safeHeight, zbacklash } = settings;
+	var paths = toolpath.paths;
+
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].tpath;
+		var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+		if (comment) output += comment + '\n';
+
+		var z = 0;
+		var lastZ = z;
+		var movingUp = false;
+		var zCoordSafe = toGcodeUnitsZ(safeHeight, useInches);
+		var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+		var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+
+		for (var j = 0; j < path.length; j++) {
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			var cz = toolDepth(angle, path[j].r);
+			cz = -toGcodeUnitsZ(cz, useInches);
+
+			if (movingUp == false && lastZ < cz) movingUp = true;
+			else movingUp = false;
+
+			lastZ = cz;
+
+			if (movingUp) {
+				cz += (useInches ? zbacklash / MM_PER_INCH : zbacklash);
+				cz = Math.round((cz + 0.00001) * 10000) / 10000;
+				var vcarveZFeed = calculateZFeedRate(toolpath.tool, woodSpecies, toolpath.operation) / 2;
+				feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
+			} else {
+				var vcarveZFeed = calculateZFeedRate(toolpath.tool, woodSpecies, toolpath.operation);
+				feedZ = useInches ? Math.round(vcarveZFeed / MM_PER_INCH * 100) / 100 : vcarveZFeed;
+			}
+
+			if (j == 0) {
+				// Move to first point at safe height, then plunge
+				output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+			}
+
+			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: feedZ }) + '\n';
+		}
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process pocket operations
+function _generatePocketOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, depth, toolStep, woodSpecies, safeHeight } = settings;
+	var paths = toolpath.paths;
+
+	var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+	if (comment) output += comment + '\n';
+
+	var z = safeHeight;
+	output += applyGcodeTemplate(profile.rapidTemplate, { z: z, f: zfeed / 2 }) + '\n';
+
+	var left = depth;
+	var pass = 0;
+	var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+	var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+
+	// Loop through depth passes
+	while (left > 0) {
+		pass++;
+		left -= toolStep;
+		if (left < 0 || toolStep <= 0) left = 0;
+
+		z = left - depth;
+		var passComment = formatComment('pass ' + pass, profile);
+		if (passComment) output += passComment + '\n';
+
+		var zCoord = toGcodeUnitsZ(z, useInches);
+		var firstInfillInPass = true;
+
+		// Process INFILL chains first
+		for (var k = 0; k < paths.length; k++) {
+			var pathObj = paths[k];
+			if (pathObj.isContour) continue;  // Skip contours for now
+
+			var path = pathObj.tpath;
+
+			if (path.length > 0) {
+				if (firstInfillInPass) {
+					var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+					output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+					output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+					output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+					firstInfillInPass = false;
+				} else {
+					var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+					output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+					output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+					output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+				}
+
+				// Cut entire chain
+				for (var j = 1; j < path.length; j++) {
+					var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+					output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+				}
+			}
+		}
+
+		// Process CONTOUR lines last (finishing operation)
+		for (var k = 0; k < paths.length; k++) {
+			var pathObj = paths[k];
+			if (!pathObj.isContour) continue;  // Only process contours
+
+			var path = pathObj.tpath;
+
+			if (path.length > 0) {
+				var p = toGcodeUnits(path[0].x, path[0].y, useInches);
+				output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+				output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+				output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+
+				// Cut entire contour path
+				for (var j = 1; j < path.length; j++) {
+					var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+					output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+				}
+			}
+		}
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process profile operations (inside, outside, center cuts)
+function _generateProfileOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, depth, toolStep, radius, angle, woodSpecies, safeHeight, zbacklash } = settings;
+	var paths = toolpath.paths;
+
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].tpath;
+
+		var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+		if (comment) output += comment + '\n';
+
+		var z = 0;
+		var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+		var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+		var zCoordSafe = toGcodeUnitsZ(safeHeight, useInches);
+
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+
+		var left = depth;
+		var pass = 0;
+		var isFirstPass = true;
+
+		// Get tabs from source SVG path for tab avoidance
+		var svgPath = null;
+		var tabs = [];
+		var toolRadiusWorld = radius * viewScale;
+		var workpieceThickness = getOption("workpieceThickness");
+
+		if (toolpath.svgId) {
+			for (var spIdx = 0; spIdx < svgpaths.length; spIdx++) {
+				if (svgpaths[spIdx].id === toolpath.svgId) {
+					svgPath = svgpaths[spIdx];
+					break;
+				}
+			}
+		}
+
+		if (svgPath && svgPath.creationProperties && svgPath.creationProperties.tabs) {
+			tabs = svgPath.creationProperties.tabs;
+		}
+
+		// Pre-calculate tab markers
+		const tabLengthMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabLength || 0) : 0;
+		const tabHeightMM = svgPath && svgPath.creationProperties ? (svgPath.creationProperties.tabHeight || 0) : 0;
+		const markers = (tabs.length > 0) ? calculateTabMarkers(path, tabs, tabLengthMM, toolRadiusWorld, viewScale) : [];
+		const augmentedPath = (markers.length > 0) ? augmentToolpathWithMarkers(path, markers) : path;
+
+		while (augmentedPath.length && left > 0) {
+			var currentlyLifted = false;
+			var firstMarkerPos = null;
+			var startedLifted = false;
+
+			for (var j = 0; j < augmentedPath.length; j++) {
+				var pt = augmentedPath[j];
+				var p = toMM(pt.x, pt.y);
+
+				if (j == 0) {
+					pass++;
+					left -= toolStep;
+					if (left < 0 || toolStep <= 0) left = 0;
+
+					z = left - depth;
+					var passComment = formatComment('pass ' + pass, profile);
+					if (passComment) output += passComment + '\n';
+
+					// Calculate tab lift amount
+					var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+
+					// Find first marker in augmented path
+					let firstMarkerIndex = -1;
+					for (let mIdx = 1; mIdx < augmentedPath.length; mIdx++) {
+						if (augmentedPath[mIdx].marker) {
+							firstMarkerIndex = mIdx;
+							firstMarkerPos = augmentedPath[mIdx];
+							break;
+						}
+					}
+
+					// Determine if tab is blocking path start
+					let distToFirstMarker = Infinity;
+					if (firstMarkerPos) {
+						const pt0 = augmentedPath[0];
+						const dx = firstMarkerPos.x - pt0.x;
+						const dy = firstMarkerPos.y - pt0.y;
+						distToFirstMarker = Math.sqrt(dx * dx + dy * dy);
+					}
+
+					const tabBlocksStart = (distToFirstMarker <= 2 * toolRadiusWorld);
+					var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
+
+					if (isFirstPass) {
+						output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed / 2 }) + '\n';
+						output += applyGcodeTemplate(profile.rapidTemplate, { x: p.x, y: p.y, f: feed }) + '\n';
+						isFirstPass = false;
+					}
+
+					// Determine plunge depth based on whether tab blocks start
+					var startZCoord;
+					if (tabBlocksStart && tabLift > 0) {
+						startZCoord = toGcodeUnitsZ(z + tabLift, useInches);
+						currentlyLifted = true;
+						startedLifted = true;
+					} else {
+						startZCoord = toGcodeUnitsZ(z, useInches);
+						currentlyLifted = false;
+						startedLifted = false;
+					}
+
+					// Plunge Z with cutting feed
+					output += applyGcodeTemplate(profile.cutTemplate, { z: startZCoord, f: zfeed }) + '\n';
+					output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: startZCoord, f: feed }) + '\n';
+				}
+				else {
+					// Process augmented path point with possible marker
+					if (pt.marker) {
+						var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+
+						if (pt.marker === 'lift') {
+							var zNormalCoord = toGcodeUnitsZ(z, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+							currentlyLifted = true;
+						}
+						else if (pt.marker === 'lower') {
+							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+							var zNormalCoord = toGcodeUnitsZ(z, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+							currentlyLifted = false;
+						}
+					}
+					else {
+						// Regular path point
+						if (currentlyLifted) {
+							var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
+							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+						}
+						else {
+							var zNormalCoord = toGcodeUnitsZ(z, useInches);
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+						}
+					}
+				}
+			}
+
+			// If we started lifted due to tab at path start, cut remaining material at end of pass
+			if (startedLifted && firstMarkerPos) {
+				var cleanupZCoord = toGcodeUnitsZ(z, useInches);
+				var markerMM = toMM(firstMarkerPos.x, firstMarkerPos.y);
+				output += applyGcodeTemplate(profile.cutTemplate, { x: markerMM.x, y: markerMM.y, z: cleanupZCoord, f: feed }) + '\n';
+			}
+		}
+	}
+
+	return output;
+}
+
+// MAIN FUNCTION: Generate G-code output for all toolpaths
+function toGcode() {
+	// 1. SETUP AND VALIDATION
+	var profile = _setupGcodeProfile();
+	var useInches = profile.gcodeUnits === 'inches';
+	var sortedToolpaths = _prepareAndSortToolpaths(toolpaths);
+	var spindleSpeed = _getInitialSpindleSpeed(sortedToolpaths);
+
+	var output = "";
+
+	// 2. GENERATE HEADER
+	output += _generateGcodeHeader(profile, spindleSpeed, useInches);
+
+	// 3. PROCESS EACH TOOLPATH
+	var lastToolId = null;
+	var safeHeight = getOption("safeHeight") + getOption("zbacklash");
+
+	for (var i = 0; i < sortedToolpaths.length; i++) {
+		var toolpath = sortedToolpaths[i];
+		if (!toolpath.visible) continue;
+
+		// Extract toolpath settings for helper functions
+		var settings = {
+			feed: calculateFeedRate(toolpath.tool, getOption("woodSpecies"), toolpath.operation),
+			zfeed: calculateZFeedRate(toolpath.tool, getOption("woodSpecies"), toolpath.operation),
+			depth: toolpath.tool.depth,
+			toolStep: toolpath.tool.step || 0,
+			radius: toolpath.tool.diameter / 2,
+			angle: toolpath.tool.angle,
+			woodSpecies: getOption("woodSpecies"),
+			safeHeight: safeHeight,
+			zbacklash: getOption("zbacklash")
+		};
+
+		// Check for tool change
+		var currentToolId = toolpath.tool.recid;
+		if (lastToolId !== null && lastToolId !== currentToolId) {
+			output += _generateToolChangeGcode(toolpath.tool, profile);
+		}
+		lastToolId = currentToolId;
+
+		// Add tool information comment
+		var toolInfo = 'Tool: ID=' + currentToolId +
+			' Type=' + (toolpath.tool.bit || 'End Mill') +
+			' Diameter=' + toolpath.tool.diameter +
+			' Angle=' + (toolpath.tool.angle || 0) +
+			' StepDown=' + settings.toolStep;
+		var toolComment = formatComment(toolInfo, profile);
+		if (toolComment) output += toolComment + '\n';
+
+		// 4. DISPATCH TO OPERATION-SPECIFIC G-CODE GENERATOR
+		if (toolpath.operation === 'Pocket') {
+			output += _generatePocketOperationGcode(toolpath, profile, useInches, settings);
+		}
+		else if (toolpath.operation === 'Drill') {
+			output += _generateDrillOperationGcode(toolpath, profile, useInches, settings);
+		}
+		else if (toolpath.operation === 'VCarve' || toolpath.operation === 'VCarve In' || toolpath.operation === 'VCarve Out') {
+			output += _generateVcarveOperationGcode(toolpath, profile, useInches, settings);
+		}
+		else {
+			// Profile operations (Inside, Outside, Center, etc.)
+			output += _generateProfileOperationGcode(toolpath, profile, useInches, settings);
+		}
+
+		// Retract to safe height after finishing operation
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: settings.zfeed / 2 }) + '\n';
+	}
+
+	// 5. GENERATE FOOTER
+	output += _generateGcodeFooter(profile);
 
 	return output;
 }

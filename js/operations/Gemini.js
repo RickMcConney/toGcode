@@ -87,7 +87,7 @@ function applyGemini() {
             svgText =  match ? match[0] : null;
             console.log("Generated Text:", svgText);
             try {
-                    newParseSvgContent(svgText,"Gemini");
+                    parseSvgContent(svgText,"Gemini");
                     
             } catch (e) {
                 console.error("Error processing generated text:", e);

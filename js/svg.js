@@ -32,7 +32,7 @@ function initPaperJS() {
 }
 
 // New robust SVG parsing using Paper.js library
-function newParseSvgContent(data, name) {
+function parseSvgContent(data, name) {
 	try {
 
 		// Initialize Paper.js if needed
@@ -387,9 +387,3 @@ function newTransformFromPaperPath(paperPath, name) {
 	return paths;
 }
 
-
-
-// Create a wrapper function that uses the new parsing by default
-function parseSvgContent(data, name) {
-	return newParseSvgContent(data, name);
-}

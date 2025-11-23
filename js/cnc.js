@@ -777,7 +777,7 @@ function doVcarveCenter() {
 		return;
 	}
 	setMode("VCarve In");
-	compute(false, 'VCarve In');
+	computeWithMedialAxis(false, 'VCarve In');
 }
 
 function doVcarveIn() {
@@ -786,7 +786,7 @@ function doVcarveIn() {
 		return;
 	}
 	setMode("VCarve In");
-	oldcompute(false, 'VCarve In');
+	computeVcarve(false, 'VCarve In');
 }
 
 function doVcarveOut() {
@@ -795,7 +795,7 @@ function doVcarveOut() {
 		return;
 	}
 	setMode("VCarve Out");
-	oldcompute(true, 'VCarve Out');
+	computeVcarve(true, 'VCarve Out');
 }
 
 var link = document.createElement('a');
