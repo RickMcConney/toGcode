@@ -525,6 +525,7 @@ function initializeLayout() {
     createSidebar();
     createToolPanel();
     createModals();
+    initializeGcodeView();
     cncController.operationManager.addOperations();
     lucide.createIcons();
 }
@@ -820,9 +821,19 @@ function createSidebar() {
                             </div>
                         </div>
                     </div>
-                
 
-                
+
+
+            </div>
+        </div>
+
+        <!-- G-Code Viewer (shown during simulation) -->
+        <div id="gcode-viewer" class="d-flex flex-column" style="display: none; visibility: hidden; height: 0; overflow: hidden; background-color: white;">
+            <div class="p-2 border-bottom">
+                <small class="text-muted">Current G-code execution</small>
+            </div>
+            <div id="gcode-viewer-container" class="flex-grow-1 overflow-auto" style="font-family: monospace; font-size: 12px; line-height: 1.4;">
+                <!-- G-code lines will be rendered here -->
             </div>
         </div>
     `;
@@ -961,6 +972,11 @@ function createSidebar() {
                 pauseSimulation3D();
             }
 
+            // Hide G-code viewer and restore previous sidebar tab
+            if (typeof hideGcodeViewerPanel === 'function') {
+                hideGcodeViewerPanel();
+            }
+
             // When switching to 2D view, show/hide overlay based on sidebar tab
             const currentSidebarTab = document.querySelector('#sidebar-tabs .nav-link.active');
             const overlay2D = document.getElementById('simulation-overlay-2d');
@@ -988,6 +1004,15 @@ function createSidebar() {
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.remove('d-none');
 
+            // Show G-code viewer and populate with current G-code
+            if (typeof gcodeView !== 'undefined' && gcodeView && typeof toGcode === 'function') {
+                const gcode = toGcode();
+                gcodeView.populate(gcode);
+                if (typeof showGcodeViewerPanel === 'function') {
+                    showGcodeViewerPanel();
+                }
+            }
+
             // Update simulation UI button states when switching to 3D view
             if (typeof updateSimulation3DUI === 'function') {
                 updateSimulation3DUI();
@@ -1002,6 +1027,11 @@ function createSidebar() {
                 pauseSimulation3D();
             }
 
+            // Hide G-code viewer and restore previous sidebar tab
+            if (typeof hideGcodeViewerPanel === 'function') {
+                hideGcodeViewerPanel();
+            }
+
             // When switching to Tools tab, hide both overlays
             const overlay2D = document.getElementById('simulation-overlay-2d');
             if (overlay2D) overlay2D.classList.add('d-none');
@@ -1012,6 +1042,87 @@ function createSidebar() {
 
     // Initialize G-code profiles UI
     initializeGcodeProfilesUI();
+}
+
+// Global GcodeView instance and state
+var gcodeView = null;
+var previousActiveSidebarTab = null;
+
+// Initialize G-code View
+function initializeGcodeView() {
+    // Create GcodeView instance
+    gcodeView = new GcodeView('gcode-viewer-container');
+
+    // Initially hide the G-code viewer
+    const viewer = document.getElementById('gcode-viewer');
+    if (viewer) {
+        viewer.style.display = 'none';
+    }
+}
+
+// Show G-code viewer and hide current sidebar tabs
+function showGcodeViewerPanel() {
+    if (!gcodeView) return;
+
+    // Save the currently active sidebar tab
+    previousActiveSidebarTab = document.querySelector('#sidebar-tabs .nav-link.active');
+
+    // Hide the sidebar tab navigation and content
+    const sidebarTabs = document.getElementById('sidebar-tabs');
+    if (sidebarTabs) {
+        sidebarTabs.style.display = 'none';
+    }
+
+    const sidebarContent = document.getElementById('sidebar-content');
+    if (sidebarContent) {
+        sidebarContent.style.display = 'none';
+    }
+
+    // Show the G-code viewer
+    const viewer = document.getElementById('gcode-viewer');
+    if (viewer) {
+        viewer.style.display = '';
+        viewer.style.visibility = 'visible';
+        viewer.style.height = '';
+        viewer.style.overflow = '';
+        viewer.classList.add('h-100');
+    }
+
+    gcodeView.show();
+}
+
+// Hide G-code viewer and restore previous sidebar tab
+function hideGcodeViewerPanel() {
+    if (!gcodeView) return;
+
+    gcodeView.clear();
+
+    // Hide the G-code viewer
+    const viewer = document.getElementById('gcode-viewer');
+    if (viewer) {
+        viewer.classList.remove('h-100');
+        viewer.style.display = 'none';
+        viewer.style.visibility = 'hidden';
+        viewer.style.height = '0';
+        viewer.style.overflow = 'hidden';
+    }
+
+    // Show the sidebar tab navigation and content
+    const sidebarTabs = document.getElementById('sidebar-tabs');
+    if (sidebarTabs) {
+        sidebarTabs.style.display = '';
+    }
+
+    const sidebarContent = document.getElementById('sidebar-content');
+    if (sidebarContent) {
+        sidebarContent.style.display = '';
+    }
+
+    // Restore the previous active tab
+    if (previousActiveSidebarTab) {
+        const bootstrapTab = new bootstrap.Tab(previousActiveSidebarTab);
+        bootstrapTab.show();
+    }
 }
 
 // Initialize G-code profiles UI

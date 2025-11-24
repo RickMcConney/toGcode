@@ -285,22 +285,19 @@ class VoxelGrid {
 
     // PRE-SELECT penetration function based on tool type (OPTIMIZATION: Move outside loop)
     // This eliminates 40,000+ switch statement evaluations
+    // Uses G-code tool names: End Mill, Ball Nose, VBit, Drill
     let penetrationFunc;
     switch (toolType) {
-      case 'flat':
-        penetrationFunc = () => toolZ;
-        break;
-      case 'ball':
+      case 'Ball Nose':
         penetrationFunc = (distSq) =>
           this.getBallNosePenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq);
         break;
-      case 'vbit':
+      case 'VBit':
         penetrationFunc = (distSq) =>
           this.getVBitPenetration(distSq, toolX, toolY, toolZ, toolRadius, toolRadiusSq, vbitTangent);
         break;
-      case 'drill':
-        penetrationFunc = () => toolZ;
-        break;
+      case 'End Mill':
+      case 'Drill':
       default:
         penetrationFunc = () => toolZ;
     }

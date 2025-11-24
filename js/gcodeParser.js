@@ -206,13 +206,14 @@ function parseGcodeFile(gcode, parseConfig) {
             gcodeLineNumber: lineIndex + 1  // 1-indexed line number from G-code file
         };
 
-        // Only add if position actually changed
-        if (newPos.x !== currentX || newPos.y !== currentY || newPos.z !== currentZ) {
-            movements.push(movement);
-            currentX = newPos.x;
-            currentY = newPos.y;
-            currentZ = newPos.z;
-        }
+        // Add movement regardless of whether position changed (includes no-op moves)
+        // This allows every G-code line to be selectable in the viewer
+        movements.push(movement);
+
+        // Update current position
+        currentX = newPos.x;
+        currentY = newPos.y;
+        currentZ = newPos.z;
     }
 
     return movements;

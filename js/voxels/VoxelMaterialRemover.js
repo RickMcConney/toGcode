@@ -28,8 +28,9 @@ class VoxelMaterialRemover {
     this.toolRadiusSq = toolRadius * toolRadius;
 
     // Pre-calculate V-bit tangent if applicable
-    if (toolInfo.type === 'vbit') {
-      const vbitAngle = toolInfo.vbitAngle || 90;
+    // Use G-code tool names directly (VBit)
+    if (toolInfo.type === 'VBit') {
+      const vbitAngle = toolInfo.angle || toolInfo.vbitAngle || 90;
       const halfAngleRad = (vbitAngle / 2) * (Math.PI / 180);
       this.vbitTangent = Math.tan(halfAngleRad);
     } else {
@@ -61,7 +62,8 @@ class VoxelMaterialRemover {
     }
 
     const toolRadius = toolInfo.diameter / 2;
-    const toolType = toolInfo.type || 'flat';
+    // Use G-code tool type directly (source of truth)
+    const toolType = toolInfo.type || 'End Mill';
 
     // Remove voxels at current tool position, passing pre-calculated constants
     const removedVoxels = voxelGrid.removeVoxelsAtToolPosition(

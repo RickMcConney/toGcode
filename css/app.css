@@ -422,3 +422,55 @@ html, body {
 .simulation-overlay.d-none {
     display: none !important;
 }
+
+/* G-code Viewer Styles */
+#gcode-viewer {
+    background-color: white;
+    border-left: 1px solid var(--color-gray-300);
+}
+
+#gcode-viewer-container {
+    background-color: #f5f5f5;
+    padding: 0;
+    margin: 0;
+}
+
+.gcode-line {
+    padding: 2px 8px;
+    border-left: 3px solid transparent;
+    user-select: text;
+    transition: background-color 0.1s ease-in-out;
+}
+
+.gcode-line:hover {
+    background-color: #e8f4f8;
+    cursor: pointer;
+    border-left-color: var(--color-gray-400);
+}
+
+.gcode-line-number {
+    color: var(--color-gray-500);
+    font-weight: 600;
+    user-select: none;
+}
+
+.gcode-line-code {
+    color: var(--color-gray-600);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.gcode-line.active-gcode-line {
+    background-color: #fff3cd;
+    border-left-color: #ffc107;
+}
+
+.gcode-line.active-gcode-line .gcode-line-number {
+    color: #ff9800;
+    font-weight: 700;
+}
+
+.gcode-line.active-gcode-line .gcode-line-code {
+    color: #333;
+    font-weight: 500;
+}
