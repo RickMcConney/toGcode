@@ -995,5 +995,6 @@ function toGcode() {
 	// 5. GENERATE FOOTER
 	output += _generateGcodeFooter(profile);
 
-	return output;
+	// Remove trailing newline to avoid blank lines at end of G-code
+	return output.trimEnd();
 }

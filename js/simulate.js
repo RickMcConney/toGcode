@@ -3,18 +3,19 @@ var simulationData = null;
 var simulationState = {
 	isRunning: false,
 	isPaused: false,
-	currentStep: 0,
-	currentAnimationStep: 0,
+	currentGcodeLine: 0,  // Current G-code line number (1-indexed)
+	currentMoveIndex: 0,  // Index into simulationData.moves
+	currentPointIndexInMove: 0,  // Index into currentMovePoints
 	animationFrame: null,
 	speed: 1.0,
 	startTime: 0,
 	totalTime: 0,
 	travelMoves: [],
-	lastPosition: null
+	lastPosition: null,
+	currentMovePoints: null  // Cached interpolated points for current move
 };
 var materialRemovalPoints = [];
-var allMaterialPoints = []; // Pre-computed all material removal points
-var allTravelMoves = []; // Pre-computed all travel moves
+var currentToolInfo = null;  // Track current tool for display
 
 // Parse G-code into simulation moves
 function parseGcodeForSimulation(gcode) {
@@ -122,99 +123,188 @@ function parseGcodeForSimulation(gcode) {
 	};
 }
 
-// Pre-compute all material removal points for smooth animation
-function preComputeAllMaterialPoints(simulationData) {
-	allMaterialPoints = [];
-	allTravelMoves = [];
-	let lastPosition = null;
+// Extract tool information from G-code comments
+function extractToolInfoFromGcode(gcode) {
+	const toolInfo = {};
+	const toolCommentsByLineIndex = {};  // Map of line index to tool info for tool switching
+	const toolChangePoints = [];  // Array of {lineNumber, toolInfo} sorted by line number
+
+	const lines = gcode.split('\n');
+	const seenToolIds = new Set();
+
+	// First pass: extract all tool comments
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+		const line = lines[lineIndex];
+		const trimmed = line.trim();
+		if (trimmed.includes('Tool:')) {
+			// Extract tool information from comment
+			// Format: (Tool: ID=X Type=Y Diameter=Z Angle=A)
+			const toolMatch = trimmed.match(/Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/);
+			if (toolMatch) {
+				const toolId = toolMatch[1];
+				const toolType = toolMatch[2].trim();
+
+				const toolData = {
+					id: toolId,
+					type: toolType,
+					diameter: parseFloat(toolMatch[3]),
+					angle: parseFloat(toolMatch[4]),
+					stepDown: toolMatch[5] ? parseFloat(toolMatch[5]) : null
+				};
+
+				// Store tool info by line index
+				toolCommentsByLineIndex[lineIndex] = toolData;
+
+				// Use FIRST tool as default
+				if (Object.keys(toolInfo).length === 0) {
+					Object.assign(toolInfo, toolData);
+				}
+			}
+		}
+	}
+
+	// Second pass: build tool change points (only store actual changes)
+	for (const lineIndexStr in toolCommentsByLineIndex) {
+		const lineNum = parseInt(lineIndexStr);
+		toolChangePoints.push({
+			lineNumber: lineNum,
+			toolInfo: toolCommentsByLineIndex[lineIndexStr]
+		});
+	}
+	toolChangePoints.sort((a, b) => a.lineNumber - b.lineNumber);
+
+	return { toolInfo, toolCommentsByLineIndex, toolChangePoints };
+}
+
+// Get the active tool for a specific G-code line number
+function getToolForLine(lineNumber, toolChangePoints) {
+	if (!toolChangePoints || toolChangePoints.length === 0) {
+		return null;
+	}
+
+	// Find the most recent tool that was active at or before this line
+	let activeToolInfo = null;
+
+	for (const changePoint of toolChangePoints) {
+		if (changePoint.lineNumber <= lineNumber) {
+			activeToolInfo = changePoint.toolInfo;
+		} else {
+			break;  // Array is sorted, so stop when we exceed
+		}
+	}
+
+	return activeToolInfo;
+}
+
+// Build a map of G-code line numbers to move indices for fast lookup
+function buildLineNumberToMoveMap(simulationData) {
+	const lineToMoveMap = new Map();
+	const moveToLineMap = new Map();
 
 	for (let i = 0; i < simulationData.moves.length; i++) {
 		const move = simulationData.moves[i];
-
-		// Convert G-code coordinates to canvas coordinates
-		const canvasX = move.x * viewScale + origin.x;
-		const canvasY = origin.y - move.y * viewScale;
-		const canvasRadius = move.toolRadius * viewScale;
-
-		// Handle interpolation if we have a previous position and this is a cutting move
-		if (lastPosition && move.isCutting) {
-			const lastCanvasX = lastPosition.x * viewScale + origin.x;
-			const lastCanvasY = origin.y - lastPosition.y * viewScale;
-			const lastCanvasRadius = lastPosition.r * viewScale;
-
-			const dist = Math.sqrt((lastCanvasX - canvasX) * (lastCanvasX - canvasX) + (lastCanvasY - canvasY) * (lastCanvasY - canvasY));
-
-			// Calculate steps based on feed rate - slower moves get more points (denser/darker)
-			// Base step calculation on distance, but adjust by inverse of time (which reflects feed rate)
-			let baseSteps = Math.ceil(dist / 5); // Base density
-
-			// Calculate feed rate factor - slower moves (more time) get more density
-			// Normalize against a reference feed rate to get a multiplier
-			const referenceFeedTime = dist / 1000 * 60; // Time for 1000mm/min feed rate
-			const feedRateMultiplier = Math.max(0.2, Math.min(5, move.time / referenceFeedTime)); // Clamp between 0.2x and 5x density
-
-			const steps = Math.max(1, Math.ceil(baseSteps * feedRateMultiplier));
-
-			// Calculate time per step for this move
-			const timePerStep = move.time / steps;
-
-			for (let j = 1; j <= steps; j++) {
-				const t = j / steps;
-				const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
-				const interpY = lastCanvasY + (canvasY - lastCanvasY) * t;
-				const interpRadius = lastCanvasRadius + (canvasRadius - lastCanvasRadius) * t;
-
-				allMaterialPoints.push({
-					x: interpX,
-					y: interpY,
-					radius: interpRadius,
-					operation: move.operation,
-					moveIndex: i,
-					stepIndex: j,
-					totalSteps: steps,
-					timeForThisStep: timePerStep, // Time in seconds for this animation step
-					moveType: move.type,
-					isRapid: move.type === 'rapid',
-					feedRateMultiplier: feedRateMultiplier, // Store for debugging
-					isActualGcodePoint: (j === steps) // Only the last interpolated point is the actual G-code endpoint
-				});
-			}
-		} else if (move.isCutting) {
-			// Single point cutting (like drilling)
-			allMaterialPoints.push({
-				x: canvasX,
-				y: canvasY,
-				radius: canvasRadius,
-				operation: move.operation,
-				moveIndex: i,
-				stepIndex: 1,
-				totalSteps: 1,
-				timeForThisStep: move.time, // Full move time for single point
-				moveType: move.type,
-				isRapid: move.type === 'rapid',
-				isActualGcodePoint: true // Single points are always actual G-code points
-			});
+		if (move.gcodeLineNumber) {
+			lineToMoveMap.set(move.gcodeLineNumber, i);
+			moveToLineMap.set(i, move.gcodeLineNumber);
 		}
-
-		// Handle travel moves (Z positive)
-		if (!move.isCutting && lastPosition) {
-			const lastCanvasX = lastPosition.x * viewScale + origin.x;
-			const lastCanvasY = origin.y - lastPosition.y * viewScale;
-
-			allTravelMoves.push({
-				fromX: lastCanvasX,
-				fromY: lastCanvasY,
-				toX: canvasX,
-				toY: canvasY,
-				moveIndex: i,
-				timeForThisMove: move.time,
-				moveType: move.type
-			});
-		}
-
-		// Update last position
-		lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
 	}
+
+	return { lineToMoveMap, moveToLineMap };
+}
+
+// Generate interpolated material removal points for a single move
+function generateMaterialPointsForMove(moveIndex, previousPosition, simulationData, toolChangePoints) {
+	const points = [];
+	const move = simulationData.moves[moveIndex];
+
+	if (!move.isCutting) {
+		return points;  // No material removal for non-cutting moves
+	}
+
+	// Get the correct tool for this G-code line
+	const toolForLine = getToolForLine(move.gcodeLineNumber, toolChangePoints);
+	const toolDiameter = toolForLine ? toolForLine.diameter : move.toolDiameter;
+	const toolAngle = toolForLine ? toolForLine.angle : move.toolAngle;
+
+	// Convert G-code coordinates to canvas coordinates
+	const canvasX = move.x * viewScale + origin.x;
+	const canvasY = origin.y - move.y * viewScale;
+	// Use tool diameter from G-code comments if available, otherwise from move
+	const canvasRadius = (toolDiameter / 2) * viewScale;
+
+	if (!previousPosition) {
+		// Single point cutting (like drilling)
+		points.push({
+			x: canvasX,
+			y: canvasY,
+			radius: canvasRadius,
+			operation: move.operation,
+			moveIndex: moveIndex,
+			stepIndex: 1,
+			totalSteps: 1,
+			timeForThisStep: move.time,
+			moveType: move.type,
+			isRapid: move.type === 'rapid',
+			isActualGcodePoint: true
+		});
+		return points;
+	}
+
+	// Interpolate from previous position to current position
+	const lastCanvasX = previousPosition.x * viewScale + origin.x;
+	const lastCanvasY = origin.y - previousPosition.y * viewScale;
+	const lastCanvasRadius = previousPosition.r * viewScale;
+
+	const dist = Math.sqrt(
+		(lastCanvasX - canvasX) * (lastCanvasX - canvasX) +
+		(lastCanvasY - canvasY) * (lastCanvasY - canvasY)
+	);
+
+	// Calculate steps based on feed rate
+	let baseSteps = Math.ceil(dist / 5);
+	const referenceFeedTime = dist / 1000 * 60;
+	const feedRateMultiplier = Math.max(0.2, Math.min(5, move.time / referenceFeedTime));
+	const steps = Math.max(1, Math.ceil(baseSteps * feedRateMultiplier));
+	const timePerStep = move.time / steps;
+
+	for (let j = 1; j <= steps; j++) {
+		const t = j / steps;
+		const interpX = lastCanvasX + (canvasX - lastCanvasX) * t;
+		const interpY = lastCanvasY + (canvasY - lastCanvasY) * t;
+
+		// Calculate radius at this interpolation point
+		// For V-bits, radius depends on Z depth, so recalculate for each point
+		let interpRadius = lastCanvasRadius;
+
+		// Check if this is a V-carve operation by looking at tool angle from comments
+		if (toolAngle && toolAngle > 0) {
+			// V-carve operation: radius = |Z| * tan(angle/2)
+			const interpZ = previousPosition.z + (move.z - previousPosition.z) * t;
+			const zbacklash = getOption("zbacklash");
+			const calculatedRadius = (interpZ > zbacklash) ? 0 : Math.abs(interpZ) * Math.tan((toolAngle * Math.PI / 180) / 2);
+			interpRadius = calculatedRadius * viewScale;
+		} else {
+			// For regular tools (end mills, drill bits), radius stays constant during a move
+			interpRadius = canvasRadius;
+		}
+
+		points.push({
+			x: interpX,
+			y: interpY,
+			radius: interpRadius,
+			operation: move.operation,
+			moveIndex: moveIndex,
+			stepIndex: j,
+			totalSteps: steps,
+			timeForThisStep: timePerStep,
+			moveType: move.type,
+			isRapid: move.type === 'rapid',
+			feedRateMultiplier: feedRateMultiplier,
+			isActualGcodePoint: (j === steps)
+		});
+	}
+
+	return points;
 }
 
 // Simulation control functions
@@ -239,19 +329,30 @@ function startSimulation() {
 		showGcodeViewerPanel();
 	}
 
-	// Pre-compute all material removal points for smooth animation
-	preComputeAllMaterialPoints(simulationData);
+	// Extract tool information from G-code comments
+	const toolData = extractToolInfoFromGcode(gcode);
+	simulationState.toolChangePoints = toolData.toolChangePoints;
+	simulationState.defaultTool = toolData.toolInfo;
+
+	// Store raw G-code lines for direct line-by-line parsing
+	simulationState.gcodeLines = gcode.split('\n');
+
+	// Build line-to-move mapping for fast seeking
+	simulationState.lineToMoveMap = buildLineNumberToMoveMap(simulationData).lineToMoveMap;
 
 	simulationState.isRunning = true;
 	simulationState.isPaused = false;
-	simulationState.currentStep = 0;
-	simulationState.currentAnimationStep = 0;
+	simulationState.currentGcodeLine = 0;
+	simulationState.currentMoveIndex = 0;
+	simulationState.currentPointIndexInMove = 0;
+	simulationState.currentMovePoints = null;
 	simulationState.startTime = Date.now();
 	simulationState.totalTime = simulationData.totalTime;
-	simulationState.totalGcodeLines = simulationData.totalGcodeLines || 0;  // Store total line count
+	simulationState.totalGcodeLines = simulationData.totalGcodeLines || 0;
 	materialRemovalPoints = [];
 	simulationState.travelMoves = [];
 	simulationState.lastPosition = null;
+	currentToolInfo = null;
 
 	// Update UI
 	const startBtn = document.getElementById('start-simulation');
@@ -264,10 +365,12 @@ function startSimulation() {
 	const totalTimeDisplay = document.getElementById('2d-total-time');
 	if (totalTimeDisplay) totalTimeDisplay.textContent = formatTime(simulationData.totalTime);
 
-	// Setup step slider - note: 2D simulation step slider removed, display only shows line numbers
+	// Setup slider based on G-code line numbers
 	const stepSlider = document.getElementById('simulation-step');
 	if (stepSlider) {
-		stepSlider.max = allMaterialPoints.length;
+		stepSlider.min = 1;
+		stepSlider.max = simulationState.totalGcodeLines;
+		stepSlider.step = 1;
 		stepSlider.value = 0;
 		stepSlider.disabled = false;
 	}
@@ -303,13 +406,14 @@ function pauseSimulation() {
 function stopSimulation() {
 	simulationState.isRunning = false;
 	simulationState.isPaused = false;
-	simulationState.currentStep = 0;
-	simulationState.currentAnimationStep = 0;
+	simulationState.currentGcodeLine = 0;
+	simulationState.currentMoveIndex = 0;
+	simulationState.currentPointIndexInMove = 0;
+	simulationState.currentMovePoints = null;
 	simulationState.lastPosition = null;
 	materialRemovalPoints = [];
 	simulationState.travelMoves = [];
-	allMaterialPoints = [];
-	allTravelMoves = [];
+	currentToolInfo = null;
 
 	// Hide G-code viewer and restore previous sidebar tab
 	if (typeof hideGcodeViewerPanel === 'function') {
@@ -370,211 +474,384 @@ function updateSimulationSpeed(speed) {
 	simulationState.speed = speed;
 }
 
-// Function to set simulation step via slider control
-function setSimulationStep(step, skipViewerUpdate) {
-	if (!simulationData || allMaterialPoints.length === 0) {
+// Set simulation to a specific G-code line (primary seeking interface)
+function setSimulationLineNumber(lineNumber, skipViewerUpdate) {
+	if (!simulationData || !simulationState.lineToMoveMap) {
 		return;
 	}
 
-	// Clamp step value
-	step = Math.max(0, Math.min(step, allMaterialPoints.length));
+	// Clamp line number to valid range
+	lineNumber = Math.max(1, Math.min(lineNumber, simulationState.totalGcodeLines));
 
-	// Update animation step
-	simulationState.currentAnimationStep = step;
-
-	// Rebuild materialRemovalPoints up to current step
+	// Rebuild material removal from line 1 to target line
 	materialRemovalPoints = [];
-	for (let i = 0; i < step; i++) {
-		materialRemovalPoints.push(allMaterialPoints[i]);
-	}
-
-	// Update travel moves up to current step
-	if (step > 0 && step <= allMaterialPoints.length) {
-		const currentPoint = allMaterialPoints[step - 1];
-		simulationState.travelMoves = allTravelMoves.filter(move =>
-			move.moveIndex <= currentPoint.moveIndex
-		);
-	} else {
-		simulationState.travelMoves = [];
-	}
-
-	// Calculate elapsed time based on step position
+	simulationState.travelMoves = [];
+	simulationState.lastPosition = null;
 	let elapsedTime = 0;
-	if (step > 0 && step <= allMaterialPoints.length) {
-		const currentPoint = allMaterialPoints[step - 1];
-		const progress = currentPoint.stepIndex / currentPoint.totalSteps;
-		for (let i = 0; i < currentPoint.moveIndex; i++) {
-			elapsedTime += simulationData.moves[i].time;
-		}
-		// Add partial time for current move
-		if (currentPoint.moveIndex < simulationData.moves.length) {
-			elapsedTime += simulationData.moves[currentPoint.moveIndex].time * progress;
-		}
-	}
-
-	// Update UI
-	const stepSimTimeElem = document.getElementById('2d-simulation-time');
-	if (stepSimTimeElem) stepSimTimeElem.textContent = formatTime(elapsedTime);
-	if (typeof updateStatusWithSimulation === 'function') {
-		updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
-	}
-
-	// Update feed rate display
 	let currentFeedRate = 0;
-	if (step > 0 && step <= allMaterialPoints.length) {
-		const currentPoint = allMaterialPoints[step - 1];
-		if (currentPoint.moveIndex < simulationData.moves.length) {
-			const currentMove = simulationData.moves[currentPoint.moveIndex];
-			currentFeedRate = currentMove.feed || 0;
+
+	// Iterate through all moves and build material removal points up to the target line
+	for (let i = 0; i < simulationData.moves.length; i++) {
+		const move = simulationData.moves[i];
+		const moveLineNumber = move.gcodeLineNumber || 0;
+
+		// Stop when we've reached the target line
+		if (moveLineNumber > lineNumber) {
+			break;
+		}
+
+		// Skip non-cutting moves but update position
+		if (!move.isCutting) {
+			// Add travel move visualization
+			if (simulationState.lastPosition) {
+				const lastCanvasX = simulationState.lastPosition.x * viewScale + origin.x;
+				const lastCanvasY = origin.y - simulationState.lastPosition.y * viewScale;
+				const canvasX = move.x * viewScale + origin.x;
+				const canvasY = origin.y - move.y * viewScale;
+
+				simulationState.travelMoves.push({
+					fromX: lastCanvasX,
+					fromY: lastCanvasY,
+					toX: canvasX,
+					toY: canvasY,
+					moveIndex: i,
+					timeForThisMove: move.time,
+					moveType: move.type
+				});
+			}
+
+			simulationState.lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
+			elapsedTime += move.time;
+			continue;
+		}
+
+		// Generate material points for this cutting move with correct tool from G-code comments
+		const movePoints = generateMaterialPointsForMove(i, simulationState.lastPosition, simulationData, simulationState.toolChangePoints);
+		materialRemovalPoints.push(...movePoints);
+
+		// Update elapsed time
+		elapsedTime += move.time;
+		currentFeedRate = move.feed || 0;
+
+		// Update tool info
+		if (move.tool) {
+			currentToolInfo = { name: move.tool };
+			if (move.toolDiameter) {
+				currentToolInfo.name += ` (${move.toolDiameter}mm)`;
+			}
+		}
+
+		// Update last position
+		simulationState.lastPosition = { x: move.x, y: move.y, z: move.z, r: move.toolRadius };
+	}
+
+	// Update simulation state and reset animation point tracking for smooth continuation
+	simulationState.currentGcodeLine = lineNumber;
+	simulationState.currentPointIndexInMove = 0;
+	simulationState.currentMovePoints = null;
+
+	// Find the move index for this line
+	simulationState.currentMoveIndex = 0;
+	for (let i = 0; i < simulationData.moves.length; i++) {
+		if (simulationData.moves[i].gcodeLineNumber > lineNumber) {
+			simulationState.currentMoveIndex = i;
+			break;
 		}
 	}
+
+	// Update slider to reflect line number
+	const stepSlider = document.getElementById('simulation-step');
+	if (stepSlider) {
+		stepSlider.value = lineNumber;
+	}
+
+	// Update UI displays
+	const lineDisplay = document.getElementById('2d-step-display');
+	if (lineDisplay) {
+		lineDisplay.textContent = `${lineNumber} / ${simulationState.totalGcodeLines}`;
+	}
+
+	const simTimeElem = document.getElementById('2d-simulation-time');
+	if (simTimeElem) {
+		simTimeElem.textContent = formatTime(elapsedTime);
+	}
+
 	const feedRateDisplay = document.getElementById('2d-feed-rate-display');
 	if (feedRateDisplay) {
 		feedRateDisplay.textContent = Math.round(currentFeedRate);
 	}
 
-	// Update G-code viewer highlight when progress slider moves
-	if (!skipViewerUpdate) {
-		let currentGcodeLine = 0;
-		if (step > 0 && step <= allMaterialPoints.length) {
-			const currentPoint = allMaterialPoints[step - 1];
-			if (currentPoint.moveIndex < simulationData.moves.length) {
-				const currentMove = simulationData.moves[currentPoint.moveIndex];
-				currentGcodeLine = currentMove.gcodeLineNumber || 0;
-			}
-		}
-		if (typeof gcodeView !== 'undefined' && gcodeView && currentGcodeLine >= 0) {
-			gcodeView.setCurrentLine(currentGcodeLine);
-		}
+	if (typeof updateStatusWithSimulation === 'function') {
+		updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
+	}
+
+	// Update G-code viewer highlight
+	if (!skipViewerUpdate && typeof gcodeView !== 'undefined' && gcodeView) {
+		gcodeView.setCurrentLine(lineNumber);
 	}
 
 	// Redraw with current simulation state
 	redraw();
 }
 
+// Parse a G-code line to extract coordinates and command info
+function parseGcodeLine(line) {
+	const trimmed = line.trim();
 
+	// Skip comments and empty lines
+	if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('(')) {
+		return null;
+	}
 
-// New smooth simulation that draws each pre-computed point with pause
+	// Extract G command (G0 or G1)
+	const gMatch = trimmed.match(/G(\d+)/i);
+	const gCommand = gMatch ? parseInt(gMatch[1]) : 1; // Default to G1
+
+	// Extract coordinates
+	const xMatch = trimmed.match(/X([-+]?[\d.]+)/i);
+	const yMatch = trimmed.match(/Y([-+]?[\d.]+)/i);
+	const zMatch = trimmed.match(/Z([-+]?[\d.]+)/i);
+	const fMatch = trimmed.match(/F([\d.]+)/i);
+
+	// Return null if no coordinates found
+	if (!xMatch && !yMatch && !zMatch) {
+		return null;
+	}
+
+	return {
+		gCommand: gCommand,
+		x: xMatch ? parseFloat(xMatch[1]) : null,
+		y: yMatch ? parseFloat(yMatch[1]) : null,
+		z: zMatch ? parseFloat(zMatch[1]) : null,
+		f: fMatch ? parseFloat(fMatch[1]) : null,
+		isCutting: gCommand === 1, // G1 is feed (cutting), G0 is rapid (not cutting)
+		isRapid: gCommand === 0
+	};
+}
+
+// G-code-driven simulation - process one line per frame
 function runSmoothSimulation() {
 	if (!simulationState.isRunning || simulationState.isPaused) {
 		return;
 	}
 
-	// Add the current point to materialRemovalPoints for rendering
-	if (simulationState.currentAnimationStep < allMaterialPoints.length) {
-		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep];
-		materialRemovalPoints.push(currentPoint);
+	// If we need to load a new line
+	if (simulationState.currentMovePoints === null) {
+		// Increment to next G-code line
+		simulationState.currentGcodeLine++;
 
-		// Update travel moves up to this point's moveIndex
-		simulationState.travelMoves = allTravelMoves.filter(move =>
-			move.moveIndex <= currentPoint.moveIndex
+		// Check if animation is complete
+		if (simulationState.currentGcodeLine > simulationState.totalGcodeLines) {
+			pauseSimulation();
+			return;
+		}
+
+		// Parse this G-code line
+		const gcodeLineIndex = simulationState.currentGcodeLine - 1;
+		if (gcodeLineIndex < 0 || gcodeLineIndex >= simulationState.gcodeLines.length) {
+			// Out of bounds, skip to next frame
+			setTimeout(() => {
+				simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+			}, 1);
+			return;
+		}
+
+		const parsed = parseGcodeLine(simulationState.gcodeLines[gcodeLineIndex]);
+
+		// If no valid coordinates, skip to next line (next frame will load it)
+		if (!parsed) {
+			setTimeout(() => {
+				simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+			}, 1);
+			return;
+		}
+
+		// Get position and tool info
+		const toolForLine = getToolForLine(simulationState.currentGcodeLine, simulationState.toolChangePoints);
+		const prevPos = simulationState.lastPosition || { x: 0, y: 0, z: 5, r: 0 };
+		const newX = parsed.x !== null ? parsed.x : prevPos.x;
+		const newY = parsed.y !== null ? parsed.y : prevPos.y;
+		const newZ = parsed.z !== null ? parsed.z : prevPos.z;
+
+		// Update position for next line
+		simulationState.lastPosition = { x: newX, y: newY, z: newZ, r: toolForLine?.diameter / 2 || 3 };
+
+		// Update tool info
+		if (toolForLine) {
+			currentToolInfo = { name: toolForLine.type };
+			if (toolForLine.diameter) {
+				currentToolInfo.name += ` (${toolForLine.diameter}mm)`;
+			}
+		}
+
+		// Handle non-cutting moves (rapid G0)
+		if (!parsed.isCutting) {
+			// Add travel visualization
+			const lastCanvasX = prevPos.x * viewScale + origin.x;
+			const lastCanvasY = origin.y - prevPos.y * viewScale;
+			const canvasX = newX * viewScale + origin.x;
+			const canvasY = origin.y - newY * viewScale;
+
+			simulationState.travelMoves.push({
+				fromX: lastCanvasX,
+				fromY: lastCanvasY,
+				toX: canvasX,
+				toY: canvasY,
+				moveIndex: -1,
+				timeForThisMove: 0,
+				moveType: 'rapid'
+			});
+
+			// Update display and schedule next frame to load next line
+			const lineDisplay = document.getElementById('2d-step-display');
+			if (lineDisplay) {
+				lineDisplay.textContent = `${simulationState.currentGcodeLine} / ${simulationState.totalGcodeLines}`;
+			}
+
+			const stepSlider = document.getElementById('simulation-step');
+			if (stepSlider) {
+				stepSlider.value = simulationState.currentGcodeLine;
+			}
+
+			redraw();
+
+			// Next frame loads next line
+			setTimeout(() => {
+				simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+			}, 1);
+			return;
+		}
+
+		// Handle cutting moves (G1) - generate interpolated points
+		const movePoints = [];
+		const dist = Math.sqrt(
+			Math.pow(newX - prevPos.x, 2) +
+			Math.pow(newY - prevPos.y, 2) +
+			Math.pow(newZ - prevPos.z, 2)
 		);
-	}
 
-	// Move to next animation step
-	simulationState.currentAnimationStep++;
+		if (dist > 0) {
+			const feed = parsed.f || 100;
+			const moveTime = (dist / feed) * 60;
+			const toolDiameter = toolForLine ? toolForLine.diameter : 6;
+			const toolAngle = toolForLine ? toolForLine.angle : 0;
 
-	// Calculate elapsed time based on animation step progress (after increment)
-	let elapsedTime = 0;
-	if (simulationState.currentAnimationStep <= allMaterialPoints.length) {
-		if (simulationState.currentAnimationStep >= allMaterialPoints.length) {
-			// Animation complete - show full total time
-			elapsedTime = simulationState.totalTime;
-		} else {
-			// Calculate time up to current step
-			const currentPoint = allMaterialPoints[simulationState.currentAnimationStep];
-			const progress = currentPoint.stepIndex / currentPoint.totalSteps;
-			for (let i = 0; i < currentPoint.moveIndex; i++) {
-				elapsedTime += simulationData.moves[i].time;
-			}
-			// Add partial time for current move
-			if (currentPoint.moveIndex < simulationData.moves.length) {
-				elapsedTime += simulationData.moves[currentPoint.moveIndex].time * progress;
-			}
-		}
-	}
+			// Calculate interpolation steps
+			let baseSteps = Math.ceil(dist / 5);
+			const referenceFeedTime = dist / 1000 * 60;
+			const feedRateMultiplier = Math.max(0.2, Math.min(5, moveTime / referenceFeedTime));
+			const steps = Math.max(1, Math.ceil(baseSteps * feedRateMultiplier));
+			const timePerStep = moveTime / steps;
 
-	// Update UI
-	const simTimeElem = document.getElementById('2d-simulation-time');
-	if (simTimeElem) simTimeElem.textContent = formatTime(elapsedTime);
-	const totalTimeElem = document.getElementById('2d-total-time');
-	if (totalTimeElem) totalTimeElem.textContent = formatTime(simulationState.totalTime);
-	if (typeof updateStatusWithSimulation === 'function') {
-		updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
-	}
+			// Generate interpolated points from prevPos to newPos
+			for (let j = 1; j <= steps; j++) {
+				const t = j / steps;
+				const interpX = prevPos.x + (newX - prevPos.x) * t;
+				const interpY = prevPos.y + (newY - prevPos.y) * t;
+				const interpZ = prevPos.z + (newZ - prevPos.z) * t;
 
-	// Update G-code line display
-	const lineDisplay = document.getElementById('2d-step-display');
-	if (lineDisplay) {
-		let currentGcodeLine = 0;
-
-		// Get the current G-code line from the current animation step
-		if (simulationState.currentAnimationStep > 0 && simulationState.currentAnimationStep <= allMaterialPoints.length) {
-			const currentPoint = allMaterialPoints[simulationState.currentAnimationStep - 1];
-			if (currentPoint.moveIndex < simulationData.moves.length) {
-				const currentMove = simulationData.moves[currentPoint.moveIndex];
-				currentGcodeLine = currentMove.gcodeLineNumber || 0;
-			}
-		}
-
-		lineDisplay.textContent = `${currentGcodeLine} / ${simulationState.totalGcodeLines}`;
-
-		// Update G-code viewer highlight during playback
-		if (typeof gcodeView !== 'undefined' && gcodeView && currentGcodeLine >= 0) {
-			gcodeView.setCurrentLine(currentGcodeLine);
-		}
-	}
-
-	// Update feed rate and tool display
-	let currentFeedRate = 0;
-	if (simulationState.currentAnimationStep > 0 && simulationState.currentAnimationStep <= allMaterialPoints.length) {
-		const currentPoint = allMaterialPoints[simulationState.currentAnimationStep - 1];
-		if (currentPoint.moveIndex < simulationData.moves.length) {
-			const currentMove = simulationData.moves[currentPoint.moveIndex];
-			currentFeedRate = currentMove.feed || 0;
-
-			// Update tool information based on current move's tool
-			// This allows tool changes to be displayed during animation
-			if (currentMove.tool) {
-				currentTool = { name: currentMove.tool };
-				if (currentMove.toolDiameter) {
-					currentTool.name += ` (${currentMove.toolDiameter}mm)`;
+				// Calculate tool radius (for V-bits)
+				let radius = toolDiameter / 2;
+				if (toolAngle > 0) {
+					const zbacklash = getOption("zbacklash");
+					radius = (interpZ > zbacklash) ? 0 : Math.abs(interpZ) * Math.tan((toolAngle * Math.PI / 180) / 2);
 				}
+
+				const canvasX = interpX * viewScale + origin.x;
+				const canvasY = origin.y - interpY * viewScale;
+				const canvasRadius = radius * viewScale;
+
+				movePoints.push({
+					x: canvasX,
+					y: canvasY,
+					radius: canvasRadius,
+					stepIndex: j,
+					totalSteps: steps,
+					timeForThisStep: timePerStep
+				});
 			}
 		}
-	}
-	const feedRateDisplay = document.getElementById('2d-feed-rate-display');
-	if (feedRateDisplay) {
-		feedRateDisplay.textContent = Math.round(currentFeedRate);
-	}
 
-	// Redraw with simulation
-	redraw();
-
-	// Check if animation is complete after processing and incrementing
-	if (simulationState.currentAnimationStep >= allMaterialPoints.length) {
-		pauseSimulation();
-		return;
+		// Cache points and start drawing them
+		simulationState.currentMovePoints = movePoints;
+		simulationState.currentPointIndexInMove = 0;
 	}
 
-	// Use fixed timing for all animation steps - the visual feed rate effect comes from point density
-	// At 1x speed, the total animation should take the same time as actual G-code execution
-	let realTimeDelayMs = 0;
-	if (allMaterialPoints.length > 0 && simulationState.totalTime > 0) {
-		// Fixed time per animation step in milliseconds at 1x speed
-		const timePerStep = (simulationState.totalTime * 1000) / allMaterialPoints.length;
-		// Apply speed multiplier (higher speed = shorter delay)
-		realTimeDelayMs = timePerStep / simulationState.speed;
-		// Ensure minimum responsiveness
-		realTimeDelayMs = Math.max(1, realTimeDelayMs);
+	// Add the next interpolated point for the current move
+	if (simulationState.currentMovePoints && simulationState.currentPointIndexInMove < simulationState.currentMovePoints.length) {
+		const point = simulationState.currentMovePoints[simulationState.currentPointIndexInMove];
+		materialRemovalPoints.push(point);
+		simulationState.currentPointIndexInMove++;
+
+		// Calculate elapsed time
+		let elapsedTime = 0;
+		for (let i = 0; i < simulationState.currentMoveIndex; i++) {
+			elapsedTime += simulationData.moves[i].time;
+		}
+		// Add partial time for current move
+		if (simulationState.currentMoveIndex < simulationData.moves.length) {
+			const progress = simulationState.currentPointIndexInMove / simulationState.currentMovePoints.length;
+			elapsedTime += simulationData.moves[simulationState.currentMoveIndex].time * progress;
+		}
+
+		// Update UI displays
+		const lineDisplay = document.getElementById('2d-step-display');
+		if (lineDisplay) {
+			lineDisplay.textContent = `${simulationState.currentGcodeLine} / ${simulationState.totalGcodeLines}`;
+		}
+
+		const simTimeElem = document.getElementById('2d-simulation-time');
+		if (simTimeElem) {
+			simTimeElem.textContent = formatTime(elapsedTime);
+		}
+
+		const feedRateDisplay = document.getElementById('2d-feed-rate-display');
+		if (feedRateDisplay) {
+			const move = simulationData.moves[simulationState.currentMoveIndex];
+			feedRateDisplay.textContent = Math.round(move.feed || 0);
+		}
+
+		if (typeof updateStatusWithSimulation === 'function') {
+			updateStatusWithSimulation(elapsedTime, simulationState.totalTime);
+		}
+
+		// Update progress slider
+		const stepSlider = document.getElementById('simulation-step');
+		if (stepSlider) {
+			stepSlider.value = simulationState.currentGcodeLine;
+		}
+
+		// Update G-code viewer highlight
+		if (typeof gcodeView !== 'undefined' && gcodeView) {
+			gcodeView.setCurrentLine(simulationState.currentGcodeLine);
+		}
+
+		// Redraw with simulation
+		redraw();
+
+		// Schedule next point based on this point's time
+		let delayMs = 1;
+		if (point.timeForThisStep > 0) {
+			// Time delay based on individual point's time and speed multiplier
+			delayMs = (point.timeForThisStep * 1000) / simulationState.speed;
+			delayMs = Math.max(1, delayMs);
+		}
+
+		setTimeout(() => {
+			simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+		}, delayMs);
 	} else {
-		// Fallback to fast animation if no timing data
-		realTimeDelayMs = 10;
-	}
+		// All points for current move are done, move to next move
+		simulationState.lastPosition = { x: simulationData.moves[simulationState.currentMoveIndex].x, y: simulationData.moves[simulationState.currentMoveIndex].y, z: simulationData.moves[simulationState.currentMoveIndex].z, r: simulationData.moves[simulationState.currentMoveIndex].toolRadius };
+		simulationState.currentMoveIndex++;
+		simulationState.currentPointIndexInMove = 0;
+		simulationState.currentMovePoints = null;
 
-	setTimeout(() => {
-		simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
-	}, realTimeDelayMs);
+		// Schedule next move
+		setTimeout(() => {
+			simulationState.animationFrame = requestAnimationFrame(runSmoothSimulation);
+		}, 1);
+	}
 }
 
 function formatTime(seconds) {

@@ -643,8 +643,8 @@ function redraw() {
 	//ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
 	if (getOption("showWorkpiece"))
 		drawWorkpiece();
-	// Hide grid during simulation for clearer visualization
-	if (getOption("showGrid") && !simulationState.isRunning)
+	// Hide grid during simulation or when paused/seeking for clearer visualization
+	if (getOption("showGrid") && !(typeof simulation2D !== 'undefined' && (simulation2D.isRunning || simulation2D.isPaused)))
 		drawGrid();
 	if (getOption("showOrigin"))
 		drawOrigin();
@@ -654,12 +654,10 @@ function redraw() {
 	// DEBUG: Draw tab bounding boxes for visualization
 	//drawTabBoundingBoxes();
 
-	// Draw material removal and travel moves during simulation
-	if (simulationState.isRunning) {
-		if (materialRemovalPoints.length > 0) {
-			drawMaterialRemoval();
-		}
-		drawTravelMoves();
+	// Draw material removal circles for NEW 2D simulation
+	// Draw as long as there are points (persists after simulation ends)
+	if (typeof materialRemovalPoints !== 'undefined' && materialRemovalPoints.length > 0) {
+		drawMaterialRemovalCircles();
 	}
 
 	cncController.draw();

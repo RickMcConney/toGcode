@@ -164,36 +164,19 @@ class GcodeView {
      * @private
      */
     _handleLineClick(lineNumber) {
-        // Highlight the clicked line in viewer (exact match, no feedback)
+        // Highlight the clicked line in viewer
         this.setCurrentLine(lineNumber);
 
         // Seek the simulator to this line
-        if (typeof toolpathAnimation !== 'undefined' && toolpathAnimation) {
+        // Check 2D simulation first (even if paused, it's the active simulation)
+        if (typeof simulationState !== 'undefined' && (simulationState.isRunning || simulationState.isPaused)) {
+            // 2D simulation is active (running or paused) - direct line-based seeking
+            if (typeof setSimulation2DLineNumber === 'function') {
+                setSimulation2DLineNumber(lineNumber);
+            }
+        } else if (typeof toolpathAnimation !== 'undefined' && toolpathAnimation) {
             // 3D simulation - use seekToLineNumber for line-driven animation
             toolpathAnimation.seekToLineNumber(lineNumber);
-        } else if (typeof simulationState !== 'undefined' && simulationState && simulationState.isRunning) {
-            // 2D simulation - find move index and seek
-            if (typeof simulationData !== 'undefined' && simulationData && simulationData.moves) {
-                let targetMoveIndex = -1;
-                for (let i = 0; i < simulationData.moves.length; i++) {
-                    if (simulationData.moves[i].gcodeLineNumber === lineNumber) {
-                        targetMoveIndex = i;
-                        break;
-                    }
-                }
-
-                if (targetMoveIndex >= 0) {
-                    // Find the animation step index for this move
-                    let targetStep = 0;
-                    for (let i = 0; i < allMaterialPoints.length; i++) {
-                        if (allMaterialPoints[i].moveIndex === targetMoveIndex) {
-                            targetStep = i;
-                            break;
-                        }
-                    }
-                    setSimulationStep(targetStep);
-                }
-            }
         }
     }
 

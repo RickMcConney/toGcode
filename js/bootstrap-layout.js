@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-23";
+var APP_VERSION = "Ver 2025-11-24";
 
 var mode = "Select";
 var options = [];
@@ -1999,13 +1999,13 @@ function create2DSimulationControls() {
 
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Speed:</span>
-                <input type="range" class="form-range form-range-sm" id="simulation-speed" min="1" max="10" step="0.5" value="1" style="width: 60px;">
-                <span id="speed-display" class="small">1x</span>
+                <input type="range" class="form-range form-range-sm" id="simulation-speed" min="1" max="10" step="0.5" value="5" style="width: 60px;">
+                <span id="speed-display" class="small">5x</span>
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Progress:</span>
-                <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 150px;" disabled>
+                <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 150px;">
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
@@ -2017,6 +2017,11 @@ function create2DSimulationControls() {
                 <span class="small">Feed:</span>
                 <span class="small"><span id="2d-feed-rate-display">0</span> mm/min</span>
             </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Time:</span>
+                <span class="small"><span id="2d-simulation-time">0:00</span> / <span id="2d-total-time">0:00</span></span>
+            </div>
         </div>
     `;
 
@@ -2025,30 +2030,30 @@ function create2DSimulationControls() {
     const pauseBtn = document.getElementById('pause-simulation');
     const stopBtn = document.getElementById('stop-simulation');
 
-    if (startBtn && typeof startSimulation === 'function') {
-        startBtn.addEventListener('click', startSimulation);
+    if (startBtn && typeof startSimulation2D === 'function') {
+        startBtn.addEventListener('click', startSimulation2D);
     }
-    if (pauseBtn && typeof pauseSimulation === 'function') {
-        pauseBtn.addEventListener('click', pauseSimulation);
+    if (pauseBtn && typeof pauseSimulation2D === 'function') {
+        pauseBtn.addEventListener('click', pauseSimulation2D);
     }
-    if (stopBtn && typeof stopSimulation === 'function') {
-        stopBtn.addEventListener('click', stopSimulation);
+    if (stopBtn && typeof stopSimulation2D === 'function') {
+        stopBtn.addEventListener('click', stopSimulation2D);
     }
 
     // Simulation speed control
     document.getElementById('simulation-speed').addEventListener('input', function (e) {
         const speed = parseFloat(e.target.value);
         document.getElementById('speed-display').textContent = speed + 'x';
-        if (typeof updateSimulationSpeed === 'function') {
-            updateSimulationSpeed(speed);
+        if (typeof updateSimulation2DSpeed === 'function') {
+            updateSimulation2DSpeed(speed);
         }
     });
 
-    // Simulation step control (progress slider)
+    // Simulation step control (progress slider) - seek to G-code line
     document.getElementById('simulation-step').addEventListener('input', function (e) {
-        const step = parseInt(e.target.value);
-        if (typeof setSimulationStep === 'function') {
-            setSimulationStep(step);
+        const lineNumber = parseInt(e.target.value);
+        if (typeof setSimulation2DLineNumber === 'function') {
+            setSimulation2DLineNumber(lineNumber);
         }
     });
 }
@@ -2111,6 +2116,11 @@ function create3DSimulationControls() {
             <div class="col-auto d-flex align-items-center gap-2">
                 <span class="small">Feed:</span>
                 <span class="small"><span id="3d-feed-rate-display">0</span> mm/min</span>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Time:</span>
+                <span class="small"><span id="3d-simulation-time">0:00</span> / <span id="3d-total-time">0:00</span></span>
             </div>
         </div>
     `;

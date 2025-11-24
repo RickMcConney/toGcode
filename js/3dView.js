@@ -871,6 +871,17 @@ window.startSimulation3D = function() {
       toolpathAnimation.setProgress(0);
     }
     toolpathAnimation.play();
+
+    // Update total time display when starting
+    const totalTimeElem = document.getElementById('3d-total-time');
+    if (totalTimeElem) {
+      totalTimeElem.textContent = formatTime(toolpathAnimation.totalAnimationTime);
+    }
+    const totalTimeElem2d = document.getElementById('2d-total-time');
+    if (totalTimeElem2d) {
+      totalTimeElem2d.textContent = formatTime(toolpathAnimation.totalAnimationTime);
+    }
+
     updateSimulation3DUI();
   }
 };
@@ -926,6 +937,8 @@ function updateSimulation2DDisplays() {
 
   const lineDisplay = document.getElementById('2d-step-display');
   const feedRateDisplay = document.getElementById('2d-feed-rate-display');
+  const simTimeElem = document.getElementById('2d-simulation-time');
+  const totalTimeElem = document.getElementById('2d-total-time');
 
   if (lineDisplay) {
     lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
@@ -933,6 +946,31 @@ function updateSimulation2DDisplays() {
 
   if (feedRateDisplay) {
     feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)}`;
+  }
+
+  if (simTimeElem) {
+    // Calculate cumulative elapsed time by finding previous movement's cumulative time + current elapsed
+    let cumulativeElapsedTime = 0;
+
+    // Find previous movement (same logic as in update() method)
+    let prevMovement = null;
+    for (const move of toolpathAnimation.movementTiming) {
+      if (move.gcodeLineNumber < toolpathAnimation.currentGcodeLineNumber) {
+        if (!prevMovement || move.gcodeLineNumber > prevMovement.gcodeLineNumber) {
+          prevMovement = move;
+        }
+      }
+    }
+
+    // Cumulative elapsed = previous movement's cumulative time + current elapsed within movement
+    const prevMovementEndTime = prevMovement ? prevMovement.cumulativeTime : 0;
+    cumulativeElapsedTime = prevMovementEndTime + toolpathAnimation.elapsedTime;
+
+    simTimeElem.textContent = formatTime(cumulativeElapsedTime);
+  }
+
+  if (totalTimeElem) {
+    totalTimeElem.textContent = formatTime(toolpathAnimation.totalAnimationTime);
   }
 }
 
@@ -946,6 +984,8 @@ function updateSimulation3DDisplays() {
   const feedRateDisplay = document.getElementById('3d-feed-rate-display');
   const progressSlider = document.getElementById('3d-simulation-progress');
   const progressDisplay = document.getElementById('3d-progress-display');
+  const simTimeElem = document.getElementById('3d-simulation-time');
+  const totalTimeElem = document.getElementById('3d-total-time');
 
   if (lineDisplay) {
     lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
@@ -965,6 +1005,31 @@ function updateSimulation3DDisplays() {
       ? Math.round((toolpathAnimation.currentGcodeLineNumber / (toolpathAnimation.totalGcodeLines - 1)) * 100)
       : 0;
     progressDisplay.textContent = `Line ${toolpathAnimation.currentGcodeLineNumber} (${percent}%)`;
+  }
+
+  if (simTimeElem) {
+    // Calculate cumulative elapsed time by finding previous movement's cumulative time + current elapsed
+    let cumulativeElapsedTime = 0;
+
+    // Find previous movement (same logic as in update() method)
+    let prevMovement = null;
+    for (const move of toolpathAnimation.movementTiming) {
+      if (move.gcodeLineNumber < toolpathAnimation.currentGcodeLineNumber) {
+        if (!prevMovement || move.gcodeLineNumber > prevMovement.gcodeLineNumber) {
+          prevMovement = move;
+        }
+      }
+    }
+
+    // Cumulative elapsed = previous movement's cumulative time + current elapsed within movement
+    const prevMovementEndTime = prevMovement ? prevMovement.cumulativeTime : 0;
+    cumulativeElapsedTime = prevMovementEndTime + toolpathAnimation.elapsedTime;
+
+    simTimeElem.textContent = formatTime(cumulativeElapsedTime);
+  }
+
+  if (totalTimeElem) {
+    totalTimeElem.textContent = formatTime(toolpathAnimation.totalAnimationTime);
   }
 }
 
@@ -2586,8 +2651,16 @@ class ToolpathAnimation {
         this.currentGcodeLineNumber++;
       }
 
-      // If we've reached the end, just pause and keep voxels visible
+      // If we've reached the end, clamp to total lines, pause, and keep voxels visible
       if (this.currentGcodeLineNumber > this.totalGcodeLines) {
+        this.currentGcodeLineNumber = this.totalGcodeLines;  // Clamp to final line
+
+        // Update tool position one final time to show final location
+        const finalMovement = this.getMovementForLine(this.currentGcodeLineNumber);
+        if (finalMovement) {
+          this.updateToolPositionAtCoordinates(finalMovement.x, finalMovement.y, finalMovement.z, finalMovement.isG1, this.currentGcodeLineNumber);
+        }
+
         this.pause();
         this.updateStatus();
         return;

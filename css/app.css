@@ -461,12 +461,11 @@ html, body {
 }
 
 .gcode-line.active-gcode-line {
-    background-color: #fff3cd;
-    border-left-color: #ffc107;
+    background-color: #72abec;
 }
 
 .gcode-line.active-gcode-line .gcode-line-number {
-    color: #ff9800;
+    color: #000;
     font-weight: 700;
 }
 
