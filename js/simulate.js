@@ -887,30 +887,85 @@ function drawMaterialRemoval() {
 	if (materialRemovalPoints.length === 0) return;
 	ctx.save();
 	ctx.globalCompositeOperation = 'multiply';
+	ctx.lineCap = 'round';
+	ctx.lineJoin = 'round';
+
+	// Group points by operation type to draw each type as a continuous stroke
+	const pointsByType = {};
 	for (let i = 0; i < materialRemovalPoints.length; i++) {
 		const point = materialRemovalPoints[i];
-		var pt = worldToScreen(point.x, point.y);
+		const isActualGcodePoint = point.isActualGcodePoint ? 'actual' : 'interpolated';
+		const operationType = point.operation || 'default';
+		const groupKey = `${operationType}|${isActualGcodePoint}`;
 
-		ctx.beginPath();
-		ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
-		if (point.isActualGcodePoint) {
-			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = simulationFillRapid;
-			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = simulationFillRapid2;
+		if (!pointsByType[groupKey]) {
+			pointsByType[groupKey] = [];
+		}
+		pointsByType[groupKey].push(point);
+	}
+
+	// Draw each group as a continuous stroke (slot)
+	for (const groupKey in pointsByType) {
+		const points = pointsByType[groupKey];
+		const isActualGcodePoint = groupKey.includes('actual');
+		const operation = points[0].operation;
+
+		// Determine stroke color based on operation type and point type
+		let strokeColor;
+		if (isActualGcodePoint) {
+			if (operation && operation.includes('Drill')) {
+				strokeColor = simulationFillRapid;
+			} else if (operation && operation.includes('VCarve')) {
+				strokeColor = simulationFillRapid2;
 			} else {
-				ctx.fillStyle = simulationFillRapid3;
+				strokeColor = simulationFillRapid3;
 			}
 		} else {
-			if (point.operation && point.operation.includes('Drill')) {
-				ctx.fillStyle = simulationFillCut;
-			} else if (point.operation && point.operation.includes('VCarve')) {
-				ctx.fillStyle = simulationFillCut2;
+			if (operation && operation.includes('Drill')) {
+				strokeColor = simulationFillCut;
+			} else if (operation && operation.includes('VCarve')) {
+				strokeColor = simulationFillCut2;
 			} else {
-				ctx.fillStyle = simulationFillCut3;
+				strokeColor = simulationFillCut3;
 			}
 		}
-		ctx.fill();
+
+		ctx.strokeStyle = strokeColor;
+
+		// Draw stroke connecting all points in this group to create slot effect
+		if (points.length > 0) {
+			const firstPoint = points[0];
+			const firstPt = worldToScreen(firstPoint.x, firstPoint.y);
+
+			ctx.beginPath();
+			ctx.moveTo(firstPt.x, firstPt.y);
+
+			// Set line width to tool diameter
+			ctx.lineWidth = firstPoint.radius * 2 * zoomLevel;
+
+			for (let i = 1; i < points.length; i++) {
+				const point = points[i];
+				const pt = worldToScreen(point.x, point.y);
+
+				// Update line width if radius changes (e.g., for V-carve with varying depth)
+				if (point.radius !== points[i - 1].radius) {
+					ctx.lineWidth = point.radius * 2 * zoomLevel;
+				}
+
+				ctx.lineTo(pt.x, pt.y);
+			}
+
+			ctx.stroke();
+
+			// Draw endpoint circle to ensure clean termination with rounded cap
+			const lastPoint = points[points.length - 1];
+			const lastPt = worldToScreen(lastPoint.x, lastPoint.y);
+			ctx.beginPath();
+			ctx.arc(lastPt.x, lastPt.y, lastPoint.radius * zoomLevel, 0, 2 * Math.PI);
+			ctx.fillStyle = strokeColor;
+			ctx.fill();
+		}
 	}
+
 	ctx.restore();
 }

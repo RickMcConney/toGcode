@@ -566,7 +566,7 @@ async function executeCut(parsed) {
 }
 
 /**
- * Draw material removal circles on canvas
+ * Draw material removal as slots (connecting circles) on canvas
  */
 function drawMaterialRemovalCircles() {
     if (!ctx) return;
@@ -577,25 +577,103 @@ function drawMaterialRemovalCircles() {
 
     ctx.save();
     ctx.globalCompositeOperation = 'multiply';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Build segments of consecutive cutting and rapid points
+    // This preserves ordering and prevents drawing strokes across rapid sections
+    const segments = [];
+    let currentSegment = [];
+    let currentType = null;  // 'cutting' or 'rapid'
 
     for (let i = 0; i < materialRemovalPoints.length; i++) {
         const point = materialRemovalPoints[i];
-        // point.x, point.y are in world coordinates
-        var pt = worldToScreen(point.x, point.y);
+        const pointType = point.isRapid ? 'rapid' : 'cutting';
 
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, point.radius * zoomLevel, 0, 2 * Math.PI);
-
-        // Use red for rapid movements, brown for cutting
-        if (point.isRapid) {
-            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';  // Red for rapids
+        // If type changed, save current segment and start new one
+        if (currentType !== null && pointType !== currentType) {
+            segments.push({ type: currentType, points: currentSegment });
+            currentSegment = [point];
+            currentType = pointType;
         } else {
-            ctx.fillStyle = 'rgba(139, 69, 19, 0.3)';  // Brown for cutting
+            currentSegment.push(point);
+            currentType = pointType;
         }
-        ctx.fill();
+    }
+    // Add final segment
+    if (currentSegment.length > 0) {
+        segments.push({ type: currentType, points: currentSegment });
+    }
+
+    // Draw each segment
+    for (const segment of segments) {
+        if (segment.type === 'rapid') {
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';  // Red for rapids
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            drawDashedPath(segment.points);
+            ctx.setLineDash([]);  // Clear line dash
+        } else {
+            ctx.strokeStyle = 'rgba(139, 69, 19, 0.3)';  // Brown for cutting
+            drawPointSlot(segment.points);
+        }
     }
 
     ctx.restore();
+}
+
+/**
+ * Helper function to draw dashed lines through points
+ * @param {Array} points - Array of points to connect with dashed lines
+ */
+function drawDashedPath(points) {
+    if (points.length < 2) return;
+
+    ctx.beginPath();
+    const firstPt = worldToScreen(points[0].x, points[0].y);
+    ctx.moveTo(firstPt.x, firstPt.y);
+
+    for (let i = 1; i < points.length; i++) {
+        const pt = worldToScreen(points[i].x, points[i].y);
+        ctx.lineTo(pt.x, pt.y);
+    }
+
+    ctx.stroke();
+}
+
+/**
+ * Helper function to draw a continuous slot through points
+ * Draws individual strokes between each pair of points to preserve width throughout
+ * @param {Array} points - Array of points to connect
+ */
+function drawPointSlot(points) {
+    if (points.length === 0) return;
+
+    // Draw stroke between each pair of consecutive points
+    for (let i = 0; i < points.length - 1; i++) {
+        const fromPoint = points[i];
+        const toPoint = points[i + 1];
+
+        const fromPt = worldToScreen(fromPoint.x, fromPoint.y);
+        const toPt = worldToScreen(toPoint.x, toPoint.y);
+
+        // Set line width based on current point's radius
+        ctx.lineWidth = fromPoint.radius * 2 * zoomLevel;
+
+        // Draw stroke from this point to next
+        ctx.beginPath();
+        ctx.moveTo(fromPt.x, fromPt.y);
+        ctx.lineTo(toPt.x, toPt.y);
+        ctx.stroke();
+    }
+
+    // Draw endpoint circle to ensure clean termination with rounded cap
+    const lastPoint = points[points.length - 1];
+    const lastPt = worldToScreen(lastPoint.x, lastPoint.y);
+    ctx.beginPath();
+    ctx.arc(lastPt.x, lastPt.y, lastPoint.radius * zoomLevel, 0, 2 * Math.PI);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
 }
 
 /**
