@@ -42,21 +42,11 @@ var simulation2D = {
 
     // Animation
     animationFrameId: null,
-    startTime: 0,
-    lastFrameTime: 0,
 
     // Display tracking
     totalElapsedTime: 0,
     lineExecutionTimes: [],
     totalSimulationTime: 0  // Pre-calculated total time for entire G-code
-};
-
-// Color schemes for different tool operations
-const SIMULATION_COLORS = {
-    drill: { stroke: '#8B4513', fill: 'rgba(139, 69, 19, 0.3)' },
-    vcarve: { stroke: '#A0522D', fill: 'rgba(160, 82, 45, 0.3)' },
-    pocket: { stroke: '#654321', fill: 'rgba(101, 67, 33, 0.3)' },
-    default: { stroke: '#704020', fill: 'rgba(112, 64, 32, 0.3)' }
 };
 
 /**
@@ -123,10 +113,28 @@ function parseGcodeLine(line) {
     const zMatch = cleanLine.match(/Z([-+]?\d+\.?\d*)/);
     const fMatch = cleanLine.match(/F([-+]?\d+\.?\d*)/);
 
-    const x = xMatch ? parseFloat(xMatch[1]) : null;
-    const y = yMatch ? parseFloat(yMatch[1]) : null;
-    const z = zMatch ? parseFloat(zMatch[1]) : null;
-    const feedRate = fMatch ? parseFloat(fMatch[1]) : null;
+    let x = xMatch ? parseFloat(xMatch[1]) : null;
+    let y = yMatch ? parseFloat(yMatch[1]) : null;
+    let z = zMatch ? parseFloat(zMatch[1]) : null;
+    let feedRate = fMatch ? parseFloat(fMatch[1]) : null;
+
+    // Validate parsed coordinates
+    if (xMatch && isNaN(x)) {
+        console.warn('Invalid X coordinate in G-code:', xMatch[1], '- using null');
+        x = null;
+    }
+    if (yMatch && isNaN(y)) {
+        console.warn('Invalid Y coordinate in G-code:', yMatch[1], '- using null');
+        y = null;
+    }
+    if (zMatch && isNaN(z)) {
+        console.warn('Invalid Z coordinate in G-code:', zMatch[1], '- using null');
+        z = null;
+    }
+    if (fMatch && isNaN(feedRate)) {
+        console.warn('Invalid F feed rate in G-code:', fMatch[1], '- using null');
+        feedRate = null;
+    }
 
     // Only treat as movement command if there are coordinates
     // Lines like "G0 G54 G17 G21 G90 G94" are configuration, not movement
@@ -197,7 +205,6 @@ function setupSimulation2D() {
 
         // Preprocess tool changes
         simulation2D.toolByLine = {};
-        let currentTool = null;
 
         for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
             const line = simulation2D.gcodeLines[i];
@@ -213,7 +220,6 @@ function setupSimulation2D() {
         // Initialize state
         simulation2D.currentLineIndex = 0;
         simulation2D.toolPosition = { x: 0, y: 0, z: 0 };
-        simulation2D.currentMaterialRemovalPoints = [];
         simulation2D.totalElapsedTime = 0;
         simulation2D.lineExecutionTimes = [];
         simulation2D.totalSimulationTime = 0;
@@ -221,7 +227,6 @@ function setupSimulation2D() {
         // Pre-calculate total execution time for all G-code lines
         let toolPos = { x: 0, y: 0, z: 0 };
         let totalTime = 0;
-        let currentToolInfo = null;
 
         for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
             const line = simulation2D.gcodeLines[i];
@@ -302,6 +307,12 @@ function getToolForLineNumber(lineNumber) {
  * @returns {Array} Array of interpolated points
  */
 function interpolatePoints(from, to, feedRate) {
+    // Validate feedRate
+    if (!feedRate || feedRate <= 0 || isNaN(feedRate)) {
+        console.warn('Invalid feedRate in interpolatePoints:', feedRate, '- using default 1000 mm/min');
+        feedRate = 1000;
+    }
+
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const dz = (to.z || 0) - (from.z || 0);
@@ -313,7 +324,7 @@ function interpolatePoints(from, to, feedRate) {
 
     // Point density: ~1 point per 5mm at 1000 mm/min feed
     // Faster feeds = fewer points, slower feeds = more points
-    const pointCount = Math.max(2, Math.ceil(distance / (feedRate / 200)));
+    const pointCount = Math.max(2, Math.ceil(distance / (feedRate / 100)));
 
     const points = [];
     for (let i = 0; i <= pointCount; i++) {
@@ -330,9 +341,10 @@ function interpolatePoints(from, to, feedRate) {
 
 /**
  * Calculate tool circle radius based on tool type and depth
- * For V-bits: radius = depth * tan(angle/2)
+ * For V-bits: radius = depth * tan(angle/2) when cutting (Z < 0)
+ * For V-bits above material (Z >= 0): use 0.5mm (rapid size)
  * For other tools: radius = diameter/2 (constant)
- * @param {number} depth - Current depth (typically negative for cuts into material)
+ * @param {number} depth - Current depth (typically negative for cuts into material, positive = above material)
  * @param {Object} tool - Tool information object
  * @returns {number} Circle radius in world coordinates
  */
@@ -341,10 +353,22 @@ function getToolCircleRadius(depth, tool) {
         return 0;
     }
 
+    // If tool is above material (Z >= 0), show as small rapid circle
+    if (depth >= 0) {
+        return 0.5;  // Same size as rapid movements
+    }
+
     // Check if V-bit tool (angle > 0)
     if (tool.angle && tool.angle > 0) {
+        // Validate angle is in valid range
+        let angle = tool.angle;
+        if (angle <= 0 || angle >= 180 || isNaN(angle)) {
+            console.warn('Invalid tool angle:', angle, '- clamping to valid range (0, 180)');
+            angle = Math.max(0.1, Math.min(179.9, angle));
+        }
+
         // V-bit: radius grows with depth
-        const halfAngleRad = (tool.angle / 2) * (Math.PI / 180);
+        const halfAngleRad = (angle / 2) * (Math.PI / 180);
         // At depth 0: radius = 0, grows as depth increases
         const radius = Math.abs(depth) * Math.tan(halfAngleRad);
         return radius;
@@ -441,7 +465,13 @@ async function executeRapid(parsed) {
         // Calculate delay between this point and next
         // Total time distributed evenly across all point intervals
         if (i < points.length - 1) {
-            const delayMs = (totalMoveTime / (points.length - 1)) / simulation2D.speed * 1000;
+            // Validate speed multiplier
+            let speed = simulation2D.speed;
+            if (!speed || speed <= 0 || isNaN(speed)) {
+                console.warn('Invalid speed multiplier in executeRapid:', speed, '- using 1.0');
+                speed = 1.0;
+            }
+            const delayMs = (totalMoveTime / (points.length - 1)) / speed * 1000;
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
     }
@@ -520,7 +550,13 @@ async function executeCut(parsed) {
         // Calculate delay between this point and next
         // Total time distributed evenly across all point intervals
         if (i < points.length - 1) {
-            const delayMs = (totalMoveTime / (points.length - 1)) / simulation2D.speed * 1000;
+            // Validate speed multiplier
+            let speed = simulation2D.speed;
+            if (!speed || speed <= 0 || isNaN(speed)) {
+                console.warn('Invalid speed multiplier in executeCut:', speed, '- using 1.0');
+                speed = 1.0;
+            }
+            const delayMs = (totalMoveTime / (points.length - 1)) / speed * 1000;
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
     }
@@ -851,7 +887,6 @@ function setSimulation2DLineNumber(targetLineIndex) {
 
     // Stop any running/pending operations and pause the simulation
     // This handles both slider and gcode viewer clicks
-    const wasRunning = simulation2D.isRunning;
     simulation2D.shouldCancel = true;  // Signal pending operations to stop
     simulation2D.isRunning = false;    // Stop the main loop
     simulation2D.isPaused = true;      // Put into paused state so user can resume
