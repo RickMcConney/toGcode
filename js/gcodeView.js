@@ -169,7 +169,7 @@ class GcodeView {
 
         // Seek the simulator to this line
         // Check 2D simulation first (even if paused, it's the active simulation)
-        if (typeof simulationState !== 'undefined' && (simulationState.isRunning || simulationState.isPaused)) {
+        if (typeof simulation2D !== 'undefined' && (simulation2D.isRunning || simulation2D.isPaused)) {
             // 2D simulation is active (running or paused) - direct line-based seeking
             if (typeof setSimulation2DLineNumber === 'function') {
                 setSimulation2DLineNumber(lineNumber);

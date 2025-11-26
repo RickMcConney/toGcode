@@ -11,22 +11,12 @@
  * - Canvas-based visualization
  */
 
-// Legacy stub for backward compatibility with old code
-var simulationState = {
-    isRunning: false,
-    isPaused: false
-};
-
-// Declare global material removal points array (used by old and new simulation)
-var materialRemovalPoints = [];
-
 // Global simulation state
 var simulation2D = {
     // Control state
     isRunning: false,
     isPaused: false,
     speed: 5.0,
-    shouldCancel: false,  // Flag to cancel pending async operations
 
     // G-code and parsing
     gcode: '',
@@ -35,17 +25,17 @@ var simulation2D = {
 
     // Tool preprocessing
     toolByLine: {},
-    currentTool: null,
 
-    // Simulation state
-    toolPosition: { x: 0, y: 0, z: 0 },
+    // Precomputed points (new: one point per G-code line)
+    precomputedPoints: [],  // Array of {lineNumber, moveType, x, y, z, startX, startY, startZ, feedRate, moveTime, toolRadius, operation, tool}
+    currentLineProgress: 0,  // 0 to 1: position within current segment for interpolation
+    lastFrameTime: null,    // Timestamp for delta-time calculation
 
     // Animation
     animationFrameId: null,
 
     // Display tracking
-    totalElapsedTime: 0,
-    lineExecutionTimes: [],
+    totalElapsedTime: 0,    // Accumulated elapsed time during simulation
     totalSimulationTime: 0  // Pre-calculated total time for entire G-code
 };
 
@@ -215,13 +205,10 @@ function setupSimulation2D() {
                 simulation2D.toolByLine[i] = toolInfo;
             }
         }
-        simulation2D.currentTool = getToolForLineNumber(0)
 
         // Initialize state
         simulation2D.currentLineIndex = 0;
-        simulation2D.toolPosition = { x: 0, y: 0, z: 0 };
         simulation2D.totalElapsedTime = 0;
-        simulation2D.lineExecutionTimes = [];
         simulation2D.totalSimulationTime = 0;
 
         // Pre-calculate total execution time for all G-code lines
@@ -262,11 +249,13 @@ function setupSimulation2D() {
                 lineTime = 0.001;
             }
 
-            simulation2D.lineExecutionTimes[i] = lineTime;
             totalTime += lineTime;
         }
 
         simulation2D.totalSimulationTime = totalTime;
+
+        // Precompute all G-code points for fast seeking and animation
+        simulation2D.precomputedPoints = precomputePoints();
 
         // Show G-code viewer panel and populate with G-code
         if (typeof gcodeView !== 'undefined' && gcodeView) {
@@ -299,63 +288,262 @@ function getToolForLineNumber(lineNumber) {
 }
 
 /**
- * Interpolate points between two positions based on feed rate
- * Point density inversely proportional to feed rate
- * @param {Object} from - Starting position {x, y, z}
- * @param {Object} to - Ending position {x, y, z}
- * @param {number} feedRate - Feed rate in mm/min
- * @returns {Array} Array of interpolated points
+ * Precompute G-code points: one point per G-code line with metadata
+ * Stores points in WORLD SPACE (with viewScale and origin applied)
+ * This enables instant seeking and simplified animation loop
+ * Conversion happens once during precomputation, not on every frame
+ *
+ * @returns {Array} Array of precomputed points, one per G-code line
  */
-function interpolatePoints(from, to, feedRate) {
-    // Validate feedRate
-    if (!feedRate || feedRate <= 0 || isNaN(feedRate)) {
-        console.warn('Invalid feedRate in interpolatePoints:', feedRate, '- using default 1000 mm/min');
-        feedRate = 1000;
-    }
-
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const dz = (to.z || 0) - (from.z || 0);
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-    if (distance < 0.001) {
-        return [to];
-    }
-
-    // Point density: ~1 point per 5mm at 1000 mm/min feed
-    // Faster feeds = fewer points, slower feeds = more points
-    const pointCount = Math.max(2, Math.ceil(distance / (feedRate / 100)));
-
+function precomputePoints() {
     const points = [];
-    for (let i = 0; i <= pointCount; i++) {
-        const t = i / pointCount;
-        points.push({
-            x: from.x + dx * t,
-            y: from.y + dy * t,
-            z: (from.z || 0) + dz * t
-        });
+    let toolPos = { x: 0, y: 0, z: 0 };  // MM coordinates
+    let currentTool = null;
+
+    for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
+        const line = simulation2D.gcodeLines[i];
+        const parsed = parseGcodeLine(line);
+
+        // Update tool if changed
+        if (simulation2D.toolByLine[i]) {
+            currentTool = simulation2D.toolByLine[i];
+        }
+
+        let point = {
+            lineNumber: i,          // 0-indexed for array access
+            moveType: 'noMotion',   // Default to no-motion
+            x: toolPos.x * viewScale + origin.x,           // Endpoint in WORLD SPACE
+            y: origin.y - toolPos.y * viewScale,
+            z: toolPos.z,
+            startX: toolPos.x * viewScale + origin.x,      // Start point for interpolation (WORLD SPACE)
+            startY: origin.y - toolPos.y * viewScale,
+            startZ: toolPos.z,
+            feedRate: 1000,         // Default feed rate
+            moveTime: 0.001,        // Minimal time for non-movements
+            toolRadius: 0,          // Will be calculated below
+            operation: 'Move',      // Operation type
+            tool: currentTool
+        };
+
+        // Calculate movement if present
+        if (parsed.isRapid || parsed.isCut) {
+            const to = {
+                x: parsed.x !== null ? parsed.x : toolPos.x,
+                y: parsed.y !== null ? parsed.y : toolPos.y,
+                z: parsed.z !== null ? parsed.z : toolPos.z
+            };
+
+            // Calculate distance and time
+            const distance = Math.sqrt(
+                Math.pow(to.x - toolPos.x, 2) +
+                Math.pow(to.y - toolPos.y, 2) +
+                Math.pow(to.z - toolPos.z, 2)
+            );
+
+            const feedRate = parsed.feedRate || (parsed.isRapid ? 3000 : 500);
+            const moveTime = distance > 0 ? (distance / feedRate) * 60 : 0.001; // seconds
+
+            // Convert endpoint to world space
+            point.x = to.x * viewScale + origin.x;
+            point.y = origin.y - to.y * viewScale;
+            point.z = to.z;
+            point.feedRate = feedRate;
+            point.moveTime = moveTime;
+            point.moveType = parsed.isRapid ? 'rapid' : 'cut';
+
+            // Calculate tool radius (for V-bits, this is at the endpoint Z)
+            // Multiply by viewScale since coordinates are in screen space
+            if (parsed.isCut) {
+                point.toolRadius = getToolCircleRadius(to.z, currentTool) * viewScale;
+                point.operation = 'Cut';
+
+                // Calculate frustum geometry for segments with significant Z changes
+                const zDistance = Math.abs(to.z - toolPos.z);
+                if (zDistance >= 0.01) {
+                    // Calculate radius at start and end of segment
+                    const radiusStart = getToolCircleRadius(toolPos.z, currentTool) * viewScale;
+                    const radiusEnd = getToolCircleRadius(to.z, currentTool) * viewScale;
+                    const radiusDiff = Math.abs(radiusEnd - radiusStart);
+
+                    // Only calculate frustum if radii differ significantly (> 0.1mm)
+                    if (radiusDiff > 0.1) {
+                        // Calculate frustum geometry for rendering
+                        const startX = toolPos.x * viewScale + origin.x;
+                        const startY = origin.y - toolPos.y * viewScale;
+                        const endX = to.x * viewScale + origin.x;
+                        const endY = origin.y - to.y * viewScale;
+
+                        const frustumData = calculateFrustumGeometry(
+                            startX, startY, radiusStart,
+                            endX, endY, radiusEnd
+                        );
+
+                        if (frustumData) {
+                            point.frustumData = frustumData;
+                            point.isFrustum = true;
+                        }
+                    }
+                }
+            } else {
+                point.toolRadius = 0.5 * viewScale;  // Small visualization for rapids
+                point.operation = 'Rapid';
+            }
+
+            // Update position
+            toolPos = to;
+        } else {
+            // No-motion line (comments, spindle commands, etc.)
+            point.toolRadius = 0;
+            point.operation = 'Noop';
+        }
+
+        points.push(point);
     }
 
     return points;
 }
 
 /**
+ * Calculate frustum geometry (tangent lines between two circles)
+ * Used for rendering actual tool shape when Z changes
+ *
+ * @param {number} x1 - Circle 1 center X (world space)
+ * @param {number} y1 - Circle 1 center Y (world space)
+ * @param {number} r1 - Circle 1 radius (world space)
+ * @param {number} x2 - Circle 2 center X (world space)
+ * @param {number} y2 - Circle 2 center Y (world space)
+ * @param {number} r2 - Circle 2 radius (world space)
+ * @returns {Object|null} Frustum geometry with tangent points and angles, or null if degenerate
+ */
+function calculateFrustumGeometry(x1, y1, r1, x2, y2, r2) {
+    // Calculate distance between centers
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    // Handle degenerate cases
+    // - Circles too close together
+    // - One circle inside the other (but allow if one radius is 0 for cone case)
+    if (d < 0.01 || (d < Math.abs(r2 - r1) && r1 > 0.01 && r2 > 0.01)) {
+        return null;
+    }
+
+    // Angle of line connecting centers
+    const centerAngle = Math.atan2(dy, dx);
+
+    // Calculate angle offset for tangent lines
+    const radiusDiff = r2 - r1;
+    const tangentOffsetAngle = Math.asin(Math.min(1, Math.abs(radiusDiff) / d));
+
+    // Two external tangent angles
+    const tangent1Angle = centerAngle + tangentOffsetAngle;
+    const tangent2Angle = centerAngle - tangentOffsetAngle;
+
+    // Calculate tangent points on circle 1
+    const t1p1_x = x1 + r1 * Math.cos(tangent1Angle + Math.PI / 2);
+    const t1p1_y = y1 + r1 * Math.sin(tangent1Angle + Math.PI / 2);
+    const t2p1_x = x1 + r1 * Math.cos(tangent2Angle - Math.PI / 2);
+    const t2p1_y = y1 + r1 * Math.sin(tangent2Angle - Math.PI / 2);
+
+    // Calculate tangent points on circle 2
+    const t1p2_x = x2 + r2 * Math.cos(tangent1Angle + Math.PI / 2);
+    const t1p2_y = y2 + r2 * Math.sin(tangent1Angle + Math.PI / 2);
+    const t2p2_x = x2 + r2 * Math.cos(tangent2Angle - Math.PI / 2);
+    const t2p2_y = y2 + r2 * Math.sin(tangent2Angle - Math.PI / 2);
+
+    // Calculate angles for arc drawing on circles
+    // Only calculate if radius is non-zero (zero radius is a point, no arc)
+    let arc1Start = 0, arc1End = 0;
+    if (r1 > 0.01) {
+        arc1Start = Math.atan2(t2p1_y - y1, t2p1_x - x1);
+        arc1End = Math.atan2(t1p1_y - y1, t1p1_x - x1);
+    }
+
+    let arc2Start = 0, arc2End = 0;
+    if (r2 > 0.01) {
+        arc2Start = Math.atan2(t1p2_y - y2, t1p2_x - x2);
+        arc2End = Math.atan2(t2p2_y - y2, t2p2_x - x2);
+    }
+
+    return {
+        // Circle 1 data
+        x1: x1,
+        y1: y1,
+        r1: r1,
+        arc1Start: arc1Start,
+        arc1End: arc1End,
+        t1p1: { x: t1p1_x, y: t1p1_y },  // Upper tangent point on circle 1
+        t2p1: { x: t2p1_x, y: t2p1_y },  // Lower tangent point on circle 1
+
+        // Circle 2 data
+        x2: x2,
+        y2: y2,
+        r2: r2,
+        arc2Start: arc2Start,
+        arc2End: arc2End,
+        t1p2: { x: t1p2_x, y: t1p2_y },  // Upper tangent point on circle 2
+        t2p2: { x: t2p2_x, y: t2p2_y }   // Lower tangent point on circle 2
+    };
+}
+
+/**
+ * Interpolate position within a segment based on progress (0 to 1)
+ * Points are already in WORLD SPACE, just interpolate and recalculate radius if needed
+ * @param {Object} point - Precomputed point with startX/Y/Z and x/y/Z (in WORLD SPACE)
+ * @param {number} progress - Progress through segment (0 to 1)
+ * @returns {Object} Interpolated position {x, y, z, radius} in world coordinates
+ */
+function interpolateSegmentPosition(point, progress) {
+    // Linear interpolation in world space
+    const t = Math.max(0, Math.min(1, progress));
+
+    const interpX = point.startX + (point.x - point.startX) * t;
+    const interpY = point.startY + (point.y - point.startY) * t;
+    const interpZ = point.startZ + (point.z - point.startZ) * t;
+
+    // For V-bits, radius varies with depth
+    let interpRadius = point.toolRadius;
+    if (point.tool && point.tool.angle && point.tool.angle > 0) {
+        // Recalculate radius for interpolated Z
+        interpRadius = getToolCircleRadius(interpZ, point.tool);
+    }
+
+    // Return in world coordinates (no conversion needed)
+    return {
+        x: interpX,
+        y: interpY,
+        z: interpZ,
+        radius: interpRadius
+    };
+}
+
+
+/**
  * Calculate tool circle radius based on tool type and depth
- * For V-bits: radius = depth * tan(angle/2) when cutting (Z < 0)
- * For V-bits above material (Z >= 0): use 0.5mm (rapid size)
- * For other tools: radius = diameter/2 (constant)
- * @param {number} depth - Current depth (typically negative for cuts into material, positive = above material)
- * @param {Object} tool - Tool information object
- * @returns {number} Circle radius in world coordinates
+ *
+ * For V-bits: radius grows with depth (cone geometry)
+ *   - Formula: radius = abs(depth) * tan(angle/2)
+ *   - At surface (Z = 0): radius = 0 (cone comes to point)
+ *   - At depth (Z < 0): radius grows linearly
+ *   - Above material (Z > 0): radius = 0
+ *
+ * For Ball Nose bits: radius depends on sphere geometry
+ *   - Sphere tip at depth, center at (depth + radius)
+ *   - Formula: radius = sqrt(toolRadius² - (toolZ + toolRadius - Z)²)
+ *   - At depth Z: circle of sphere cross-section
+ *   - Above material (Z >= 0): radius = 0
+ *
+ * For End Mill, Drill: constant radius
+ *   - Above material (Z >= 0): radius = 0.5 (rapid)
+ *   - At any cutting depth (Z < 0): constant radius = diameter/2
+ *
+ * @param {number} depth - Current Z depth (negative for cuts, 0 at surface, positive = above material)
+ * @param {Object} tool - Tool information object with properties: type, diameter, angle
+ * @returns {number} Circle radius in millimeters
  */
 function getToolCircleRadius(depth, tool) {
     if (!tool) {
         return 0;
-    }
-
-    // If tool is above material (Z >= 0), show as small rapid circle
-    if (depth >= 0) {
-        return 0.5;  // Same size as rapid movements
     }
 
     // Check if V-bit tool (angle > 0)
@@ -367,255 +555,153 @@ function getToolCircleRadius(depth, tool) {
             angle = Math.max(0.1, Math.min(179.9, angle));
         }
 
-        // V-bit: radius grows with depth
+        // V-bit: at Z=0 (surface) radius is 0, grows as depth increases (Z < 0)
+        // At Z > 0 (above material): also radius 0 (rapid move)
+        if (depth >= 0) {
+            return 0;  // At or above surface
+        }
+
         const halfAngleRad = (angle / 2) * (Math.PI / 180);
         // At depth 0: radius = 0, grows as depth increases
-        const radius = Math.abs(depth) * Math.tan(halfAngleRad);
+        let radius = Math.abs(depth) * Math.tan(halfAngleRad);
         return radius;
     }
 
-    // End Mill, Drill, Ball Nose: constant radius
+    // Ball Nose bit: spherical geometry
+    // Sphere tip at depth, center at (depth + toolRadius)
+    // Radius at given depth Z: sqrt(toolRadius² - (toolZ + toolRadius - Z)²)
+    if (tool.type === 'Ball Nose') {
+        // Above material (Z >= 0): no cut
+        if (depth >= 0) {
+            return 0;  // At or above surface
+        }
+
+        const toolRadius = tool.diameter / 2;
+        // Distance from sphere center to current Z
+        const distFromCenter = Math.abs(depth + toolRadius);  // How far below the center we are
+
+        // If we're below the sphere, radius = 0
+        if (distFromCenter > toolRadius) {
+            return 0;
+        }
+
+        // Sphere equation: distXY² + distFromCenter² = toolRadius²
+        // Solving for distXY: distXY = sqrt(toolRadius² - distFromCenter²)
+        const radiusSq = (toolRadius * toolRadius) - (distFromCenter * distFromCenter);
+        const radius = Math.sqrt(Math.max(0, radiusSq));  // max(0) prevents NaN from rounding errors
+        return radius;
+    }
+
+    // End Mill, Drill, and other tools above material (Z >= 0)
+    if (depth >= 0) {
+        return 0.5;  // Small rapid circle
+    }
+
+    // End Mill, Drill, and other tools: constant radius
     const radius = tool.diameter / 2;
     return radius;
 }
 
 /**
- * Execute a noop command (tool change, spindle, etc)
- * @param {number} lineIndex - Index of the G-code line
- */
-function executeNoop(lineIndex) {
-    // Update tool if changed
-    if (simulation2D.toolByLine[lineIndex]) {
-        simulation2D.currentTool = simulation2D.toolByLine[lineIndex];
-    }
-
-    // Calculate elapsed time (noop takes minimal time)
-    simulation2D.lineExecutionTimes[lineIndex] = 0.001;
-    simulation2D.totalElapsedTime += 0.001;
-}
-
-/**
- * Execute a rapid movement (G0)
- * @param {Object} parsed - Parsed G-code line
- * @returns {Promise} Resolves when movement animation is complete
- */
-async function executeRapid(parsed) {
-    // Check if simulation should cancel
-    if (simulation2D.shouldCancel) {
-        return;
-    }
-
-    const to = {
-        x: parsed.x !== null ? parsed.x : simulation2D.toolPosition.x,
-        y: parsed.y !== null ? parsed.y : simulation2D.toolPosition.y,
-        z: parsed.z !== null ? parsed.z : simulation2D.toolPosition.z
-    };
-
-    // Rapid movements use a default high feed rate if not specified
-    const feedRate = parsed.feedRate || 3000; // Default rapid feed
-
-    // Generate interpolated points
-    const points = interpolatePoints(simulation2D.toolPosition, to, feedRate);
-
-    // Calculate total movement time
-    const distance = Math.sqrt(
-        Math.pow(to.x - simulation2D.toolPosition.x, 2) +
-        Math.pow(to.y - simulation2D.toolPosition.y, 2) +
-        Math.pow(to.z - simulation2D.toolPosition.z, 2)
-    );
-    const totalMoveTime = (distance / feedRate) * 60; // seconds
-
-    simulation2D.lineExecutionTimes[simulation2D.currentLineIndex] = totalMoveTime;
-    simulation2D.totalElapsedTime += totalMoveTime;
-
-    // Add points one at a time with proper delays based on feed rate
-    for (let i = 0; i < points.length; i++) {
-        // Check if should cancel at each iteration
-        if (simulation2D.shouldCancel || !simulation2D.isRunning) {
-            simulation2D.toolPosition = to;  // Update position before returning
-            return;
-        }
-
-        // Wait if paused (also check cancel flag inside the pause loop)
-        while (simulation2D.isPaused && !simulation2D.shouldCancel) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        // Check cancel again after exiting pause loop
-        if (simulation2D.shouldCancel || !simulation2D.isRunning) {
-            simulation2D.toolPosition = to;
-            return;
-        }
-
-        const pt = points[i];
-        const toolRadius = 0.5; // Small visualization for rapid moves
-
-        materialRemovalPoints.push({
-            x: pt.x * viewScale + origin.x,              // Convert MM to world coords
-            y: origin.y - pt.y * viewScale,              // Convert MM to world coords
-            z: pt.z,
-            radius: toolRadius * viewScale,   // Convert to world coords
-            tool: simulation2D.currentTool,
-            isRapid: true  // Mark as rapid movement
-        });
-
-        // Trigger canvas redraw
-        redraw();
-
-        // Calculate delay between this point and next
-        // Total time distributed evenly across all point intervals
-        if (i < points.length - 1) {
-            // Validate speed multiplier
-            let speed = simulation2D.speed;
-            if (!speed || speed <= 0 || isNaN(speed)) {
-                console.warn('Invalid speed multiplier in executeRapid:', speed, '- using 1.0');
-                speed = 1.0;
-            }
-            const delayMs = (totalMoveTime / (points.length - 1)) / speed * 1000;
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-
-    // Update tool position
-    simulation2D.toolPosition = to;
-}
-
-/**
- * Execute a cutting movement (G1)
- * @param {Object} parsed - Parsed G-code line
- * @returns {Promise} Resolves when movement animation is complete
- */
-async function executeCut(parsed) {
-    // Check if simulation should cancel
-    if (simulation2D.shouldCancel) {
-        return;
-    }
-
-    const to = {
-        x: parsed.x !== null ? parsed.x : simulation2D.toolPosition.x,
-        y: parsed.y !== null ? parsed.y : simulation2D.toolPosition.y,
-        z: parsed.z !== null ? parsed.z : simulation2D.toolPosition.z
-    };
-
-    // Use specified feed rate or default
-    const feedRate = parsed.feedRate || 500; // Default cut feed
-
-    // Generate interpolated points
-    const points = interpolatePoints(simulation2D.toolPosition, to, feedRate);
-
-    // Calculate total movement time
-    const distance = Math.sqrt(
-        Math.pow(to.x - simulation2D.toolPosition.x, 2) +
-        Math.pow(to.y - simulation2D.toolPosition.y, 2) +
-        Math.pow(to.z - simulation2D.toolPosition.z, 2)
-    );
-    const totalMoveTime = (distance / feedRate) * 60; // seconds
-
-    simulation2D.lineExecutionTimes[simulation2D.currentLineIndex] = totalMoveTime;
-    simulation2D.totalElapsedTime += totalMoveTime;
-
-    // Add points one at a time with proper delays based on feed rate
-    for (let i = 0; i < points.length; i++) {
-        // Check if should cancel at each iteration
-        if (simulation2D.shouldCancel || !simulation2D.isRunning) {
-            simulation2D.toolPosition = to;  // Update position before returning
-            return;
-        }
-
-        // Wait if paused (also check cancel flag inside the pause loop)
-        while (simulation2D.isPaused && !simulation2D.shouldCancel) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        // Check cancel again after exiting pause loop
-        if (simulation2D.shouldCancel || !simulation2D.isRunning) {
-            simulation2D.toolPosition = to;
-            return;
-        }
-
-        const pt = points[i];
-        const toolRadius = getToolCircleRadius(pt.z, simulation2D.currentTool);
-
-        materialRemovalPoints.push({
-            x: pt.x * viewScale + origin.x,              // Convert MM to world coords
-            y: origin.y - pt.y * viewScale,              // Convert MM to world coords
-            z: pt.z,
-            radius: toolRadius * viewScale,   // Convert to world coords
-            tool: simulation2D.currentTool
-        });
-
-        // Trigger canvas redraw
-        redraw();
-
-        // Calculate delay between this point and next
-        // Total time distributed evenly across all point intervals
-        if (i < points.length - 1) {
-            // Validate speed multiplier
-            let speed = simulation2D.speed;
-            if (!speed || speed <= 0 || isNaN(speed)) {
-                console.warn('Invalid speed multiplier in executeCut:', speed, '- using 1.0');
-                speed = 1.0;
-            }
-            const delayMs = (totalMoveTime / (points.length - 1)) / speed * 1000;
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-
-    // Update tool position
-    simulation2D.toolPosition = to;
-}
-
-/**
- * Draw material removal as slots (connecting circles) on canvas
+ * Draw material removal from precomputed points
+ * Draws dashed red lines for rapids, brown slots for cuts
+ * Draws only from line 0 to currentLineIndex
  */
 function drawMaterialRemovalCircles() {
     if (!ctx) return;
 
-    if (materialRemovalPoints.length === 0) {
+    // If no precomputed points, nothing to draw
+    if (!simulation2D.precomputedPoints || simulation2D.precomputedPoints.length === 0) {
         return;
     }
 
     ctx.save();
-    ctx.globalCompositeOperation = 'multiply';
+    
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Build segments of consecutive cutting and rapid points
-    // This preserves ordering and prevents drawing strokes across rapid sections
-    const segments = [];
-    let currentSegment = [];
-    let currentType = null;  // 'cutting' or 'rapid'
+    // Get the current line index (how far we've progressed through G-code)
+    // During animation, include the current line being interpolated (even if just started)
+    let endLineIndex = simulation2D.currentLineIndex;
+    if (simulation2D.isRunning) {
+        endLineIndex = simulation2D.currentLineIndex + 1;
+    }
 
-    for (let i = 0; i < materialRemovalPoints.length; i++) {
-        const point = materialRemovalPoints[i];
-        const pointType = point.isRapid ? 'rapid' : 'cutting';
 
-        // If type changed, save current segment and start new one
-        if (currentType !== null && pointType !== currentType) {
-            segments.push({ type: currentType, points: currentSegment });
-            currentSegment = [point];
-            currentType = pointType;
+    // Draw segments from 0 to current line
+    let prevPoint = null;
+    let currentSegmentType = null;
+    let segmentPoints = [];
+
+    for (let i = 0; i < endLineIndex && i < simulation2D.precomputedPoints.length; i++) {
+        const point = simulation2D.precomputedPoints[i];
+        const pointType = point.moveType;
+
+
+
+        // For the currently animating segment, interpolate the endpoint based on progress
+        let drawPoint;
+        if (i === simulation2D.currentLineIndex && simulation2D.isRunning && simulation2D.currentLineProgress < 1.0) {
+            // Interpolate endpoint based on current progress (0 to 1)
+            const t = simulation2D.currentLineProgress;
+            const interpX = point.startX + (point.x - point.startX) * t;
+            const interpY = point.startY + (point.y - point.startY) * t;
+            const interpZ = point.startZ + (point.z - point.startZ) * t;
+
+            // Recalculate radius for interpolated Z (important for V-bits)
+            let interpRadius = point.toolRadius;
+            if (point.tool && point.tool.angle && point.tool.angle > 0) {
+                // V-bit: recalculate radius based on interpolated Z
+                interpRadius = getToolCircleRadius(interpZ, point.tool) * viewScale;
+            }
+
+            drawPoint = {
+                x: interpX,
+                y: interpY,
+                z: interpZ,
+                radius: interpRadius,
+                moveType: point.moveType,
+                operation: point.operation,
+                frustumData: point.frustumData,
+                isFrustum: point.isFrustum
+            };
         } else {
-            currentSegment.push(point);
-            currentType = pointType;
+            // Completed segment - use full endpoint
+            drawPoint = {
+                x: point.x,
+                y: point.y,
+                z: point.z,
+                radius: point.toolRadius,
+                moveType: point.moveType,
+                operation: point.operation,
+                frustumData: point.frustumData,
+                isFrustum: point.isFrustum
+            };
         }
-    }
-    // Add final segment
-    if (currentSegment.length > 0) {
-        segments.push({ type: currentType, points: currentSegment });
+
+        // If type changed, draw and reset segment
+        if (currentSegmentType !== null && pointType !== currentSegmentType) {
+            // Draw the previous segment
+            if (currentSegmentType === 'rapid') {
+                drawDashedSegment(segmentPoints);
+            } else if (currentSegmentType === 'cut') {
+                drawCutSegment(segmentPoints);
+            }
+            segmentPoints = [];
+        }
+
+        // Add the endpoint of this segment
+        segmentPoints.push(drawPoint);
+
+        currentSegmentType = pointType;
     }
 
-    // Draw each segment
-    for (const segment of segments) {
-        if (segment.type === 'rapid') {
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';  // Red for rapids
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
-            drawDashedPath(segment.points);
-            ctx.setLineDash([]);  // Clear line dash
-        } else {
-            ctx.strokeStyle = 'rgba(139, 69, 19, 0.3)';  // Brown for cutting
-            drawPointSlot(segment.points);
+    // Draw final segment (including partially drawn current segment)
+    if (segmentPoints.length > 0) {
+        if (currentSegmentType === 'rapid') {
+            drawDashedSegment(segmentPoints);
+        } else if (currentSegmentType === 'cut') {
+            drawCutSegment(segmentPoints);
         }
     }
 
@@ -623,153 +709,238 @@ function drawMaterialRemovalCircles() {
 }
 
 /**
- * Helper function to draw dashed lines through points
- * @param {Array} points - Array of points to connect with dashed lines
+ * Draw a rapid movement segment as dashed red line
  */
-function drawDashedPath(points) {
+function drawDashedSegment(points) {
     if (points.length < 2) return;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';  // Red for rapids
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
 
-    ctx.beginPath();
     const firstPt = worldToScreen(points[0].x, points[0].y);
+    ctx.beginPath();
     ctx.moveTo(firstPt.x, firstPt.y);
 
     for (let i = 1; i < points.length; i++) {
         const pt = worldToScreen(points[i].x, points[i].y);
         ctx.lineTo(pt.x, pt.y);
     }
-
     ctx.stroke();
+    ctx.setLineDash([]);  // Clear line dash
 }
 
 /**
- * Helper function to draw a continuous slot through points
- * Draws individual strokes between each pair of points to preserve width throughout
- * @param {Array} points - Array of points to connect
+ * Draw a frustum shape (tapered tool geometry) between two circles
+ * Used when Z changes and tool radius varies significantly
+ *
+ * @param {Object} frustumData - Precomputed frustum geometry from calculateFrustumGeometry()
+ * @param {string} color - Fill color (e.g., 'rgba(139, 69, 19, 0.3)')
  */
-function drawPointSlot(points) {
-    if (points.length === 0) return;
+function drawFrustumShape(frustumData, color) {
+    if (!frustumData) return;
 
-    // Draw stroke between each pair of consecutive points
-    for (let i = 0; i < points.length - 1; i++) {
-        const fromPoint = points[i];
-        const toPoint = points[i + 1];
+    const { x1, y1, r1, arc1Start, arc1End, t1p1, t2p1, x2, y2, r2, arc2Start, arc2End, t1p2, t2p2 } = frustumData;
 
-        const fromPt = worldToScreen(fromPoint.x, fromPoint.y);
-        const toPt = worldToScreen(toPoint.x, toPoint.y);
+    // Convert to screen coordinates
+    const c1 = worldToScreen(x1, y1);
+    const c2 = worldToScreen(x2, y2);
+    const tp1p1 = worldToScreen(t1p1.x, t1p1.y);
+    const tp2p1 = worldToScreen(t2p1.x, t2p1.y);
+    const tp1p2 = worldToScreen(t1p2.x, t1p2.y);
+    const tp2p2 = worldToScreen(t2p2.x, t2p2.y);
 
-        // Set line width based on current point's radius
-        ctx.lineWidth = fromPoint.radius * 2 * zoomLevel;
+    // Scale radii by zoom level
+    const r1Screen = r1 * zoomLevel;
+    const r2Screen = r2 * zoomLevel;
 
-        // Draw stroke from this point to next
-        ctx.beginPath();
-        ctx.moveTo(fromPt.x, fromPt.y);
-        ctx.lineTo(toPt.x, toPt.y);
-        ctx.stroke();
+    // Check if this is a cone (one radius near zero) or a frustum
+    const r1IsZero = r1Screen < 0.5;  // Near-zero radius becomes a point
+    const r2IsZero = r2Screen < 0.5;
+
+    // Set rendering context
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = color;
+
+    // Build the shape path
+    ctx.beginPath();
+
+    if (r1IsZero && !r2IsZero) {
+        // Cone with apex at circle 1: arc on circle 2 (curving outward), then lines to apex and back
+        ctx.moveTo(tp2p2.x, tp2p2.y);  // Start at lower tangent
+        ctx.arc(c2.x, c2.y, r2Screen, arc2End, arc2Start, false);  // Arc from lower to upper tangent (counterclockwise/outward)
+        ctx.lineTo(c1.x, c1.y);  // Line to apex
+        ctx.lineTo(tp2p2.x, tp2p2.y);  // Line back to start
+    } else if (r2IsZero && !r1IsZero) {
+        // Cone with apex at circle 2: arc on circle 1 (curving outward), then lines to apex and back
+        ctx.moveTo(tp2p1.x, tp2p1.y);
+        ctx.arc(c1.x, c1.y, r1Screen, arc1Start, arc1End, true);  // Arc from lower to upper tangent (counterclockwise)
+        ctx.lineTo(c2.x, c2.y);  // Line to apex
+        ctx.lineTo(tp2p1.x, tp2p1.y);  // Line back to start
+    } else if (r1IsZero && r2IsZero) {
+        // Both points (degenerate line) - just skip
+        return;
+    } else {
+        // Normal frustum: arcs on both circles connected by tangent lines
+        ctx.moveTo(tp2p1.x, tp2p1.y);
+        ctx.arc(c1.x, c1.y, r1Screen, arc2End, arc1End, false);
+        ctx.lineTo(tp1p2.x, tp1p2.y);
+        ctx.arc(c2.x, c2.y, r2Screen, arc2Start, arc1Start, true);
+        ctx.lineTo(tp2p1.x, tp2p1.y);
     }
 
-    // Draw endpoint circle to ensure clean termination with rounded cap
-    const lastPoint = points[points.length - 1];
-    const lastPt = worldToScreen(lastPoint.x, lastPoint.y);
-    ctx.beginPath();
-    ctx.arc(lastPt.x, lastPt.y, lastPoint.radius * zoomLevel, 0, 2 * Math.PI);
-    ctx.fillStyle = ctx.strokeStyle;
+    // Fill the shape
     ctx.fill();
 }
 
 /**
- * Main simulation animation loop
+ * Draw a cutting movement segment as brown slots
+ * Handles both simple endpoints and interpolated points for smooth radius transitions
  */
-async function runSimulation2D() {
-    if (!simulation2D.isRunning) {
-        return;
-    }
+function drawCutSegment(points) {
+    if (points.length < 1) return;
 
-    // Check if we should cancel (we're seeking)
-    if (simulation2D.shouldCancel) {
+    // Setup rendering context for strokes
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(139, 69, 19, 0.4)';
+
+    // Process each point: either draw frustum or stroke to previous point
+    for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+
+        // If this point has precomputed frustum geometry, draw it
+        if (point.isFrustum && point.frustumData) {
+            drawFrustumShape(point.frustumData, 'rgba(139, 69, 19, 0.3)');
+        }
+        // Otherwise, draw a stroke from previous point to this point
+        else if (i > 0) {
+            const fromPoint = points[i - 1];
+            const fromPt = worldToScreen(fromPoint.x, fromPoint.y);
+            const toPt = worldToScreen(point.x, point.y);
+
+            // Use minimum radius of the two points to avoid overdrawing when radius changes
+            const minRadius = Math.min(fromPoint.radius || 0, point.radius || 0);
+            ctx.lineWidth = Math.max(1, minRadius * 2 * zoomLevel);
+
+            ctx.beginPath();
+            ctx.moveTo(fromPt.x, fromPt.y);
+            ctx.lineTo(toPt.x, toPt.y);
+            ctx.stroke();
+        }
+    }
+}
+
+/**
+ * Main simulation animation loop (REFACTORED)
+ * Simplified: increments line number based on elapsed time
+ * Animation rendering: interpolates within current segment for smooth visualization
+ */
+function runSimulation2D() {
+    if (!simulation2D.isRunning || simulation2D.isPaused) {
+        // Still schedule next frame even if paused (for resume)
+        if (simulation2D.isRunning && simulation2D.isPaused) {
+            simulation2D.animationFrameId = requestAnimationFrame(runSimulation2D);
+        }
         return;
     }
 
     // Check if we've reached the end
-    if (simulation2D.currentLineIndex >= simulation2D.gcodeLines.length) {
+    if (simulation2D.currentLineIndex >= simulation2D.precomputedPoints.length) {
         finishSimulation2D();
         return;
     }
 
-    // Get current line
-    const line = simulation2D.gcodeLines[simulation2D.currentLineIndex];
-
-    if (!line) {
-        console.error('No line at index', simulation2D.currentLineIndex);
-        stopSimulation2D();
+    // Get current segment's precomputed point
+    const currentPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
+    if (!currentPoint) {
+        finishSimulation2D();
         return;
     }
 
-    // Debug: verify parseGcodeLine function exists
-    if (typeof parseGcodeLine !== 'function') {
-        console.error('FATAL: parseGcodeLine is not a function!', typeof parseGcodeLine);
-        stopSimulation2D();
-        return;
+    // Calculate elapsed time since last frame for accurate animation
+    const now = Date.now();
+    const lastTime = simulation2D.lastFrameTime || now;
+    const elapsedMs = now - lastTime;
+    simulation2D.lastFrameTime = now;
+
+    // Get segment duration in milliseconds and apply speed multiplier
+    const segmentDurationMs = (currentPoint.moveTime * 1000) / simulation2D.speed;
+
+    // Update progress within segment
+    if (segmentDurationMs > 0) {
+        simulation2D.currentLineProgress += elapsedMs / segmentDurationMs;
+    } else {
+        // Zero-duration segment (noop), skip immediately
+        simulation2D.currentLineProgress = 1.0;
     }
 
-    let parsed;
-    try {
-        parsed = parseGcodeLine(line);
-    } catch (error) {
-        console.error('Exception parsing G-code line', simulation2D.currentLineIndex, ':', line, error);
-        stopSimulation2D();
-        return;
-    }
-
-    if (!parsed) {
-        console.error('parseGcodeLine returned falsy for line', simulation2D.currentLineIndex, ':', line, 'parsed=', parsed);
-        stopSimulation2D();
-        return;
-    }
-
-    // Dispatch execution based on command type
-    try {
-        if (parsed.isRapid) {
-            // G0 - Rapid movement
-            await executeRapid(parsed);
-        } else if (parsed.isCut) {
-            // G1 - Feed movement (cutting)
-            await executeCut(parsed);
-        } else {
-            // All other commands (M commands, G-code that doesn't move)
-            executeNoop(simulation2D.currentLineIndex);
+    // If segment complete, advance to next line
+    if (simulation2D.currentLineProgress >= 1.0) {
+        // Accumulate the moveTime from the completed segment (real time, not affected by playback speed)
+        const completedPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
+        if (completedPoint && completedPoint.moveTime > 0) {
+            simulation2D.totalElapsedTime += completedPoint.moveTime;
         }
-    } catch (error) {
-        console.error('Error executing G-code line', simulation2D.currentLineIndex, ':', error);
+
+        simulation2D.currentLineIndex++;
+        simulation2D.currentLineProgress = 0;
+        simulation2D.lastFrameTime = Date.now();
+
+        // Check if we've finished all lines
+        if (simulation2D.currentLineIndex >= simulation2D.precomputedPoints.length) {
+            finishSimulation2D();
+            return;
+        }
     }
 
-    // Update control display
+    // Update UI displays (line number, elapsed time, feed rate)
     updateSimulation2DDisplay();
-        	// Update G-code viewer highlight
-	if (typeof gcodeView !== 'undefined' && gcodeView) {
-		gcodeView.setCurrentLine(simulation2D.currentLineIndex);
-	}
 
-    // Trigger canvas redraw
+    // Update G-code viewer highlight (convert 0-indexed to 1-indexed)
+    if (typeof gcodeView !== 'undefined' && gcodeView) {
+        gcodeView.setCurrentLine(simulation2D.currentLineIndex + 1);
+    }
+
+    // Trigger canvas redraw (draws with interpolation)
     redraw();
 
-    // Move to next line
-    simulation2D.currentLineIndex++;
-
-    // Schedule next iteration immediately (timing is now handled per-point)
-    // Use minimal delay to allow UI updates
-    simulation2D.animationFrameId = setTimeout(() => {
-        runSimulation2D();
-    }, 0);
+    // Schedule next frame
+    simulation2D.animationFrameId = requestAnimationFrame(runSimulation2D);
 }
 
 /**
  * Start the simulation
  */
 function startSimulation2D() {
+    // Check if we're resuming from pause
+    if (simulation2D.isRunning && simulation2D.isPaused) {
+        // Resume from pause
+        simulation2D.isPaused = false;
+        simulation2D.lastFrameTime = null;  // Reset timing
+
+        // Re-enable pause button when resuming
+        const pauseBtn = document.getElementById('pause-simulation');
+        if (pauseBtn) {
+            pauseBtn.disabled = false;
+        }
+
+        // Schedule animation frame if not already scheduled
+        if (!simulation2D.animationFrameId) {
+            simulation2D.animationFrameId = requestAnimationFrame(runSimulation2D);
+        }
+
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+
+        return;
+    }
+
     if (simulation2D.isRunning) {
         return; // Already running
     }
 
+    // Start a fresh simulation
     // Always setup fresh (ensures we have latest G-code)
     if (!setupSimulation2D()) {
         alert('Cannot start simulation: ' + (
@@ -780,16 +951,13 @@ function startSimulation2D() {
         return;
     }
 
-    // Clear old points and reset for new simulation
-    materialRemovalPoints = [];
     simulation2D.currentLineIndex = 0;
-    simulation2D.shouldCancel = false;  // Clear cancel flag when starting
+    simulation2D.currentLineProgress = 0;
+    simulation2D.lastFrameTime = null;  // Will be set on first frame
+    simulation2D.totalElapsedTime = 0;  // Reset elapsed time for fresh simulation
 
     simulation2D.isRunning = true;
     simulation2D.isPaused = false;
-    simulationState.isRunning = true;  // Update legacy stub
-    simulationState.isPaused = false;
-    simulation2D.startTime = Date.now();
 
     // Update button states: disable start, enable pause and stop
     const startBtn = document.getElementById('start-simulation');
@@ -798,9 +966,16 @@ function startSimulation2D() {
     const progressSlider = document.getElementById('simulation-step');
 
     if (startBtn) startBtn.disabled = true;
-    if (pauseBtn) pauseBtn.disabled = false;
+    if (pauseBtn) {
+        pauseBtn.disabled = false;
+        pauseBtn.innerHTML = `<i data-lucide="pause"></i>`;
+    }
     if (stopBtn) stopBtn.disabled = false;
     // Keep slider enabled so user can seek at any time
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+    }
 
     runSimulation2D();
 }
@@ -809,49 +984,24 @@ function startSimulation2D() {
  * Pause the simulation
  */
 function pauseSimulation2D() {
-    if (!simulation2D.isRunning) {
-        return;
+    if (!simulation2D.isRunning || simulation2D.isPaused) {
+        return;  // Can't pause if not running or already paused
     }
 
-    simulation2D.isPaused = !simulation2D.isPaused;
-    simulationState.isPaused = simulation2D.isPaused;  // Update legacy stub
+    simulation2D.isPaused = true;
 
-    // Update button text and states
+    // Update button states when paused
+    const startBtn = document.getElementById('start-simulation');
     const pauseBtn = document.getElementById('pause-simulation');
 
+    if (startBtn) {
+        startBtn.disabled = false;  // Enable play button so user can resume
+    }
     if (pauseBtn) {
-        pauseBtn.textContent = simulation2D.isPaused ? 'Play' : 'Pause';
-        pauseBtn.innerHTML = `<i data-lucide="${simulation2D.isPaused ? 'play' : 'pause'}"></i>`;
+        pauseBtn.disabled = true;   // Disable pause button when paused
     }
 
     // Slider is always enabled - user can seek at any time
-
-    // When pausing, clear any pending timeout so the next line doesn't start
-    if (simulation2D.isPaused && simulation2D.animationFrameId) {
-        clearTimeout(simulation2D.animationFrameId);
-        simulation2D.animationFrameId = null;
-    }
-
-    // When resuming from pause
-    if (!simulation2D.isPaused) {
-        const wasSeekCancel = simulation2D.shouldCancel;  // Check if we seeked
-        simulation2D.shouldCancel = false;  // Clear the cancel flag
-        simulation2D.isRunning = true;      // Resume execution
-
-        // Only call runSimulation2D() if we seeked (shouldCancel was true)
-        // If we just paused mid-line, the async will wake up naturally
-        if (wasSeekCancel && typeof runSimulation2D === 'function') {
-            runSimulation2D();
-        }
-    }
-
-    // Reload lucide icons after changing them
-    if (typeof lucide !== 'undefined' && lucide.createIcons) {
-        lucide.createIcons();
-    }
-
-    // When just resuming (not after a seek), the async executeRapid/executeCut functions
-    // will detect isPaused=false and continue from where they were waiting
 }
 
 /**
@@ -862,21 +1012,19 @@ function pauseSimulation2D() {
 function finishSimulation2D() {
     simulation2D.isRunning = false;
     simulation2D.isPaused = true;
-    simulationState.isRunning = false;
-    simulationState.isPaused = true;
 
     // Keep G-code viewer visible so user can review the completed simulation
     // Do NOT hide it - only hide when user explicitly clicks stop
 
-    // Update button states: enable start, show play icon on pause button
+    // Update button states: enable start, disable pause
     const startBtn = document.getElementById('start-simulation');
     const pauseBtn = document.getElementById('pause-simulation');
     const stopBtn = document.getElementById('stop-simulation');
 
     if (startBtn) startBtn.disabled = false;
     if (pauseBtn) {
-        pauseBtn.disabled = false;  // Enable pause button so user can see play icon
-        pauseBtn.innerHTML = `<i data-lucide="play"></i>`;
+        pauseBtn.disabled = true;  // Disable pause button at end of simulation
+        pauseBtn.innerHTML = `<i data-lucide="pause"></i>`;
     }
     if (stopBtn) stopBtn.disabled = false;
     // Slider always stays enabled
@@ -896,25 +1044,18 @@ function finishSimulation2D() {
  * Stop the simulation
  */
 function stopSimulation2D() {
-    // Signal any pending async operations to stop
-    simulation2D.shouldCancel = true;
-
     simulation2D.isRunning = false;
     simulation2D.isPaused = false;
-    simulationState.isRunning = false;  // Update legacy stub
-    simulationState.isPaused = false;
 
+    // Cancel any pending animation frames
     if (simulation2D.animationFrameId) {
-        clearTimeout(simulation2D.animationFrameId);
+        cancelAnimationFrame(simulation2D.animationFrameId);
         simulation2D.animationFrameId = null;
     }
 
     if (typeof hideGcodeViewerPanel === 'function') {
         hideGcodeViewerPanel();
     }
-
-    // Clear material removal points when stopping
-    materialRemovalPoints = [];
 
     // Update button states: enable start, disable pause and stop
     const startBtn = document.getElementById('start-simulation');
@@ -935,9 +1076,7 @@ function stopSimulation2D() {
     }
 
     // Reset state
-    // Tool position should be in G-code MM coordinates, starting at 0,0,0
     simulation2D.currentLineIndex = 0;
-    simulation2D.toolPosition = { x: 0, y: 0, z: 0 };
     simulation2D.totalElapsedTime = 0;
 
     updateSimulation2DDisplay();
@@ -946,157 +1085,75 @@ function stopSimulation2D() {
 
 /**
  * Set simulation to a specific line number (seeking)
- * Replays from start to target line, regenerating material removal points
- * @param {number} targetLineIndex - 0-based index into gcodeLines
+ * NEW: O(1) operation - just sets the current line, doesn't rebuild points
+ * Material removal is drawn from precomputed points based on currentLineIndex
+ *
+ * @param {number} targetLineIndex - 1-indexed line number (from gcode viewer)
  */
 function setSimulation2DLineNumber(targetLineIndex) {
+    // Convert from 1-indexed (from gcode viewer) to 0-indexed (internal storage)
+    const zeroIndexedLine = targetLineIndex - 1;
+
     // Ensure setup is done
-    if (!simulation2D.gcodeLines || simulation2D.gcodeLines.length === 0) {
+    if (simulation2D.precomputedPoints.length === 0) {
         if (!setupSimulation2D()) {
             console.error('Failed to setup simulation for seeking');
             return;
         }
     }
 
-    // Validate
-    if (targetLineIndex < 0 || targetLineIndex >= simulation2D.gcodeLines.length) {
-        return;
-    }
+    // Clamp to valid range
+    const clampedLine = Math.max(0, Math.min(zeroIndexedLine, simulation2D.gcodeLines.length - 1));
 
     // Stop any running/pending operations and pause the simulation
-    // This handles both slider and gcode viewer clicks
-    simulation2D.shouldCancel = true;  // Signal pending operations to stop
     simulation2D.isRunning = false;    // Stop the main loop
     simulation2D.isPaused = true;      // Put into paused state so user can resume
 
+    // Cancel any pending animation frame
     if (simulation2D.animationFrameId) {
-        clearTimeout(simulation2D.animationFrameId);
+        cancelAnimationFrame(simulation2D.animationFrameId);
         simulation2D.animationFrameId = null;
     }
 
-    // CRITICAL: Clear material removal points BEFORE regenerating
-    materialRemovalPoints = [];
-
-    // Reset state
-    // Tool position should be in G-code MM coordinates, starting at 0,0,0
-    simulation2D.currentLineIndex = 0;
-    simulation2D.toolPosition = { x: 0, y: 0, z: 0 };
-    simulation2D.totalElapsedTime = 0;
-    simulation2D.currentTool = null;
-    simulation2D.lineExecutionTimes = [];
-
-    // Replay from start to target line (synchronous, regenerating material removal points)
-    for (let i = 0; i < targetLineIndex; i++) {
-        const line = simulation2D.gcodeLines[i];
-        const parsed = parseGcodeLine(line);
-
-        // Update tool
-        if (simulation2D.toolByLine[i]) {
-            simulation2D.currentTool = simulation2D.toolByLine[i];
-        }
-
-        // Execute movement and generate points
-        if (parsed.isRapid) {
-            const to = {
-                x: parsed.x !== null ? parsed.x : simulation2D.toolPosition.x,
-                y: parsed.y !== null ? parsed.y : simulation2D.toolPosition.y,
-                z: parsed.z !== null ? parsed.z : simulation2D.toolPosition.z
-            };
-
-            const feedRate = parsed.feedRate || 3000;
-            const points = interpolatePoints(simulation2D.toolPosition, to, feedRate);
-
-            const distance = Math.sqrt(
-                Math.pow(to.x - simulation2D.toolPosition.x, 2) +
-                Math.pow(to.y - simulation2D.toolPosition.y, 2) +
-                Math.pow(to.z - simulation2D.toolPosition.z, 2)
-            );
-            const moveTime = (distance / feedRate) * 60;
-
-            simulation2D.lineExecutionTimes[i] = moveTime;
-            simulation2D.totalElapsedTime += moveTime;
-
-            // Generate rapid movement points (no material removal, just visualization)
-            for (let j = 0; j < points.length; j++) {
-                const pt = points[j];
-                materialRemovalPoints.push({
-                    x: pt.x * viewScale + origin.x,
-                    y: origin.y - pt.y * viewScale,
-                    z: pt.z,
-                    radius: (0.5) * viewScale,
-                    tool: simulation2D.currentTool,
-                    isRapid: true  // Mark as rapid movement
-                });
-            }
-
-            simulation2D.toolPosition = to;
-        } else if (parsed.isCut) {
-            const to = {
-                x: parsed.x !== null ? parsed.x : simulation2D.toolPosition.x,
-                y: parsed.y !== null ? parsed.y : simulation2D.toolPosition.y,
-                z: parsed.z !== null ? parsed.z : simulation2D.toolPosition.z
-            };
-
-            const feedRate = parsed.feedRate || 500;
-            const points = interpolatePoints(simulation2D.toolPosition, to, feedRate);
-
-            const distance = Math.sqrt(
-                Math.pow(to.x - simulation2D.toolPosition.x, 2) +
-                Math.pow(to.y - simulation2D.toolPosition.y, 2) +
-                Math.pow(to.z - simulation2D.toolPosition.z, 2)
-            );
-            const moveTime = (distance / feedRate) * 60;
-
-            simulation2D.lineExecutionTimes[i] = moveTime;
-            simulation2D.totalElapsedTime += moveTime;
-
-            // Generate cutting movement points with material removal
-            for (let j = 0; j < points.length; j++) {
-                const pt = points[j];
-                const toolRadius = getToolCircleRadius(pt.z, simulation2D.currentTool);
-                materialRemovalPoints.push({
-                    x: pt.x * viewScale + origin.x,
-                    y: origin.y - pt.y * viewScale,
-                    z: pt.z,
-                    radius: toolRadius * viewScale,
-                    tool: simulation2D.currentTool
-                });
-            }
-
-            simulation2D.toolPosition = to;
-        } else {
-            // Noop
-            simulation2D.lineExecutionTimes[i] = 0.001;
-            simulation2D.totalElapsedTime += 0.001;
-        }
-    }
-
-    // Set current line to target
-    simulation2D.currentLineIndex = targetLineIndex;
+    // Set current line and reset progress within segment
+    simulation2D.currentLineIndex = clampedLine;
+    simulation2D.currentLineProgress = 0;  // Start at beginning of segment for interpolation
 
     // Update display
     updateSimulation2DDisplay();
 
-    redraw();
+    // Update G-code viewer highlight (convert 0-indexed to 1-indexed)
+    if (typeof gcodeView !== 'undefined' && gcodeView) {
+        gcodeView.setCurrentLine(simulation2D.currentLineIndex + 1);
+    }
+
+    // Trigger redraw (will draw up to currentLineIndex)
+
 
     // Always leave in paused state after seeking
     // User will click resume (the play button) to continue
-    // IMPORTANT: Set isRunning = true so pauseSimulation2D() can toggle the pause state
     simulation2D.isRunning = true;
     simulation2D.isPaused = true;
 
-    // The pause button will show the play icon
+    // Update button states - same as pauseSimulation2D()
+    const startBtn = document.getElementById('start-simulation');
     const pauseBtn = document.getElementById('pause-simulation');
-    if (pauseBtn) {
-        pauseBtn.disabled = false;
-        pauseBtn.innerHTML = `<i data-lucide="play"></i>`;
+
+    if (startBtn) {
+        startBtn.disabled = false;  // Enable play button so user can resume
     }
-    // Slider is always enabled so user can seek anytime
+    if (pauseBtn) {
+        pauseBtn.disabled = true;   // Disable pause button when paused
+        pauseBtn.innerHTML = `<i data-lucide="pause"></i>`;  // Keep pause icon
+    }
 
     // Reload lucide icons after changing them
     if (typeof lucide !== 'undefined' && lucide.createIcons) {
         lucide.createIcons();
     }
+
+    redraw();
+
 }
 
 /**

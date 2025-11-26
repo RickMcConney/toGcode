@@ -654,9 +654,9 @@ function redraw() {
 	// DEBUG: Draw tab bounding boxes for visualization
 	//drawTabBoundingBoxes();
 
-	// Draw material removal circles for NEW 2D simulation
-	// Draw as long as there are points (persists after simulation ends)
-	if (typeof materialRemovalPoints !== 'undefined' && materialRemovalPoints.length > 0) {
+	// Draw material removal circles for 2D simulation
+	// Draw if precomputed points exist and simulation has been set up
+	if (typeof simulation2D !== 'undefined' && simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
 		drawMaterialRemovalCircles();
 	}
 

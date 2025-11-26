@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-24";
+var APP_VERSION = "Ver 2025-11-25";
 
 var mode = "Select";
 var options = [];
@@ -92,7 +92,7 @@ function loadGcodeProfiles() {
                 recid: 1,
                 name: 'GRBL',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
-                endGcode: 'M5\nG0 Z5',
+                endGcode: 'G0 Z5',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
@@ -106,7 +106,7 @@ function loadGcodeProfiles() {
                 recid: 2,
                 name: 'FluidNC',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
-                endGcode: 'M5\nG0 Z5',
+                endGcode: 'G0 Z5',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
