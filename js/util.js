@@ -219,6 +219,7 @@ function closestPath(pt, clear) {
 	}
 	if (svgpath) {
 		svgpath.highlight = true;
+		redraw();
 	}
 	return svgpath;
 }

@@ -902,7 +902,7 @@ function runSimulation2D() {
     }
 
     // Trigger canvas redraw (draws with interpolation)
-    redraw();
+    redrawImmediate();
 
     // Schedule next frame
     simulation2D.animationFrameId = requestAnimationFrame(runSimulation2D);
@@ -1037,7 +1037,7 @@ function finishSimulation2D() {
     // Keep material removal points visible - do NOT clear them
     // Keep current state - user can restart by clicking play
     updateSimulation2DDisplay();
-    redraw();
+    redrawImmediate();
 }
 
 /**
@@ -1080,7 +1080,7 @@ function stopSimulation2D() {
     simulation2D.totalElapsedTime = 0;
 
     updateSimulation2DDisplay();
-    redraw();
+    redrawImmediate();
 }
 
 /**
@@ -1152,7 +1152,7 @@ function setSimulation2DLineNumber(targetLineIndex) {
         lucide.createIcons();
     }
 
-    redraw();
+    redrawImmediate();
 
 }
 

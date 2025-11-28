@@ -5,7 +5,7 @@
 class CncController {
   constructor() {
     this.operationManager = new OperationManager();
-    
+
     // Register all operations
     let select = Select.getInstance();
     this.operationManager.registerOperation(select);
@@ -24,6 +24,11 @@ class CncController {
 
     // Set default operation to Select
     this.operationManager.setCurrentOperation('Select');
+
+    // RAF render loop properties
+    this.isDirty = false;
+    this.renderFrameId = null;
+    this.lastFrameTime = 0;
   }
 
   setupEventListeners() {
@@ -84,7 +89,7 @@ class CncController {
       }
 
       this.operationManager.handleMouseEvent('Move', this.canvas, evt);
-      redraw();
+      //redraw();
     });
 
     // Prevent context menu on middle mouse button
@@ -94,8 +99,24 @@ class CncController {
       }
     });
 
+    // Handle document visibility changes (pause RAF when tab hidden)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.pauseRenderLoop();
+      } else {
+        this.resumeRenderLoop();
+      }
+    });
 
- 
+    // Cleanup RAF on page unload
+    window.addEventListener('beforeunload', () => {
+      if (this.renderFrameId) {
+        cancelAnimationFrame(this.renderFrameId);
+      }
+    });
+
+    // Start the RAF render loop
+    this.startRenderLoop();
   }
 
   setMode(mode) {
@@ -107,5 +128,61 @@ class CncController {
   draw() {
     // Draw current operation
     this.operationManager.draw(this.ctx);
+  }
+
+  // RAF Render Loop Methods
+
+  startRenderLoop() {
+    const runRenderLoop = (timestamp) => {
+      this.lastFrameTime = timestamp;
+
+      // Check dirty flag and render if needed
+      if (this.isDirty) {
+        redrawCore();
+        this.isDirty = false;
+      }
+
+      // Schedule next frame
+      this.renderFrameId = requestAnimationFrame(runRenderLoop);
+    };
+
+    // Start the loop
+    this.renderFrameId = requestAnimationFrame(runRenderLoop);
+  }
+
+  pauseRenderLoop() {
+    if (this.renderFrameId) {
+      cancelAnimationFrame(this.renderFrameId);
+      this.renderFrameId = null;
+    }
+  }
+
+  resumeRenderLoop() {
+    if (!this.renderFrameId) {
+      this.startRenderLoop();
+    }
+  }
+
+  setDirty() {
+    this.isDirty = true;
+  }
+}
+
+// Global render system functions
+
+// Initialize controller as global
+var cncController;  // Will be set in initialization
+
+// Global function to mark canvas as needing redraw
+function setDirty() {
+  if (typeof cncController !== 'undefined' && cncController && cncController.setDirty) {
+    cncController.setDirty();
+  }
+}
+
+// Immediate redraw (for special cases like simulation)
+function redrawImmediate() {
+  if (typeof redrawCore === 'function') {
+    redrawCore();
   }
 }

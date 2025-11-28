@@ -284,6 +284,7 @@ class Select extends Operation {
                     }
                 }
             }
+            redraw();
         }
         else {
             // Mouse not down - update hover state

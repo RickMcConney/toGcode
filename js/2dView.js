@@ -631,8 +631,8 @@ function drawOrigin() {
 	ctx.fillText("0", o.x + 2, o.y - 2);
 }
 
-function redraw() {
-
+// Core rendering function (does actual drawing)
+function redrawCore() {
 
 	// The context is reset when the size changes, so get a fresh one.
 	//const ctx = canvas.getContext('2d');
@@ -662,6 +662,11 @@ function redraw() {
 
 	cncController.draw();
 
+}
+
+// Batching wrapper - queues redraw for next RAF frame
+function redraw() {
+	setDirty();
 }
 
 function drawWorkpiece() {
