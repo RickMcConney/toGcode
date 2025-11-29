@@ -23,9 +23,6 @@ var simulation2D = {
     gcodeLines: [],
     currentLineIndex: 0,
 
-    // Tool preprocessing
-    toolByLine: {},
-
     // Precomputed points (new: one point per G-code line)
     precomputedPoints: [],  // Array of {lineNumber, moveType, x, y, z, startX, startY, startZ, feedRate, moveTime, toolRadius, operation, tool}
     currentLineProgress: 0,  // 0 to 1: position within current segment for interpolation
@@ -193,19 +190,6 @@ function setupSimulation2D() {
 
         console.log(`Loaded ${simulation2D.gcodeLines.length} G-code lines`);
 
-        // Preprocess tool changes
-        simulation2D.toolByLine = {};
-
-        for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
-            const line = simulation2D.gcodeLines[i];
-            const toolInfo = extractToolFromComment(line);
-
-            if (toolInfo) {
-
-                simulation2D.toolByLine[i] = toolInfo;
-            }
-        }
-
         // Initialize state
         simulation2D.currentLineIndex = 0;
         simulation2D.totalElapsedTime = 0;
@@ -217,12 +201,6 @@ function setupSimulation2D() {
 
         for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
             const line = simulation2D.gcodeLines[i];
-
-            // Update tool if changed
-            if (simulation2D.toolByLine[i]) {
-                currentToolInfo = simulation2D.toolByLine[i];
-            }
-
             const parsed = parseGcodeLine(line);
 
             // Calculate time for this line
@@ -234,12 +212,15 @@ function setupSimulation2D() {
                     z: parsed.z !== null ? parsed.z : toolPos.z
                 };
 
-                const feedRate = parsed.feedRate || (parsed.isRapid ? 3000 : 500);
-                const distance = Math.sqrt(
-                    Math.pow(to.x - toolPos.x, 2) +
-                    Math.pow(to.y - toolPos.y, 2) +
-                    Math.pow(to.z - toolPos.z, 2)
-                );
+                // Use constants for default feed rates (more efficient than Math.pow)
+                const feedRate = parsed.feedRate || (parsed.isRapid ? DEFAULT_RAPID_FEED : DEFAULT_CUT_FEED);
+
+                // Calculate distance using multiplication instead of Math.pow
+                const dx = to.x - toolPos.x;
+                const dy = to.y - toolPos.y;
+                const dz = to.z - toolPos.z;
+                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
                 lineTime = (distance / feedRate) * 60; // seconds
 
                 // Update position
@@ -270,23 +251,6 @@ function setupSimulation2D() {
     }
 }
 
-function getToolForLineNumber(lineNumber) {
-    // Find the most recent tool that was active at or before this line
-    // With typical 1-2 tool changes, linear search is fast and simple
-    let activeToolInfo = null;
-
-    for (let i in simulation2D.toolByLine) {
-        if (i <= lineNumber) {
-            activeToolInfo = simulation2D.toolByLine[i];
-        } else {
-            // Since array is sorted, we can stop when we exceed the line number
-            break;
-        }
-    }
-
-    return activeToolInfo;
-}
-
 /**
  * Precompute G-code points: one point per G-code line with metadata
  * Stores points in WORLD SPACE (with viewScale and origin applied)
@@ -298,16 +262,31 @@ function getToolForLineNumber(lineNumber) {
 function precomputePoints() {
     const points = [];
     let toolPos = { x: 0, y: 0, z: 0 };  // MM coordinates
+
+    // Extract all tool changes upfront for efficient lookup
+    const toolChanges = [];
+    for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
+        const toolInfo = extractToolFromComment(simulation2D.gcodeLines[i]);
+        if (toolInfo) {
+            toolChanges.push({ lineNumber: i, toolInfo });
+        }
+    }
+
+    // Use pointer to efficiently advance through tool changes
+    let currentToolIndex = 0;
     let currentTool = null;
 
     for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
         const line = simulation2D.gcodeLines[i];
-        const parsed = parseGcodeLine(line);
 
-        // Update tool if changed
-        if (simulation2D.toolByLine[i]) {
-            currentTool = simulation2D.toolByLine[i];
+        // Advance tool pointer when reaching next change
+        while (currentToolIndex < toolChanges.length &&
+               toolChanges[currentToolIndex].lineNumber <= i) {
+            currentTool = toolChanges[currentToolIndex].toolInfo;
+            currentToolIndex++;
         }
+
+        const parsed = parseGcodeLine(line);
 
         let point = {
             lineNumber: i,          // 0-indexed for array access
@@ -333,14 +312,13 @@ function precomputePoints() {
                 z: parsed.z !== null ? parsed.z : toolPos.z
             };
 
-            // Calculate distance and time
-            const distance = Math.sqrt(
-                Math.pow(to.x - toolPos.x, 2) +
-                Math.pow(to.y - toolPos.y, 2) +
-                Math.pow(to.z - toolPos.z, 2)
-            );
+            // Calculate distance and time (using multiplication instead of Math.pow for better performance)
+            const dx = to.x - toolPos.x;
+            const dy = to.y - toolPos.y;
+            const dz = to.z - toolPos.z;
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            const feedRate = parsed.feedRate || (parsed.isRapid ? 3000 : 500);
+            const feedRate = parsed.feedRate || (parsed.isRapid ? DEFAULT_RAPID_FEED : DEFAULT_CUT_FEED);
             const moveTime = distance > 0 ? (distance / feedRate) * 60 : 0.001; // seconds
 
             // Convert endpoint to world space
@@ -603,6 +581,62 @@ function getToolCircleRadius(depth, tool) {
 }
 
 /**
+ * Feed rate constants (mm/min)
+ */
+const DEFAULT_RAPID_FEED = 3000;  // Typical rapid feed rate
+const DEFAULT_CUT_FEED = 500;     // Conservative cutting feed rate
+
+/**
+ * Convert multiple points to screen coordinates in a batch
+ * More efficient than multiple worldToScreen() calls
+ * @param {...Object} points - Variable number of point objects with {x, y} or coordinate pairs
+ * @returns {Array} Array of screen coordinate objects {x, y}
+ */
+function convertPointsToScreen(...points) {
+    return points.map(p => {
+        if (typeof p === 'object' && p !== null) {
+            return worldToScreen(p.x, p.y);
+        }
+        return p;  // Pass through non-objects as-is
+    });
+}
+
+/**
+ * Create a draw point object for rendering
+ * Consolidates duplicated object creation logic
+ * @param {Object} point - The precomputed point data
+ * @param {boolean} isInterpolating - Whether we're interpolating within this segment
+ * @param {Object|null} interpolationData - Interpolated x, y, z, radius if interpolating
+ * @returns {Object} Draw point with screen-ready properties
+ */
+function createDrawPoint(point, isInterpolating, interpolationData) {
+    if (isInterpolating && interpolationData) {
+        const { interpX, interpY, interpZ, interpRadius } = interpolationData;
+        return {
+            x: interpX,
+            y: interpY,
+            z: interpZ,
+            radius: interpRadius,
+            moveType: point.moveType,
+            operation: point.operation,
+            frustumData: point.frustumData,
+            isFrustum: point.isFrustum
+        };
+    }
+    // Use completed point data
+    return {
+        x: point.x,
+        y: point.y,
+        z: point.z,
+        radius: point.toolRadius,
+        moveType: point.moveType,
+        operation: point.operation,
+        frustumData: point.frustumData,
+        isFrustum: point.isFrustum
+    };
+}
+
+/**
  * Draw material removal from precomputed points
  * Draws dashed red lines for rapids, brown slots for cuts
  * Draws only from line 0 to currentLineIndex
@@ -718,13 +752,14 @@ function drawDashedSegment(points) {
     ctx.lineWidth = 1;
     ctx.setLineDash([5, 5]);
 
-    const firstPt = worldToScreen(points[0].x, points[0].y);
-    ctx.beginPath();
-    ctx.moveTo(firstPt.x, firstPt.y);
+    // Batch convert all points to screen coordinates for better performance
+    const screenPoints = convertPointsToScreen(...points);
 
-    for (let i = 1; i < points.length; i++) {
-        const pt = worldToScreen(points[i].x, points[i].y);
-        ctx.lineTo(pt.x, pt.y);
+    ctx.beginPath();
+    ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+
+    for (let i = 1; i < screenPoints.length; i++) {
+        ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
     }
     ctx.stroke();
     ctx.setLineDash([]);  // Clear line dash
@@ -742,13 +777,15 @@ function drawFrustumShape(frustumData, color) {
 
     const { x1, y1, r1, arc1Start, arc1End, t1p1, t2p1, x2, y2, r2, arc2Start, arc2End, t1p2, t2p2 } = frustumData;
 
-    // Convert to screen coordinates
-    const c1 = worldToScreen(x1, y1);
-    const c2 = worldToScreen(x2, y2);
-    const tp1p1 = worldToScreen(t1p1.x, t1p1.y);
-    const tp2p1 = worldToScreen(t2p1.x, t2p1.y);
-    const tp1p2 = worldToScreen(t1p2.x, t1p2.y);
-    const tp2p2 = worldToScreen(t2p2.x, t2p2.y);
+    // Batch convert multiple points to screen coordinates for better performance
+    const [c1, c2, tp1p1, tp2p1, tp1p2, tp2p2] = convertPointsToScreen(
+        {x: x1, y: y1},
+        {x: x2, y: y2},
+        t1p1,
+        t2p1,
+        t1p2,
+        t2p2
+    );
 
     // Scale radii by zoom level
     const r1Screen = r1 * zoomLevel;
