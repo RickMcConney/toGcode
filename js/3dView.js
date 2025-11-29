@@ -98,6 +98,36 @@ function getWorkpieceDimensions() {
   };
 }
 
+function getWorkpieceBoundsOffset() {
+  // Return the offset of workpiece bounds from (0,0,0) center
+  // This matches the origin offset used in WorkpieceManager.calculateBounds()
+  const dims = getWorkpieceDimensions();
+  const originPosition = dims.originPosition || 'middle-center';
+  const width = dims.width;
+  const length = dims.length;
+
+  let offsetX = 0, offsetY = 0;
+
+  // Mirror the logic in WorkpieceManager.calculateBounds()
+  // Handle X offset based on origin position
+  if (originPosition.includes('left')) {
+    offsetX = width / 2;  // Mesh center is at width/2
+  } else if (originPosition.includes('right')) {
+    offsetX = -width / 2;  // Mesh center is at -width/2
+  }
+  // 'center' keeps offsetX = 0
+
+  // Handle Y offset based on origin position
+  if (originPosition.includes('top')) {
+    offsetY = length / 2;  // Mesh center is at length/2
+  } else if (originPosition.includes('bottom')) {
+    offsetY = -length / 2;  // Mesh center is at -length/2
+  }
+  // 'middle' keeps offsetY = 0
+
+  return { x: offsetX, y: offsetY };
+}
+
 // Wait for DOM and listen for tab show event
 document.addEventListener('DOMContentLoaded', setupTabListener);
 
@@ -381,9 +411,14 @@ function updateToolMesh(toolDiameter, posX, posY, posZ, toolType = 'End Mill', t
   // Supports different tool types: End Mill, VBit, Ball Nose, Drill
   if (!toolMesh) return;
 
+  // Apply origin offset so tool aligns with toolpath visualization
+  const boundsOffset = getWorkpieceBoundsOffset();
+  const offsetPosX = posX - boundsOffset.x;
+  const offsetPosY = posY + boundsOffset.y;
+
   // Create new geometry at the position using the tool type
-  // (geometry is created in world space with vertices at posX, posY, posZ)
-  const newGeometry = generateToolGeometryAtPosition(toolDiameter, posX, posY, posZ, toolType, toolAngle);
+  // (geometry is created in world space with vertices at offsetPosX, offsetPosY, posZ)
+  const newGeometry = generateToolGeometryAtPosition(toolDiameter, offsetPosX, offsetPosY, posZ, toolType, toolAngle);
 
   // Dispose old geometry and assign new one
   if (toolMesh.geometry) {
@@ -847,7 +882,10 @@ window.setWorkpieceVisibility3D = function(visible) {
   // Instead of toggling visibility (which causes GPU corruption), move meshes off-screen
   // This keeps them rendering but hidden from view, avoiding blotchy discoloration
   const offscreenPosition = new THREE.Vector3(10000, 10000, 10000);  // Far behind camera
-  const originalPosition = new THREE.Vector3(0, 0, 0);  // Original position at origin
+
+  // Position workpiece so its center aligns with 3D origin
+  const boundsOffset = getWorkpieceBoundsOffset();
+  const originalPosition = new THREE.Vector3(-boundsOffset.x, boundsOffset.y, 0);  // Offset to center at origin
 
   // Move workpiece
   if (workpieceManager && workpieceManager.mesh) {
@@ -1371,19 +1409,26 @@ class ToolpathAnimation {
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     let minZ = Infinity, maxZ = -Infinity;
+    let hasCuttingMoves = false;
 
-    // Iterate through all movements to find bounds
+    // Iterate through only G1 (cutting) movements, excluding G0 (rapid) moves
     if (this.movementTiming && this.movementTiming.length > 0) {
       for (const move of this.movementTiming) {
-        minX = Math.min(minX, move.x);
-        maxX = Math.max(maxX, move.x);
-        minY = Math.min(minY, move.y);
-        maxY = Math.max(maxY, move.y);
-        minZ = Math.min(minZ, move.z);
-        maxZ = Math.max(maxZ, move.z);
+        // Only include G1 moves (cutting), skip G0 rapids
+        if (move.isG1) {
+          minX = Math.min(minX, move.x);
+          maxX = Math.max(maxX, move.x);
+          minY = Math.min(minY, move.y);
+          maxY = Math.max(maxY, move.y);
+          minZ = Math.min(minZ, move.z);
+          maxZ = Math.max(maxZ, move.z);
+          hasCuttingMoves = true;
+        }
       }
-    } else {
-      // Fallback if no movement timing available
+    }
+
+    // If no cutting moves found, return null
+    if (!hasCuttingMoves) {
       return null;
     }
 
@@ -1428,7 +1473,8 @@ class ToolpathAnimation {
       }
 
       // Get workpiece color
-      const woodColor = this.workpieceManager.woodColor || 0x8B6914;
+     const woodColor = this.workpieceManager.woodColor || 0x8B6914;
+     // const woodColor = 0xff0000; // red for testing
 
       // Calculate toolpath bounding box
       const bounds = this.calculateToolPathBounds();
@@ -1438,11 +1484,12 @@ class ToolpathAnimation {
       let gridOrigin = new THREE.Vector3(0, 0, 0);
 
       if (bounds) {
-        // Calculate material bounds in world space (centered at origin)
-        const materialMinX = -width / 2;
-        const materialMaxX = width / 2;
-        const materialMinY = -length / 2;
-        const materialMaxY = length / 2;
+        // Calculate material bounds in world space (accounting for origin position)
+        const boundsOffset = getWorkpieceBoundsOffset();
+        const materialMinX = -width / 2 + boundsOffset.x;
+        const materialMaxX = width / 2 + boundsOffset.x;
+        const materialMinY = -length / 2 - boundsOffset.y;  // Y is inverted in 3D
+        const materialMaxY = length / 2 - boundsOffset.y;
         const materialMinZ = -thickness;
         const materialMaxZ = 0;
 
@@ -1478,6 +1525,7 @@ class ToolpathAnimation {
         gridThickness = thickness;  // Always use full material thickness for 2D height-based voxels
 
         // Use clipped bounds center for grid origin
+        // (material bounds are already offset, so clipped bounds are in correct space)
         gridOrigin = new THREE.Vector3(
           (clippedMinX + clippedMaxX) / 2,
           (clippedMinY + clippedMaxY) / 2,
@@ -1500,6 +1548,12 @@ class ToolpathAnimation {
       // Add voxel mesh to scene (single 2D height-based mesh)
       const voxelMesh = this.voxelGrid.getMesh();
       this.scene.add(voxelMesh);
+
+      // Offset voxel grid so workpiece center aligns with 3D origin
+      const boundsOffset = getWorkpieceBoundsOffset();
+      voxelMesh.position.x = -boundsOffset.x;
+      voxelMesh.position.y = boundsOffset.y;
+      voxelMesh.position.z = 0;
 
       // Create solid boxes filling gaps between workpiece and voxel grid
       this.createWorkpieceOutlineBox(width, length, thickness, gridWidth, gridLength, gridOrigin);
@@ -1539,11 +1593,12 @@ class ToolpathAnimation {
       woodColor = this.workpieceManager.woodColor;
     }
 
-    // Calculate workpiece boundaries (centered at origin)
-    const wpMinX = -width / 2;
-    const wpMaxX = width / 2;
-    const wpMinY = -length / 2;
-    const wpMaxY = length / 2;
+    // Calculate workpiece boundaries (accounting for origin position)
+    const boundsOffset = getWorkpieceBoundsOffset();
+    const wpMinX = -width / 2 + boundsOffset.x;
+    const wpMaxX = width / 2 + boundsOffset.x;
+    const wpMinY = -length / 2 - boundsOffset.y;  // Y is inverted in 3D
+    const wpMaxY = length / 2 - boundsOffset.y;
 
     // Calculate voxel grid boundaries (centered at gridOrigin)
     const vgMinX = gridOrigin.x - gridWidth / 2;
@@ -1581,7 +1636,7 @@ class ToolpathAnimation {
       fillerBoxes.push({
         width: width,
         length: vgMinY - wpMinY,
-        x: 0,
+        x: boundsOffset.x,
         y: wpMinY + (vgMinY - wpMinY) / 2,
         z: -thickness / 2
       });
@@ -1592,7 +1647,7 @@ class ToolpathAnimation {
       fillerBoxes.push({
         width: width,
         length: wpMaxY - vgMaxY,
-        x: 0,
+        x: boundsOffset.x,
         y: vgMaxY + (wpMaxY - vgMaxY) / 2,
         z: -thickness / 2
       });
@@ -1656,6 +1711,11 @@ class ToolpathAnimation {
     this.workpieceOutlineBox.instanceMatrix.needsUpdate = true;
 
     this.scene.add(this.workpieceOutlineBox);
+
+    // Offset filler boxes so workpiece center aligns with 3D origin
+    this.workpieceOutlineBox.position.x = -boundsOffset.x;
+    this.workpieceOutlineBox.position.y = boundsOffset.y;
+    this.workpieceOutlineBox.position.z = 0;
   }
 
   createToolVisual(radius) {
@@ -1713,6 +1773,7 @@ class ToolpathAnimation {
 
   updateToolPosition(x, y, z) {
     if (this.toolVisual) {
+      // Use raw coordinates - the parent group handles the offset
       this.toolVisual.position.set(x, y, z);
     }
   }
@@ -1810,6 +1871,14 @@ class ToolpathAnimation {
     this.visualizeToolpathWithGCode(movements);
     timers.visualizeTime = performance.now() - timers.visualizeStart;
 
+    // Offset toolpath lines so workpiece center aligns with 3D origin
+    const boundsOffset = getWorkpieceBoundsOffset();
+    for (const line of this.toolpathLines) {
+      line.position.x = -boundsOffset.x;
+      line.position.y = boundsOffset.y;
+      line.position.z = 0;
+    }
+
     // Create tool visual representation
     let toolRadius = 1;
     if (this.toolpaths && this.toolpaths.length > 0) {
@@ -1849,6 +1918,13 @@ class ToolpathAnimation {
 
     // Update status
     this.updateStatus();
+
+    // Position tool at first movement
+    if (movements.length > 0) {
+      const firstMovement = movements[0];
+      updateToolMesh(this.toolRadius * 2, firstMovement.x, firstMovement.y, firstMovement.z,
+        this.toolInfo?.type || 'End Mill', this.toolInfo?.angle || 0);
+    }
   }
 
   extractToolInfoFromGcode(gcode) {
