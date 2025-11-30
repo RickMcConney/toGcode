@@ -97,9 +97,33 @@ function parseGcodeFile(gcode, parseConfig) {
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const line = lines[lineIndex];
         const trimmed = line.trim();
+        const gcodeLineNumber = lineIndex + 1;  // 1-indexed line number
+
+        // Create a placeholder entry for every G-code line to maintain 1-to-1 mapping
+        // This is updated if the line is a valid movement
+        let movement = {
+            x: currentX,
+            y: currentY,
+            z: currentZ,
+            isMovement: false,  // Flag to indicate if this is an actual movement
+            isG1: false,
+            isCutting: false,
+            feedRate: currentFeedRate,
+            type: 'non-movement',
+            tool: currentTool,
+            toolId: currentToolId,
+            toolType: currentToolType,
+            toolDiameter: currentToolDiameter,
+            toolAngle: currentToolAngle,
+            stepDown: currentStepDown,
+            gcodeLineNumber: gcodeLineNumber  // 1-indexed line number from G-code file
+        };
 
         // Skip empty lines
-        if (!trimmed) continue;
+        if (!trimmed) {
+            movements.push(movement);  // Add placeholder for empty line
+            continue;
+        }
 
         // Handle comment lines (both parentheses and semicolon styles)
         if (trimmed.startsWith('(') || trimmed.startsWith(';')) {
@@ -126,7 +150,17 @@ function parseGcodeFile(gcode, parseConfig) {
                 currentToolAngle = parseFloat(toolMatch[4]) || 0;
                 currentStepDown = parseFloat(toolMatch[5]) || 0;
                 currentTool = `${currentToolType} (${currentToolDiameter}mm)`;
+
+                // Update placeholder with tool info
+                movement.tool = currentTool;
+                movement.toolId = currentToolId;
+                movement.toolType = currentToolType;
+                movement.toolDiameter = currentToolDiameter;
+                movement.toolAngle = currentToolAngle;
+                movement.stepDown = currentStepDown;
             }
+
+            movements.push(movement);  // Add placeholder for comment line
             continue;
         }
 
@@ -148,7 +182,8 @@ function parseGcodeFile(gcode, parseConfig) {
             axes = parseConfig.cutAxes;
             inversions = parseConfig.cutInversions;
         } else {
-            // Not a movement command we recognize, skip
+            // Not a movement command we recognize - add placeholder and continue
+            movements.push(movement);
             continue;
         }
 
@@ -188,26 +223,23 @@ function parseGcodeFile(gcode, parseConfig) {
             currentFeedRate = parseFloat(feedMatch[1]) || currentFeedRate;
         }
 
-        // Create movement entry
-        const movement = {
-            x: newPos.x,
-            y: newPos.y,
-            z: newPos.z,
-            isG1: isCutting,
-            isCutting: isCutting,  // Alias for clarity
-            feedRate: isCutting ? currentFeedRate : 6000,
-            type: isCutting ? 'feed' : 'rapid',
-            tool: currentTool,
-            toolId: currentToolId,
-            toolType: currentToolType,
-            toolDiameter: currentToolDiameter,
-            toolAngle: currentToolAngle,
-            stepDown: currentStepDown,
-            gcodeLineNumber: lineIndex + 1  // 1-indexed line number from G-code file
-        };
+        // This IS a valid movement - update the placeholder
+        movement.x = newPos.x;
+        movement.y = newPos.y;
+        movement.z = newPos.z;
+        movement.isMovement = true;  // Mark as actual movement
+        movement.isG1 = isCutting;
+        movement.isCutting = isCutting;
+        movement.feedRate = currentFeedRate;
+        movement.type = isCutting ? 'feed' : 'rapid';
+        movement.tool = currentTool;
+        movement.toolId = currentToolId;
+        movement.toolType = currentToolType;
+        movement.toolDiameter = currentToolDiameter;
+        movement.toolAngle = currentToolAngle;
+        movement.stepDown = currentStepDown;
 
-        // Add movement regardless of whether position changed (includes no-op moves)
-        // This allows every G-code line to be selectable in the viewer
+        // Add movement
         movements.push(movement);
 
         // Update current position

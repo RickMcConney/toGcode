@@ -2051,7 +2051,8 @@ function create2DSimulationControls() {
 
     // Simulation step control (progress slider) - seek to G-code line
     document.getElementById('simulation-step').addEventListener('input', function (e) {
-        const lineNumber = parseInt(e.target.value);
+        const lineIndex = parseInt(e.target.value);  // 0-indexed from slider (0 to 36 for 37 lines)
+        const lineNumber = lineIndex + 1;             // Convert to 1-indexed for setSimulation2DLineNumber
         if (typeof setSimulation2DLineNumber === 'function') {
             setSimulation2DLineNumber(lineNumber);
         }

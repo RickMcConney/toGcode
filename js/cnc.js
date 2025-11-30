@@ -432,6 +432,13 @@ function loadProject(json) {
 }
 
 function newProject() {
+	// Stop any running simulations
+	if (typeof stopSimulation2D === 'function') {
+		stopSimulation2D();
+	}
+	if (typeof stopSimulation3D === 'function') {
+		stopSimulation3D();
+	}
 
 	toolpathId = 1;
 	svgpathId = 1;

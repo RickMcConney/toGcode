@@ -37,134 +37,7 @@ var simulation2D = {
 };
 
 /**
- * Parse a single G-code line and extract command and coordinates
- * @param {string} line - Raw G-code line
- * @returns {Object} Parsed line with command, coordinates, feed rate
- */
-function parseGcodeLine(line) {
-    // Ensure line is a valid string
-    if (!line || typeof line !== 'string') {
-        return {
-            command: null,
-            x: null,
-            y: null,
-            z: null,
-            feedRate: null,
-            isRapid: false,
-            isCut: false,
-            hasCoordinates: false
-        };
-    }
-
-    // Remove comments: both (comment) and ;comment formats
-    let cleanLine = line.replace(/\([^)]*\)/g, '').replace(/;.*$/, '').trim();
-
-    if (!cleanLine) {
-        return {
-            command: null,
-            x: null,
-            y: null,
-            z: null,
-            feedRate: null,
-            isRapid: false,
-            isCut: false,
-            hasCoordinates: false
-        };
-    }
-
-    // Extract G-code command
-    const gCommand = cleanLine.match(/G(\d+)/);
-    const mCommand = cleanLine.match(/M(\d+)/);
-
-    let command = null;
-    let isRapid = false;
-    let isCut = false;
-
-    if (gCommand) {
-        if (gCommand[1] === '0') {
-            command = 'G0';
-            isRapid = true;
-        } else if (gCommand[1] === '1') {
-            command = 'G1';
-            isCut = true;
-        } else {
-            command = 'G' + gCommand[1];
-        }
-    } else if (mCommand) {
-        command = 'M' + mCommand[1];
-    }
-
-    // Extract coordinates
-    const xMatch = cleanLine.match(/X([-+]?\d+\.?\d*)/);
-    const yMatch = cleanLine.match(/Y([-+]?\d+\.?\d*)/);
-    const zMatch = cleanLine.match(/Z([-+]?\d+\.?\d*)/);
-    const fMatch = cleanLine.match(/F([-+]?\d+\.?\d*)/);
-
-    let x = xMatch ? parseFloat(xMatch[1]) : null;
-    let y = yMatch ? parseFloat(yMatch[1]) : null;
-    let z = zMatch ? parseFloat(zMatch[1]) : null;
-    let feedRate = fMatch ? parseFloat(fMatch[1]) : null;
-
-    // Validate parsed coordinates
-    if (xMatch && isNaN(x)) {
-        console.warn('Invalid X coordinate in G-code:', xMatch[1], '- using null');
-        x = null;
-    }
-    if (yMatch && isNaN(y)) {
-        console.warn('Invalid Y coordinate in G-code:', yMatch[1], '- using null');
-        y = null;
-    }
-    if (zMatch && isNaN(z)) {
-        console.warn('Invalid Z coordinate in G-code:', zMatch[1], '- using null');
-        z = null;
-    }
-    if (fMatch && isNaN(feedRate)) {
-        console.warn('Invalid F feed rate in G-code:', fMatch[1], '- using null');
-        feedRate = null;
-    }
-
-    // Only treat as movement command if there are coordinates
-    // Lines like "G0 G54 G17 G21 G90 G94" are configuration, not movement
-    const hasCoordinates = x !== null || y !== null || z !== null;
-
-    return {
-        command: command,
-        x: x,
-        y: y,
-        z: z,
-        feedRate: feedRate,
-        isRapid: isRapid && hasCoordinates,  // Only rapid if there are coordinates
-        isCut: isCut && hasCoordinates,      // Only cut if there are coordinates
-        hasCoordinates: hasCoordinates
-    };
-}
-
-/**
- * Extract tool information from G-code comment
- * Format: (Tool: ID=X Type=Y Diameter=Z Angle=A StepDown=S)
- * @param {string} line - Raw G-code line
- * @returns {Object|null} Tool info object or null if not found
- */
-function extractToolFromComment(line) {
-    // Look for tool comment: (Tool: ID=X Type=Y Diameter=Z Angle=A ...)
-    const toolMatch = line.match(/Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/);
-
-
-    if (toolMatch) {
-        return {
-            id: parseInt(toolMatch[1]),
-            type: toolMatch[2],
-            diameter: parseFloat(toolMatch[3]),
-            angle: parseFloat(toolMatch[4]),
-            stepDown: parseFloat(toolMatch[5])
-        };
-    }
-
-    return null;
-}
-
-/**
- * Setup simulation: generate G-code and preprocess tool information
+ * Setup simulation: generate G-code and parse with profile-aware parser
  * @returns {boolean} Success indicator
  */
 function setupSimulation2D() {
@@ -177,66 +50,55 @@ function setupSimulation2D() {
             return false;
         }
 
-        // Split into non-empty lines
-        simulation2D.gcodeLines = simulation2D.gcode
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0);
-
-        if (simulation2D.gcodeLines.length === 0) {
-            console.error('No valid G-code lines after parsing.');
-            return false;
-        }
-
-        console.log(`Loaded ${simulation2D.gcodeLines.length} G-code lines`);
-
         // Initialize state
         simulation2D.currentLineIndex = 0;
         simulation2D.totalElapsedTime = 0;
         simulation2D.totalSimulationTime = 0;
 
-        // Pre-calculate total execution time for all G-code lines
-        let toolPos = { x: 0, y: 0, z: 0 };
+        // Parse G-code using profile-aware parser
+        // This respects axis inversions, custom ordering, and extracts tool metadata
+        const profile = window.currentGcodeProfile || null;
+        const parseConfig = createGcodeParseConfig(profile);
+        const movements = parseGcodeFile(simulation2D.gcode, parseConfig);
+
+        if (!movements || movements.length === 0) {
+            console.error('No valid movements parsed from G-code.');
+            return false;
+        }
+
+        // Store movements for animation and seeking
+        simulation2D.movements = movements;
+
+        // Also keep gcodeLines for display (split original gcode)
+        simulation2D.gcodeLines = simulation2D.gcode
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        // Pre-calculate total execution time from parsed movements
         let totalTime = 0;
+        let prevPos = { x: 0, y: 0, z: 0 };
 
-        for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
-            const line = simulation2D.gcodeLines[i];
-            const parsed = parseGcodeLine(line);
-
-            // Calculate time for this line
-            let lineTime = 0;
-            if (parsed.isRapid || parsed.isCut) {
-                const to = {
-                    x: parsed.x !== null ? parsed.x : toolPos.x,
-                    y: parsed.y !== null ? parsed.y : toolPos.y,
-                    z: parsed.z !== null ? parsed.z : toolPos.z
-                };
-
-                // Use constants for default feed rates (more efficient than Math.pow)
-                const feedRate = parsed.feedRate || (parsed.isRapid ? DEFAULT_RAPID_FEED : DEFAULT_CUT_FEED);
-
-                // Calculate distance using multiplication instead of Math.pow
-                const dx = to.x - toolPos.x;
-                const dy = to.y - toolPos.y;
-                const dz = to.z - toolPos.z;
+        for (const movement of movements) {
+            if (movement.isG1 || !movement.isG1) {  // Both cutting and rapid moves have time
+                const dx = movement.x - prevPos.x;
+                const dy = movement.y - prevPos.y;
+                const dz = movement.z - prevPos.z;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-                lineTime = (distance / feedRate) * 60; // seconds
+                const feedRate = movement.feedRate || (movement.isG1 ? DEFAULT_CUT_FEED : DEFAULT_RAPID_FEED);
+                const moveTime = distance > 0 ? (distance / feedRate) * 60 : 0.001;  // seconds
+                totalTime += moveTime;
 
-                // Update position
-                toolPos = to;
-            } else {
-                // Noop
-                lineTime = 0.001;
+                prevPos = { x: movement.x, y: movement.y, z: movement.z };
             }
-
-            totalTime += lineTime;
         }
 
         simulation2D.totalSimulationTime = totalTime;
 
         // Precompute all G-code points for fast seeking and animation
-        simulation2D.precomputedPoints = precomputePoints();
+        simulation2D.precomputedPoints = precomputePoints(movements);
+
 
         // Show G-code viewer panel and populate with G-code
         if (typeof gcodeView !== 'undefined' && gcodeView) {
@@ -252,129 +114,144 @@ function setupSimulation2D() {
 }
 
 /**
- * Precompute G-code points: one point per G-code line with metadata
+ * Precompute G-code points from parser movements
  * Stores points in WORLD SPACE (with viewScale and origin applied)
  * This enables instant seeking and simplified animation loop
- * Conversion happens once during precomputation, not on every frame
+ * Parser already respects axis inversions and custom ordering from profile
  *
- * @returns {Array} Array of precomputed points, one per G-code line
+ * @param {Array} movements - Parsed movements from gcodeParser (respecting profile)
+ * @returns {Array} Array of precomputed points, one per movement
  */
-function precomputePoints() {
+function precomputePoints(movements) {
     const points = [];
     let toolPos = { x: 0, y: 0, z: 0 };  // MM coordinates
-
-    // Extract all tool changes upfront for efficient lookup
-    const toolChanges = [];
-    for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
-        const toolInfo = extractToolFromComment(simulation2D.gcodeLines[i]);
-        if (toolInfo) {
-            toolChanges.push({ lineNumber: i, toolInfo });
-        }
-    }
-
-    // Use pointer to efficiently advance through tool changes
-    let currentToolIndex = 0;
     let currentTool = null;
+    let currentFeedRate = 500;  // Default feed rate
 
-    for (let i = 0; i < simulation2D.gcodeLines.length; i++) {
-        const line = simulation2D.gcodeLines[i];
+    for (let i = 0; i < movements.length; i++) {
+        const movement = movements[i];
 
-        // Advance tool pointer when reaching next change
-        while (currentToolIndex < toolChanges.length &&
-               toolChanges[currentToolIndex].lineNumber <= i) {
-            currentTool = toolChanges[currentToolIndex].toolInfo;
-            currentToolIndex++;
+        // Skip non-movement entries (comments, empty lines, unrecognized commands)
+        // But still add placeholder points to maintain 1-to-1 mapping with G-code lines
+        if (!movement.isMovement) {
+            // Update tool if this is a tool comment
+            if ((movement.toolDiameter && movement.toolDiameter > 0) ||
+                (movement.toolAngle && movement.toolAngle > 0) ||
+                movement.toolId) {
+                currentTool = {
+                    id: movement.toolId,
+                    type: movement.toolType,
+                    diameter: movement.toolDiameter || 0,
+                    angle: movement.toolAngle || 0,
+                    stepDown: movement.stepDown || 0
+                };
+            }
+
+            // Add placeholder point for non-movement line
+            // This keeps the precomputedPoints array in 1-to-1 sync with G-code lines
+            const placeholderPoint = {
+                lineNumber: movement.gcodeLineNumber - 1,  // 0-indexed line number
+                moveType: 'non-movement',
+                x: toolPos.x * viewScale + origin.x,
+                y: origin.y - toolPos.y * viewScale,
+                z: toolPos.z,
+                startX: toolPos.x * viewScale + origin.x,
+                startY: origin.y - toolPos.y * viewScale,
+                startZ: toolPos.z,
+                feedRate: currentFeedRate,
+                moveTime: 0.001,  // Minimal time for non-movement lines
+                toolRadius: 0,
+                operation: 'Non-Movement',
+                tool: currentTool
+            };
+            points.push(placeholderPoint);
+            continue;
         }
 
-        const parsed = parseGcodeLine(line);
+        // Create tool object from parser movement properties
+        // Parser provides: toolId, toolType, toolDiameter, toolAngle, stepDown
+        // Check if tool has changed (any tool property is non-zero or defined)
+        if ((movement.toolDiameter && movement.toolDiameter > 0) ||
+            (movement.toolAngle && movement.toolAngle > 0) ||
+            movement.toolId) {
+            currentTool = {
+                id: movement.toolId,
+                type: movement.toolType,
+                diameter: movement.toolDiameter || 0,
+                angle: movement.toolAngle || 0,
+                stepDown: movement.stepDown || 0
+            };
+        }
 
+        // Update current feed rate for this movement (and for subsequent non-movement lines)
+        const feedRate = movement.feedRate || (movement.isG1 ? DEFAULT_CUT_FEED : DEFAULT_RAPID_FEED);
+        currentFeedRate = feedRate;
+
+        // Build point from parser movement (coordinates already respect profile inversions)
         let point = {
-            lineNumber: i,          // 0-indexed for array access
-            moveType: 'noMotion',   // Default to no-motion
-            x: toolPos.x * viewScale + origin.x,           // Endpoint in WORLD SPACE
-            y: origin.y - toolPos.y * viewScale,
-            z: toolPos.z,
-            startX: toolPos.x * viewScale + origin.x,      // Start point for interpolation (WORLD SPACE)
-            startY: origin.y - toolPos.y * viewScale,
+            lineNumber: movement.gcodeLineNumber - 1,  // Convert to 0-indexed for array access
+            moveType: movement.isG1 ? 'cut' : 'rapid',
+            x: movement.x * viewScale + origin.x,           // Endpoint in WORLD SPACE
+            y: origin.y - movement.y * viewScale,           // Y inverted for screen space
+            z: movement.z,
+            startX: toolPos.x * viewScale + origin.x,       // Start point for interpolation (WORLD SPACE)
+            startY: origin.y - toolPos.y * viewScale,       // Y inverted for screen space
             startZ: toolPos.z,
-            feedRate: 1000,         // Default feed rate
-            moveTime: 0.001,        // Minimal time for non-movements
+            feedRate: feedRate,
+            moveTime: 0.001,        // Will be calculated below if movement
             toolRadius: 0,          // Will be calculated below
-            operation: 'Move',      // Operation type
+            operation: movement.isG1 ? 'Cut' : 'Rapid',
             tool: currentTool
         };
 
-        // Calculate movement if present
-        if (parsed.isRapid || parsed.isCut) {
-            const to = {
-                x: parsed.x !== null ? parsed.x : toolPos.x,
-                y: parsed.y !== null ? parsed.y : toolPos.y,
-                z: parsed.z !== null ? parsed.z : toolPos.z
-            };
+        // Calculate movement properties (all movements from parser have coordinates)
+        const dx = movement.x - toolPos.x;
+        const dy = movement.y - toolPos.y;
+        const dz = movement.z - toolPos.z;
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            // Calculate distance and time (using multiplication instead of Math.pow for better performance)
-            const dx = to.x - toolPos.x;
-            const dy = to.y - toolPos.y;
-            const dz = to.z - toolPos.z;
-            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const moveTime = distance > 0 ? (distance / point.feedRate) * 60 : 0.001;  // seconds
+        point.moveTime = moveTime;
 
-            const feedRate = parsed.feedRate || (parsed.isRapid ? DEFAULT_RAPID_FEED : DEFAULT_CUT_FEED);
-            const moveTime = distance > 0 ? (distance / feedRate) * 60 : 0.001; // seconds
+        // Calculate tool radius (for V-bits, this is at the endpoint Z)
+        // Multiply by viewScale since coordinates are in screen space
+        if (movement.isG1) {  // Cutting move
+            const calcRadius = getToolCircleRadius(movement.z, currentTool);
+            point.toolRadius = calcRadius * viewScale;
 
-            // Convert endpoint to world space
-            point.x = to.x * viewScale + origin.x;
-            point.y = origin.y - to.y * viewScale;
-            point.z = to.z;
-            point.feedRate = feedRate;
-            point.moveTime = moveTime;
-            point.moveType = parsed.isRapid ? 'rapid' : 'cut';
+            // Calculate frustum geometry for segments with significant Z changes
+            const zDistance = Math.abs(movement.z - toolPos.z);
+            if (zDistance >= 0.01) {
+                // Calculate radius at start and end of segment
+                const radiusStart = getToolCircleRadius(toolPos.z, currentTool) * viewScale;
+                const radiusEnd = getToolCircleRadius(movement.z, currentTool) * viewScale;
+                const radiusDiff = Math.abs(radiusEnd - radiusStart);
 
-            // Calculate tool radius (for V-bits, this is at the endpoint Z)
-            // Multiply by viewScale since coordinates are in screen space
-            if (parsed.isCut) {
-                point.toolRadius = getToolCircleRadius(to.z, currentTool) * viewScale;
-                point.operation = 'Cut';
+                // Only calculate frustum if radii differ significantly (> 0.1mm)
+                if (radiusDiff > 0.1) {
+                    // Calculate frustum geometry for rendering
+                    const startX = toolPos.x * viewScale + origin.x;
+                    const startY = origin.y - toolPos.y * viewScale;
+                    const endX = movement.x * viewScale + origin.x;
+                    const endY = origin.y - movement.y * viewScale;
 
-                // Calculate frustum geometry for segments with significant Z changes
-                const zDistance = Math.abs(to.z - toolPos.z);
-                if (zDistance >= 0.01) {
-                    // Calculate radius at start and end of segment
-                    const radiusStart = getToolCircleRadius(toolPos.z, currentTool) * viewScale;
-                    const radiusEnd = getToolCircleRadius(to.z, currentTool) * viewScale;
-                    const radiusDiff = Math.abs(radiusEnd - radiusStart);
+                    const frustumData = calculateFrustumGeometry(
+                        startX, startY, radiusStart,
+                        endX, endY, radiusEnd
+                    );
 
-                    // Only calculate frustum if radii differ significantly (> 0.1mm)
-                    if (radiusDiff > 0.1) {
-                        // Calculate frustum geometry for rendering
-                        const startX = toolPos.x * viewScale + origin.x;
-                        const startY = origin.y - toolPos.y * viewScale;
-                        const endX = to.x * viewScale + origin.x;
-                        const endY = origin.y - to.y * viewScale;
-
-                        const frustumData = calculateFrustumGeometry(
-                            startX, startY, radiusStart,
-                            endX, endY, radiusEnd
-                        );
-
-                        if (frustumData) {
-                            point.frustumData = frustumData;
-                            point.isFrustum = true;
-                        }
+                    if (frustumData) {
+                        point.frustumData = frustumData;
+                        point.isFrustum = true;
                     }
                 }
-            } else {
-                point.toolRadius = 0.5 * viewScale;  // Small visualization for rapids
-                point.operation = 'Rapid';
             }
-
-            // Update position
-            toolPos = to;
-        } else {
-            // No-motion line (comments, spindle commands, etc.)
-            point.toolRadius = 0;
-            point.operation = 'Noop';
+        } else {  // Rapid move
+            point.toolRadius = 0.5 * viewScale;  // Small visualization for rapids
         }
 
+        // Update position for next iteration
+        toolPos = { x: movement.x, y: movement.y, z: movement.z };
         points.push(point);
     }
 
@@ -524,13 +401,22 @@ function getToolCircleRadius(depth, tool) {
         return 0;
     }
 
+    // Validate tool properties
+    const diameter = tool.diameter || 0;
+    const angle = tool.angle || 0;
+
+    if (isNaN(diameter) || isNaN(angle) || isNaN(depth)) {
+        console.warn('Invalid tool/depth values:', { diameter, angle, depth, tool });
+        return 0;
+    }
+
     // Check if V-bit tool (angle > 0)
-    if (tool.angle && tool.angle > 0) {
+    if (angle > 0) {
         // Validate angle is in valid range
-        let angle = tool.angle;
-        if (angle <= 0 || angle >= 180 || isNaN(angle)) {
-            console.warn('Invalid tool angle:', angle, '- clamping to valid range (0, 180)');
-            angle = Math.max(0.1, Math.min(179.9, angle));
+        let vBitAngle = angle;
+        if (vBitAngle <= 0 || vBitAngle >= 180 || isNaN(vBitAngle)) {
+            console.warn('Invalid V-bit angle:', vBitAngle, '- clamping to valid range (0, 180)');
+            vBitAngle = Math.max(0.1, Math.min(179.9, vBitAngle));
         }
 
         // V-bit: at Z=0 (surface) radius is 0, grows as depth increases (Z < 0)
@@ -539,22 +425,22 @@ function getToolCircleRadius(depth, tool) {
             return 0;  // At or above surface
         }
 
-        const halfAngleRad = (angle / 2) * (Math.PI / 180);
+        const halfAngleRad = (vBitAngle / 2) * (Math.PI / 180);
         // At depth 0: radius = 0, grows as depth increases
         let radius = Math.abs(depth) * Math.tan(halfAngleRad);
-        return radius;
+        return isNaN(radius) ? 0 : radius;
     }
 
     // Ball Nose bit: spherical geometry
     // Sphere tip at depth, center at (depth + toolRadius)
     // Radius at given depth Z: sqrt(toolRadius² - (toolZ + toolRadius - Z)²)
-    if (tool.type === 'Ball Nose') {
+    if (tool.type === 'Ball Nose' && diameter > 0) {
         // Above material (Z >= 0): no cut
         if (depth >= 0) {
             return 0;  // At or above surface
         }
 
-        const toolRadius = tool.diameter / 2;
+        const toolRadius = diameter / 2;
         // Distance from sphere center to current Z
         const distFromCenter = Math.abs(depth + toolRadius);  // How far below the center we are
 
@@ -567,7 +453,7 @@ function getToolCircleRadius(depth, tool) {
         // Solving for distXY: distXY = sqrt(toolRadius² - distFromCenter²)
         const radiusSq = (toolRadius * toolRadius) - (distFromCenter * distFromCenter);
         const radius = Math.sqrt(Math.max(0, radiusSq));  // max(0) prevents NaN from rounding errors
-        return radius;
+        return isNaN(radius) ? 0 : radius;
     }
 
     // End Mill, Drill, and other tools above material (Z >= 0)
@@ -576,8 +462,12 @@ function getToolCircleRadius(depth, tool) {
     }
 
     // End Mill, Drill, and other tools: constant radius
-    const radius = tool.diameter / 2;
-    return radius;
+    if (diameter <= 0) {
+        return 0.5;  // Default small radius if no diameter specified
+    }
+
+    const radius = diameter / 2;
+    return isNaN(radius) ? 0 : radius;
 }
 
 /**
@@ -671,7 +561,10 @@ function drawMaterialRemovalCircles() {
         const point = simulation2D.precomputedPoints[i];
         const pointType = point.moveType;
 
-
+        // Skip non-movement points (comments, empty lines, etc.) - don't draw them
+        if (pointType === 'non-movement') {
+            continue;
+        }
 
         // For the currently animating segment, interpolate the endpoint based on progress
         let drawPoint;
@@ -1127,9 +1020,9 @@ function stopSimulation2D() {
  *
  * @param {number} targetLineIndex - 1-indexed line number (from gcode viewer)
  */
-function setSimulation2DLineNumber(targetLineIndex) {
-    // Convert from 1-indexed (from gcode viewer) to 0-indexed (internal storage)
-    const zeroIndexedLine = targetLineIndex - 1;
+function setSimulation2DLineNumber(targetLineNum) {
+    // Input: targetLineNum is 1-indexed G-code line number (from G-code viewer or slider converted to 1-indexed)
+    // movements array has 1-to-1 mapping: movements[i].gcodeLineNumber === i + 1
 
     // Ensure setup is done
     if (simulation2D.precomputedPoints.length === 0) {
@@ -1139,8 +1032,19 @@ function setSimulation2DLineNumber(targetLineIndex) {
         }
     }
 
-    // Clamp to valid range
-    const clampedLine = Math.max(0, Math.min(zeroIndexedLine, simulation2D.gcodeLines.length - 1));
+    // Find the last precomputed point at or before this G-code line
+    // precomputedPoints[i].lineNumber is 0-indexed, so lineNumber + 1 gives us 1-indexed line number
+    let pointIndex = 0;
+    if (simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
+        for (let i = 0; i < simulation2D.precomputedPoints.length; i++) {
+            // Compare: precomputedPoints[i].lineNumber + 1 (1-indexed) with targetLineNum
+            if (simulation2D.precomputedPoints[i].lineNumber + 1 <= targetLineNum) {
+                pointIndex = i;
+            } else {
+                break;
+            }
+        }
+    }
 
     // Stop any running/pending operations and pause the simulation
     simulation2D.isRunning = false;    // Stop the main loop
@@ -1152,16 +1056,19 @@ function setSimulation2DLineNumber(targetLineIndex) {
         simulation2D.animationFrameId = null;
     }
 
-    // Set current line and reset progress within segment
-    simulation2D.currentLineIndex = clampedLine;
+    // Set current point index and reset progress within segment
+    simulation2D.currentLineIndex = pointIndex;
     simulation2D.currentLineProgress = 0;  // Start at beginning of segment for interpolation
 
     // Update display
     updateSimulation2DDisplay();
 
-    // Update G-code viewer highlight (convert 0-indexed to 1-indexed)
+    // Update G-code viewer highlight (use the actual G-code line number from the point)
     if (typeof gcodeView !== 'undefined' && gcodeView) {
-        gcodeView.setCurrentLine(simulation2D.currentLineIndex + 1);
+        const currentPoint = simulation2D.precomputedPoints[pointIndex];
+        if (currentPoint) {
+            gcodeView.setCurrentLine(currentPoint.lineNumber + 1);  // lineNumber is 0-indexed
+        }
     }
 
     // Trigger redraw (will draw up to currentLineIndex)
@@ -1197,19 +1104,27 @@ function setSimulation2DLineNumber(targetLineIndex) {
  * Update the control display with current simulation state
  */
 function updateSimulation2DDisplay() {
-    // Update line number
+    // Update line number (use actual G-code line numbers from precomputed points)
     const lineDisplay = document.getElementById('2d-step-display');
-    if (lineDisplay) {
-        lineDisplay.textContent = `${simulation2D.currentLineIndex} / ${simulation2D.gcodeLines.length}`;
+    if (lineDisplay && simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
+        // Get current line number from precomputed point (lineNumber is 0-indexed)
+        const currentPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
+        const currentLineNum = currentPoint ? currentPoint.lineNumber + 1 : 0;
+
+        // Get total G-code lines from movements array
+        const lastMovement = simulation2D.movements && simulation2D.movements.length > 0 ?
+            simulation2D.movements[simulation2D.movements.length - 1] : null;
+        const totalLineNum = lastMovement ? lastMovement.gcodeLineNumber : 0;
+
+        lineDisplay.textContent = `${currentLineNum} / ${totalLineNum}`;
     }
 
-    // Update feed rate (from current line)
-    if (simulation2D.currentLineIndex < simulation2D.gcodeLines.length) {
-        const line = simulation2D.gcodeLines[simulation2D.currentLineIndex];
-        const parsed = parseGcodeLine(line);
+    // Update feed rate (from current precomputed point)
+    if (simulation2D.currentLineIndex < simulation2D.precomputedPoints.length) {
+        const point = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
         const feedDisplay = document.getElementById('2d-feed-rate-display');
-        if (feedDisplay && parsed && parsed.feedRate) {
-            feedDisplay.textContent = `${parsed.feedRate.toFixed(0)} mm/min`;
+        if (feedDisplay && point && point.feedRate) {
+            feedDisplay.textContent = `${point.feedRate.toFixed(0)} mm/min`;
         }
     }
 
@@ -1226,11 +1141,15 @@ function updateSimulation2DDisplay() {
         timeTotalDisplay.textContent = formatTimeMMSS(simulation2D.totalSimulationTime);
     }
 
-    // Update progress slider if present
+    // Update progress slider if present (use actual G-code line numbers)
     const progressSlider = document.getElementById('simulation-step');
-    if (progressSlider) {
-        progressSlider.value = simulation2D.currentLineIndex;
-        progressSlider.max = simulation2D.gcodeLines.length - 1;
+    if (progressSlider && simulation2D.precomputedPoints && simulation2D.movements && simulation2D.movements.length > 0) {
+        const currentPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
+        const lastMovement = simulation2D.movements[simulation2D.movements.length - 1];
+
+        // Slider represents 0-indexed G-code line numbers
+        progressSlider.value = currentPoint ? currentPoint.lineNumber : 0;
+        progressSlider.max = lastMovement ? lastMovement.gcodeLineNumber - 1 : 0;
     }
 }
 
