@@ -4,6 +4,12 @@
  * Handles variable G-code commands, axis ordering, and axis inversions based on post-processor profiles
  */
 
+// Pre-compiled regex patterns for performance (avoid recreating on every iteration)
+const TOOL_REGEX = /Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/;
+const COORD_REGEX = /([XYZ])([\d.-]+)/gi;
+const FEED_REGEX = /F([\d.-]+)/i;
+const FIRST_TOKEN_REGEX = /^(\S+)/;
+
 /**
  * Parse a G-code template string to extract command and axis information
  * @param {string} template - Template string like "G0 X Y Z F" or "G00 Y X -Z F"
@@ -140,33 +146,35 @@ function parseGcodeFile(gcode, parseConfig) {
                 commentText = trimmed.substring(1);
             }
 
-            // Try to extract tool info from comment text
+            // Try to extract tool info from comment text (pre-check to avoid expensive regex)
             // Pattern handles multi-word tool types like "End Mill" and "Ball Nose"
-            const toolMatch = commentText.match(/Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/);
-            if (toolMatch) {
-                currentToolId = toolMatch[1];
-                currentToolType = toolMatch[2].trim();  // Remove extra spaces
-                currentToolDiameter = parseFloat(toolMatch[3]) || 0;
-                currentToolAngle = parseFloat(toolMatch[4]) || 0;
-                currentStepDown = parseFloat(toolMatch[5]) || 0;
-                currentTool = `${currentToolType} (${currentToolDiameter}mm)`;
+            if (commentText.includes('Tool:')) {
+                const toolMatch = commentText.match(TOOL_REGEX);
+                if (toolMatch) {
+                    currentToolId = toolMatch[1];
+                    currentToolType = toolMatch[2].trim();  // Remove extra spaces
+                    currentToolDiameter = parseFloat(toolMatch[3]) || 0;
+                    currentToolAngle = parseFloat(toolMatch[4]) || 0;
+                    currentStepDown = parseFloat(toolMatch[5]) || 0;
+                    currentTool = `${currentToolType} (${currentToolDiameter}mm)`;
 
-                // Update placeholder with tool info
-                movement.tool = currentTool;
-                movement.toolId = currentToolId;
-                movement.toolType = currentToolType;
-                movement.toolDiameter = currentToolDiameter;
-                movement.toolAngle = currentToolAngle;
-                movement.stepDown = currentStepDown;
+                    // Update placeholder with tool info
+                    movement.tool = currentTool;
+                    movement.toolId = currentToolId;
+                    movement.toolType = currentToolType;
+                    movement.toolDiameter = currentToolDiameter;
+                    movement.toolAngle = currentToolAngle;
+                    movement.stepDown = currentStepDown;
+                }
             }
 
             movements.push(movement);  // Add placeholder for comment line
             continue;
         }
 
-        // Extract command (first token)
-        const tokens = trimmed.split(/\s+/);
-        const command = tokens[0];
+        // Extract command (first token) - optimize by avoiding split
+        const spaceIdx = trimmed.search(/\s/);
+        const command = spaceIdx > 0 ? trimmed.substring(0, spaceIdx) : trimmed;
 
         // Determine if this is a rapid or cutting move
         let isCutting = false;
@@ -187,15 +195,15 @@ function parseGcodeFile(gcode, parseConfig) {
             continue;
         }
 
-        // Extract coordinates from line
-        // Create a regex that matches any axis letter followed by a number
+        // Extract coordinates from line using pre-compiled regex
         const coordinates = {};
-        const coordRegex = /([XYZ])([\d.-]+)/gi;
         let coordMatch;
-        while ((coordMatch = coordRegex.exec(trimmed)) !== null) {
+        while ((coordMatch = COORD_REGEX.exec(trimmed)) !== null) {
             const axis = coordMatch[1].toUpperCase();
             coordinates[axis] = parseFloat(coordMatch[2]);
         }
+        // Reset regex for next line
+        COORD_REGEX.lastIndex = 0;
 
         // Apply inversions and create final position
         const newPos = { x: currentX, y: currentY, z: currentZ };
@@ -217,10 +225,12 @@ function parseGcodeFile(gcode, parseConfig) {
             }
         }
 
-        // Extract feed rate
-        const feedMatch = trimmed.match(/F([\d.-]+)/i);
-        if (feedMatch) {
-            currentFeedRate = parseFloat(feedMatch[1]) || currentFeedRate;
+        // Extract feed rate (only if line contains 'F')
+        if (trimmed.includes('F') || trimmed.includes('f')) {
+            const feedMatch = trimmed.match(FEED_REGEX);
+            if (feedMatch) {
+                currentFeedRate = parseFloat(feedMatch[1]) || currentFeedRate;
+            }
         }
 
         // This IS a valid movement - update the placeholder

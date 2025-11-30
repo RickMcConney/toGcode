@@ -38,12 +38,12 @@ const CONFIG = {
   CAMERA_FAR: 5000,
   INITIAL_CAMERA_POSITION: { x: 0, y: -140, z: 100 },
 
-  // Lighting
+  // Lighting (brightened for better visibility)
   DIRECTIONAL_LIGHT_COLOR: 0xffffff,
-  DIRECTIONAL_LIGHT_INTENSITY: 1.2,
+  DIRECTIONAL_LIGHT_INTENSITY: 1.5,  // Increased from 1.2
   DIRECTIONAL_LIGHT_SHADOW_SCALE: 0.7,
   AMBIENT_LIGHT_COLOR: 0xffffff,
-  AMBIENT_LIGHT_INTENSITY: 0.6,
+  AMBIENT_LIGHT_INTENSITY: 0.8,  // Increased from 0.5 for brighter overall scene
 
   // Axes
   AXIS_LENGTH: 100,
@@ -84,7 +84,33 @@ const CONFIG = {
   SAFE_Z_HEIGHT: 5,
 
   // Grid size default
-  DEFAULT_GRID_SIZE: 10
+  DEFAULT_GRID_SIZE: 10,
+
+  // PHASE 3.5: Magic number constants
+  // Animation
+  ANIMATION_DELTA_TIME: 1 / 60,  // Assume 60fps for delta time calculation
+  RESIZE_DEBOUNCE_MS: 200,  // Timeout for detecting end of window resize
+  RESIZE_RAF_DEBOUNCE_MS: 50,  // Debounce for RAF after resize
+
+  // Voxel system
+  DEFAULT_VOXEL_SIZE: 0.1,  // Default voxel size in mm
+  MAX_VOXELS: 750000,  // Maximum voxels before scaling up voxel size
+  VOXEL_SIZE_INCREMENT: 0.1,  // How much to increase voxel size when exceeding max
+
+  // Toolpath visualization
+  TOOLPATH_BOUNDS_PADDING: 4,  // mm padding around toolpath bounds
+  G1_LINE_COLOR: 0x00ffff,  // Cyan for cutting moves (G1)
+  G0_LINE_COLOR: 0xff0000,  // Red for rapid moves (G0)
+  G1_LINE_WIDTH: 2,
+  G0_LINE_WIDTH: 1,
+
+  // Coordinate space
+  TOOL_LENGTH: 40,  // Tool visualization length
+  SAFE_Z_HEIGHT: 5,  // Safe height for rapid moves
+
+  // Performance
+  VOXEL_REMOVAL_RATE: 2,  // Only remove voxels every N frames
+  PROFILE_FRAME_INTERVAL: 300  // Log profiling every N frames
 };
 
 // ============ HELPER FUNCTIONS ============
@@ -908,6 +934,14 @@ window.startSimulation3D = function() {
     if (toolpathAnimation.elapsedTime >= toolpathAnimation.totalAnimationTime) {
       toolpathAnimation.setProgress(0);
     }
+
+    // Read speed from slider and apply it before playing
+    const speedSlider = document.getElementById('3d-simulation-speed');
+    if (speedSlider) {
+      const sliderSpeed = parseFloat(speedSlider.value);
+      toolpathAnimation.setSpeed(sliderSpeed);
+    }
+
     toolpathAnimation.play();
 
     // Update total time display when starting
@@ -953,6 +987,9 @@ window.setSimulation3DProgress = function(lineNumber) {
     if (typeof gcodeView !== 'undefined' && gcodeView) {
       gcodeView.setCurrentLine(lineNumber);
     }
+    // FIX: Update status displays when slider is dragged (not just during animation)
+    updateSimulation2DDisplays();
+    updateSimulation3DDisplays();
   }
 };
 
@@ -1095,9 +1132,11 @@ function updateSimulation3DUI() {
 function animate() {
   // If animation loop is disabled (switched to 2D view), stop here
   if (!animationLoopActive) {
+    animationFrameId = null;
     return;
   }
 
+  // CRITICAL FIX 1.1: Always schedule next frame if tab is active (needed for orbit controls)
   animationFrameId = requestAnimationFrame(animate);
 
   // Increment frame counter for profiling
@@ -1105,7 +1144,9 @@ function animate() {
 
   // Measure component times
   const updateStart = performance.now();
-  if (toolpathAnimation) {
+
+  // Only update animation if it's actually playing (saves CPU when paused)
+  if (toolpathAnimation && toolpathAnimation.isPlaying) {
     toolpathAnimation.update();
 
     // Update 3D progress slider in overlay (now line-based, not percentage)
@@ -1188,7 +1229,7 @@ function onWindowResize() {
       const container = document.getElementById('3d-canvas-container');
       if (!container || !renderer || !camera) return;
 
-  
+
       let newWidth = container.getBoundingClientRect().width - padding;
       let newHeight = container.clientHeight;
 
@@ -1198,8 +1239,281 @@ function onWindowResize() {
           renderer.setSize(newWidth, newHeight);
       }
 
- 
+
   }
+
+// ============ CLEANUP FUNCTION (CRITICAL FIX 1.2) ============
+/**
+ * Comprehensive cleanup function to prevent memory leaks
+ * Disposes all Three.js resources and removes DOM elements
+ * Called when switching away from 3D view tab
+ */
+function cleanup3DView() {
+  console.log('Cleaning up 3D view resources...');
+
+  // Stop animation loop
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+
+  // Clear resize timeout if pending
+  if (resizeTimeoutId) {
+    clearTimeout(resizeTimeoutId);
+    resizeTimeoutId = null;
+  }
+
+  // Stop simulation and dispose voxel grid (stored in toolpathAnimation)
+  if (toolpathAnimation) {
+    if (typeof toolpathAnimation.stop === 'function') {
+      toolpathAnimation.stop();
+    }
+
+    // Dispose voxel grid (stored within toolpathAnimation instance)
+    if (toolpathAnimation.voxelGrid) {
+      if (typeof toolpathAnimation.voxelGrid.dispose === 'function') {
+        toolpathAnimation.voxelGrid.dispose();
+      }
+      if (toolpathAnimation.voxelGrid.mesh && scene) {
+        scene.remove(toolpathAnimation.voxelGrid.mesh);
+      }
+      toolpathAnimation.voxelGrid = null;
+    }
+
+    // Clear voxel material remover (stored within toolpathAnimation)
+    if (toolpathAnimation.voxelMaterialRemover) {
+      toolpathAnimation.voxelMaterialRemover = null;
+    }
+
+    toolpathAnimation = null;
+  }
+
+  // Dispose tool mesh
+  if (toolMesh) {
+    if (toolMesh.geometry) toolMesh.geometry.dispose();
+    if (toolMesh.material) toolMesh.material.dispose();
+    if (scene) scene.remove(toolMesh);
+    toolMesh = null;
+  }
+
+  // Dispose toolpath visualizer (stored in toolpathAnimation, but check if accessible)
+  if (toolpathVisualizer && toolpathVisualizer.mesh) {
+    const mesh = toolpathVisualizer.mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) mesh.material.dispose();
+    if (scene) scene.remove(mesh);
+  }
+  toolpathVisualizer = null;
+
+  // Dispose workpiece
+  if (workpieceManager) {
+    if (workpieceManager.mesh) {
+      if (workpieceManager.mesh.geometry) {
+        workpieceManager.mesh.geometry.dispose();
+      }
+      if (workpieceManager.mesh.material) {
+        workpieceManager.mesh.material.dispose();
+      }
+      if (scene) scene.remove(workpieceManager.mesh);
+    }
+    if (typeof workpieceManager.dispose === 'function') {
+      workpieceManager.dispose();
+    }
+    workpieceManager = null;
+  }
+
+  // Dispose grid helper
+  if (gridHelper3D) {
+    if (gridHelper3D.geometry) gridHelper3D.geometry.dispose();
+    if (gridHelper3D.material) gridHelper3D.material.dispose();
+    if (scene) scene.remove(gridHelper3D);
+    gridHelper3D = null;
+  }
+
+  // Dispose axis line helpers
+  ['x', 'y', 'z'].forEach(axis => {
+    if (axisLines[axis]) {
+      const line = axisLines[axis];
+      if (line.geometry) line.geometry.dispose();
+      if (line.material) line.material.dispose();
+      if (scene) scene.remove(line);
+      axisLines[axis] = null;
+    }
+  });
+
+  // Dispose all lights in scene
+  if (scene) {
+    scene.children.forEach(child => {
+      if (child instanceof THREE.Light) {
+        scene.remove(child);
+        if (child.shadow) {
+          if (child.shadow.map) child.shadow.map.dispose();
+        }
+      }
+    });
+  }
+
+  // Clear scene
+  if (scene) {
+    scene.clear();
+    scene = null;
+  }
+
+  // Dispose renderer
+  if (renderer) {
+    renderer.dispose();
+    const canvas = renderer.domElement;
+    if (canvas && canvas.parentElement) {
+      canvas.parentElement.removeChild(canvas);
+    }
+    renderer = null;
+  }
+
+  // Dispose orbit controls
+  if (orbitControls) {
+    if (typeof orbitControls.dispose === 'function') {
+      orbitControls.dispose();
+    }
+    orbitControls = null;
+  }
+
+  // Reset all state variables
+  camera = null;
+  initialized = false;
+  profileFrameCount = 0;
+  profileStartTime = performance.now();
+
+  console.log('3D view cleanup complete');
+}
+
+// Export cleanup function globally for use by bootstrap-layout.js
+window.cleanup3DView = cleanup3DView;
+
+// ============ VISIBILITY TOGGLES (PHASE 3.3) ============
+/**
+ * Toggle grid helper visibility
+ * @param {boolean} visible - Whether grid should be visible
+ */
+function toggleGridHelper3D(visible) {
+  if (!scene) return;
+
+  if (visible && !gridHelper3D) {
+    // Create grid if it doesn't exist
+    const { width: workpieceWidth, length: workpieceLength } = getWorkpieceDimensions();
+    const maxDim = Math.max(workpieceWidth, workpieceLength);
+    const gridSizeMM = (typeof getOption === 'function') ? getOption("gridSize") : 10;
+    const displaySize = maxDim * CONFIG.GRID_DISPLAY_SIZE_MULTIPLIER;
+    const gridDivisions = Math.ceil(displaySize / gridSizeMM);
+
+    gridHelper3D = new THREE.GridHelper(displaySize, gridDivisions, CONFIG.GRID_COLOR, CONFIG.GRID_COLOR);
+    gridHelper3D.rotation.x = CONFIG.GRID_ROTATION_X;
+    gridHelper3D.position.z = -getWorkpieceDimensions().thickness;
+    scene.add(gridHelper3D);
+  } else if (!visible && gridHelper3D) {
+    // Remove grid
+    scene.remove(gridHelper3D);
+    gridHelper3D.geometry.dispose();
+    gridHelper3D.material.dispose();
+    gridHelper3D = null;
+  }
+}
+
+/**
+ * Toggle axis helper visibility
+ * @param {boolean} visible - Whether axes should be visible
+ */
+function toggleAxisHelper3D(visible) {
+  if (!scene) return;
+
+  const axisId = 'axisHelper3D';  // Use a special ID to find it
+
+  if (visible && !axisLines.x) {
+    // Create axis helper if it doesn't exist
+    // Create 3 lines for X, Y, Z axes
+    const axisLength = CONFIG.AXIS_LENGTH;
+
+    // X axis (red)
+    const xGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(axisLength, 0, 0)
+    ]);
+    const xMaterial = new THREE.LineBasicMaterial({ color: CONFIG.AXIS_RED, linewidth: CONFIG.AXIS_LINE_WIDTH });
+    axisLines.x = new THREE.Line(xGeometry, xMaterial);
+    scene.add(axisLines.x);
+
+    // Y axis (green)
+    const yGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, axisLength, 0)
+    ]);
+    const yMaterial = new THREE.LineBasicMaterial({ color: CONFIG.AXIS_GREEN, linewidth: CONFIG.AXIS_LINE_WIDTH });
+    axisLines.y = new THREE.Line(yGeometry, yMaterial);
+    scene.add(axisLines.y);
+
+    // Z axis (blue)
+    const zGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, axisLength)
+    ]);
+    const zMaterial = new THREE.LineBasicMaterial({ color: CONFIG.AXIS_BLUE, linewidth: CONFIG.AXIS_LINE_WIDTH });
+    axisLines.z = new THREE.Line(zGeometry, zMaterial);
+    scene.add(axisLines.z);
+
+  } else if (!visible && axisLines.x) {
+    // Remove axes
+    ['x', 'y', 'z'].forEach(axis => {
+      if (axisLines[axis]) {
+        scene.remove(axisLines[axis]);
+        axisLines[axis].geometry.dispose();
+        axisLines[axis].material.dispose();
+        axisLines[axis] = null;
+      }
+    });
+  }
+}
+
+// Export visibility toggles globally
+window.toggleGridHelper3D = toggleGridHelper3D;
+window.toggleAxisHelper3D = toggleAxisHelper3D;
+
+// ============ DRY HELPER FUNCTIONS (PHASE 3.6) ============
+/**
+ * Execute a callback while preserving animation play state
+ * Pauses animation if playing, executes callback, resumes if was playing
+ * Useful for operations that need to pause animation temporarily (seeking, speed changes, etc.)
+ * @param {Function} callback - Function to execute while animation is paused
+ */
+function withAnimationPaused(callback) {
+  if (!toolpathAnimation) {
+    // No animation to pause, just run callback
+    callback();
+    return;
+  }
+
+  const wasPlaying = toolpathAnimation.isPlaying;
+
+  // Pause if currently playing
+  if (wasPlaying) {
+    toolpathAnimation.pause();
+  }
+
+  try {
+    // Execute callback
+    callback();
+  } finally {
+    // Always resume if was playing (even if callback throws)
+    if (wasPlaying && toolpathAnimation) {
+      toolpathAnimation.play();
+      // Restart animation loop if it's not running
+      if (!animationFrameId && animationLoopActive) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    }
+  }
+}
+
+// Export helper function globally
+window.withAnimationPaused = withAnimationPaused;
 
 
 // ============ WORKPIECE MANAGER ============
@@ -1386,6 +1700,9 @@ class ToolpathAnimation {
     this.voxelRemovalRate = 2;  // Only remove voxels every N frames to reduce per-frame cost
     this.frameCount = 0;  // Frame counter for throttling voxel removal
 
+    // PHASE 2.1: Track last voxel config to avoid unnecessary recreation
+    this.lastVoxelConfig = null;
+
     // Tool lookup by line number (sparse array - only stores tool change points)
     this.toolChangePoints = [];  // Array of {lineNumber, toolInfo} - only tool changes, not every line
   }
@@ -1445,18 +1762,6 @@ class ToolpathAnimation {
 
   initializeVoxelGrid() {
     try {
-      // Dispose of old voxel grid if it exists
-      if (this.voxelGrid) {
-        const voxelMesh = this.voxelGrid.getMesh();
-        this.scene.remove(voxelMesh);
-        this.voxelGrid.dispose();
-      }
-
-      // Remove old wireframe shell if it exists
-      if (this.workpieceOutlineBox) {
-        this.scene.remove(this.workpieceOutlineBox);
-      }
-
       // Get workpiece dimensions from the manager
       if (!this.workpieceManager) {
         console.warn('Voxel grid: workpiece manager not available');
@@ -1470,6 +1775,39 @@ class ToolpathAnimation {
       if (!width || !length || !thickness) {
         console.warn('Voxel grid: invalid workpiece dimensions', { width, length, thickness });
         return;
+      }
+
+      // PHASE 2.1: Check if dimensions have actually changed before recreating
+      const currentConfig = {
+        width,
+        length,
+        thickness,
+        voxelSize: this.voxelSize,
+        boundsOffset: getWorkpieceBoundsOffset()
+      };
+
+      // Quick check if voxel grid exists and has same dimensions
+      const configChanged = !this.lastVoxelConfig ||
+        this.lastVoxelConfig.width !== currentConfig.width ||
+        this.lastVoxelConfig.length !== currentConfig.length ||
+        this.lastVoxelConfig.thickness !== currentConfig.thickness ||
+        this.lastVoxelConfig.voxelSize !== currentConfig.voxelSize;
+
+      if (!configChanged && this.voxelGrid) {
+        console.log('Voxel grid dimensions unchanged, reusing existing grid');
+        return;  // Dimensions haven't changed, keep using existing voxel grid
+      }
+
+      // Dispose of old voxel grid only if we need to recreate
+      if (this.voxelGrid) {
+        const voxelMesh = this.voxelGrid.getMesh();
+        this.scene.remove(voxelMesh);
+        this.voxelGrid.dispose();
+      }
+
+      // Remove old wireframe shell if it exists
+      if (this.workpieceOutlineBox) {
+        this.scene.remove(this.workpieceOutlineBox);
       }
 
       // Get workpiece color
@@ -1565,6 +1903,11 @@ class ToolpathAnimation {
 
       // Reset material remover
       this.voxelMaterialRemover.reset();
+
+      // PHASE 2.1: Save current config so we don't recreate unnecessarily
+      this.lastVoxelConfig = currentConfig;
+      console.log('Voxel grid created/updated with config:', currentConfig);
+
     } catch (error) {
       console.error('Error initializing voxel grid:', error);
       this.enableVoxelRemoval = false;  // Disable voxel removal if initialization fails
@@ -1779,6 +2122,18 @@ class ToolpathAnimation {
   }
 
   loadFromGcode(gcode) {
+    // CRITICAL FIX 1.5: Input validation - prevent crashes from malformed G-code
+    if (!gcode || typeof gcode !== 'string') {
+      console.error('loadFromGcode: Invalid G-code input', { type: typeof gcode, value: gcode });
+      return;
+    }
+
+    const trimmedGcode = gcode.trim();
+    if (trimmedGcode.length === 0) {
+      console.warn('loadFromGcode: Empty G-code string provided');
+      return;
+    }
+
     // Performance profiling
     const perfStart = performance.now();
     const timers = {};
@@ -2160,7 +2515,7 @@ class ToolpathAnimation {
 
   play() {
     // Reset voxels and line number if coming from a stop or if animation naturally finished
-    if (this.wasStopped || this.currentGcodeLineNumber > this.totalGcodeLines) {
+    if (this.wasStopped || this.currentGcodeLineNumber >= this.totalGcodeLines) {
       if (this.voxelGrid) {
         this.voxelGrid.reset();
         this.voxelMaterialRemover.reset();
@@ -2177,7 +2532,13 @@ class ToolpathAnimation {
 
   pause() {
     this.isPlaying = false;
-    this.wasStopped = false;  // Pause keeps current position (not a stop)
+    // FIX: If animation finished naturally, set wasStopped=true so next play resets
+    // Only clear wasStopped if we're pausing in the MIDDLE of animation (before the end)
+    if (this.currentGcodeLineNumber < this.totalGcodeLines) {
+      this.wasStopped = false;  // Pause in middle keeps current position
+    } else {
+      this.wasStopped = true;  // Animation finished - next play will reset
+    }
     this.updateStatus();
   }
 
@@ -2310,6 +2671,15 @@ class ToolpathAnimation {
       if (this.voxelGrid) {
         this.voxelGrid.reset();
         this.voxelMaterialRemover.reset();
+        // CRITICAL FIX 1.3: Ensure GPU sync after reset
+        if (this.voxelGrid.mesh) {
+          if (this.voxelGrid.mesh.instanceMatrix) {
+            this.voxelGrid.mesh.instanceMatrix.needsUpdate = true;
+          }
+          if (this.voxelGrid.mesh.instanceColor) {
+            this.voxelGrid.mesh.instanceColor.needsUpdate = true;
+          }
+        }
       }
       this.currentToolInfo = null;
 

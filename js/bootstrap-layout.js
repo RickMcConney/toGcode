@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-29";
+var APP_VERSION = "Ver 2025-11-30";
 
 var mode = "Select";
 var options = [];
@@ -1016,6 +1016,13 @@ function createSidebar() {
             // Update simulation UI button states when switching to 3D view
             if (typeof updateSimulation3DUI === 'function') {
                 updateSimulation3DUI();
+            }
+        });
+
+        // WIRE UP CLEANUP (Critical Fix 1.2): Clean up 3D resources when switching away from 3D tab
+        canvas3DTab.addEventListener('hidden.bs.tab', function () {
+            if (typeof cleanup3DView === 'function') {
+                cleanup3DView();
             }
         });
     }

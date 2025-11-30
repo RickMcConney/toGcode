@@ -886,6 +886,13 @@ function startSimulation2D() {
     simulation2D.lastFrameTime = null;  // Will be set on first frame
     simulation2D.totalElapsedTime = 0;  // Reset elapsed time for fresh simulation
 
+    // Read speed from slider and apply it before starting
+    const speedSlider = document.getElementById('simulation-speed');
+    if (speedSlider) {
+        const sliderSpeed = parseFloat(speedSlider.value);
+        updateSimulation2DSpeed(sliderSpeed);
+    }
+
     simulation2D.isRunning = true;
     simulation2D.isPaused = false;
 
