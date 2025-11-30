@@ -98,7 +98,7 @@ class GcodeView {
             lines.pop();
         }
 
-        let lineNumber = 1;  // 1-indexed to match gcodeParser.js
+        let lineNumber = 0;  // 0-indexed (matches movement array indexing)
 
         const fragment = document.createDocumentFragment();
 
@@ -110,10 +110,10 @@ class GcodeView {
             lineDiv.className = 'gcode-line';
             lineDiv.setAttribute('data-line-number', lineNumber);
 
-            // Format: "N: G-code text"
+            // Format: "N: G-code text" (0-based indexing to match movement array)
             const lineText = document.createElement('span');
             lineText.className = 'gcode-line-number';
-            lineText.textContent = lineNumber + ': ';
+            lineText.textContent = lineNumber + ': ';  // 0-based indexing
 
             const codeText = document.createElement('span');
             codeText.className = 'gcode-line-code';

@@ -1070,14 +1070,14 @@ function updateSimulation3DDisplays() {
     feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)}`;
   }
 
-  if (progressSlider && toolpathAnimation.totalGcodeLines > 0) {
-    progressSlider.max = toolpathAnimation.totalGcodeLines - 1;
+  if (progressSlider && toolpathAnimation.totalGcodeLines >= 0) {
+    progressSlider.max = toolpathAnimation.totalGcodeLines;  // totalGcodeLines is now the max line number
     progressSlider.value = toolpathAnimation.currentGcodeLineNumber;
   }
 
   if (progressDisplay) {
     const percent = toolpathAnimation.totalGcodeLines > 0
-      ? Math.round((toolpathAnimation.currentGcodeLineNumber / (toolpathAnimation.totalGcodeLines - 1)) * 100)
+      ? Math.round((toolpathAnimation.currentGcodeLineNumber / toolpathAnimation.totalGcodeLines) * 100)
       : 0;
     progressDisplay.textContent = `Line ${toolpathAnimation.currentGcodeLineNumber} (${percent}%)`;
   }
@@ -2163,12 +2163,15 @@ class ToolpathAnimation {
     const lines = gcode.split('\n');
     this.gcodeLines = lines;  // Store for line-by-line animation
 
-    // Count total G-code lines (including all lines: empty, comments, commands, etc.)
-    this.totalGcodeLines = lines.length;
+    // Set maximum G-code line number (0-based indexing: if 100 lines, max index = 99)
+    this.totalGcodeLines = Math.max(0, lines.length - 1);
 
     // Use shared G-code parser to parse movements
     timers.parseStart = performance.now();
-    const parsedMovements = parseGcodeFile(gcode, parseConfig);
+    const parseResult = parseGcodeFile(gcode, parseConfig);
+    const parsedMovements = parseResult.movements;
+    const toolsArray = parseResult.tools;
+    // movements[i] corresponds to G-code line i (0-based indexing)
     timers.parseGcodeTime = performance.now() - timers.parseStart;
 
     // Add starting movement from safe position (0, 0, 5) to first actual position
@@ -2181,23 +2184,25 @@ class ToolpathAnimation {
       };
     }
 
-    // Build movements array with safe position at start
+    // Build movements array with safe position at start (using optimized structure)
     if (firstPosition) {
       movements.push({
         x: firstPosition.x,
         y: firstPosition.y,
         z: 5,  // Start at safe height
-        isG1: false,  // Rapid move
-        feedRate: 6000  // Fast rapid rate
+        f: 6000,  // Feed rate (fast rapid)
+        t: -1,  // No tool
+        m: 1    // Rapid move
       });
     }
 
     // Add all parsed movements
     movements.push(...parsedMovements);
 
-    // Build flattened path for cutting movements only
-    for (const movement of parsedMovements) {
-      if (movement.isCutting) {
+    // Build flattened path for cutting movements only (CUT=1 means cutting)
+    for (let i = 0; i < parsedMovements.length; i++) {
+      const movement = parsedMovements[i];
+      if (movement.m === CUT) {  // CUT (1) = cutting move
         this.flattenedPath.push({
           x: movement.x,
           y: movement.y,
@@ -2333,32 +2338,54 @@ class ToolpathAnimation {
   calculateAnimationTiming(movements) {
     // Calculate cumulative times for each movement based on distance and feed rate
     // This allows animation speed to be proportional to actual feed rates
+    //
+    // movements - array with optimized structure: {x, y, z, f, t, m}
+    //   Index 0 is synthetic initial movement (lineNumber = undefined)
+    //   Index i >= 1 corresponds to G-code line i-1 (0-based)
 
-    this.movementTiming = [];  // Array of {x, y, z, cumulativeTime, feedRate, isG1}
+    this.movementTiming = [];  // Array of {x, y, z, cumulativeTime, feedRate, isG1, distance, gcodeLineNumber}
     let cumulativeTime = 0;  // In seconds
     let prevX = 0, prevY = 0, prevZ = 5;  // Start at safe position
 
-    for (const move of movements) {
+    for (let i = 0; i < movements.length; i++) {
+      const move = movements[i];
+
+      // Skip non-movement lines (NON_MOVEMENT: comments, empty lines, etc.)
+      // These shouldn't affect animation timing or tool position
+      if (move.m === NON_MOVEMENT) continue;
+
       const dx = move.x - prevX;
       const dy = move.y - prevY;
       const dz = move.z - prevZ;
       const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
+      // Get feed rate from optimized structure (move.f)
+      // Default based on movement type if not specified
+      const feedRate = move.f || (move.m === CUT ? 600 : 6000);  // Default cut vs rapid
+
       // Calculate time for this segment: distance (mm) / feedRate (mm/min) = time (min)
       // Convert to seconds
-      const feedRateMMPerSec = move.feedRate / 60;
+      const feedRateMMPerSec = feedRate / 60;
       const segmentTime = distance > 0 ? distance / feedRateMMPerSec : 0;
       cumulativeTime += segmentTime;
+
+      // Determine G-code line number (0-based indexing)
+      // Index 0 is synthetic initial movement (lineNumber = undefined)
+      // Index i >= 1 corresponds to G-code line i-1 (0-based)
+      let gcodeLineNumber = undefined;
+      if (i > 0) {
+        gcodeLineNumber = i - 1;  // 0-based G-code line number
+      }
 
       this.movementTiming.push({
         x: move.x,
         y: move.y,
         z: move.z,
         cumulativeTime: cumulativeTime,
-        feedRate: move.feedRate,
-        isG1: move.isG1,
+        feedRate: feedRate,
+        isG1: move.m === CUT,  // CUT (1) = G1 cutting, RAPID (0) = G0 rapid
         distance: distance,
-        gcodeLineNumber: move.gcodeLineNumber  // Track the original G-code line number
+        gcodeLineNumber: gcodeLineNumber  // G-code line number (0-based, undefined for synthetic movement)
       });
 
       prevX = move.x;
@@ -2463,12 +2490,21 @@ class ToolpathAnimation {
     let currentIsG1 = null;
     let totalSegments = 0;
 
-    for (let i = 0; i < movements.length; i++) {
+    // Skip the synthetic initial movement (index 0) which moves from origin to first position
+    // Start from index 1 which is the first actual G-code line
+    for (let i = 1; i < movements.length; i++) {
       const move = movements[i];
+
+      // Skip non-movement lines (comments, empty lines, etc.) - NON_MOVEMENT means no movement
+      if (move.m === NON_MOVEMENT) continue;
+
       const point = new THREE.Vector3(move.x, move.y, move.z);
 
+      // Determine if this is a cutting move (CUT=1) or rapid (RAPID=0)
+      const isCutting = move.m === CUT;
+
       // Check if we need to start a new segment (type changed)
-      if (currentIsG1 !== null && move.isG1 !== currentIsG1) {
+      if (currentIsG1 !== null && isCutting !== currentIsG1) {
         // Draw the current segment and start a new one
         if (currentSegmentPoints.length > 1) {
           this.drawToolpathSegment(currentSegmentPoints, currentIsG1);
@@ -2478,11 +2514,11 @@ class ToolpathAnimation {
         // This ensures continuity between G0 and G1 segments
         const lastPoint = currentSegmentPoints[currentSegmentPoints.length - 1];
         currentSegmentPoints = [lastPoint, point];
-        currentIsG1 = move.isG1;
+        currentIsG1 = isCutting;
       } else {
         // Continue current segment
         if (currentIsG1 === null) {
-          currentIsG1 = move.isG1;
+          currentIsG1 = isCutting;
         }
         currentSegmentPoints.push(point);
       }
@@ -2515,16 +2551,21 @@ class ToolpathAnimation {
 
   play() {
     // Reset voxels and line number if coming from a stop or if animation naturally finished
-    if (this.wasStopped || this.currentGcodeLineNumber >= this.totalGcodeLines) {
+    if (this.wasStopped || this.currentGcodeLineNumber > this.totalGcodeLines) {
       if (this.voxelGrid) {
         this.voxelGrid.reset();
         this.voxelMaterialRemover.reset();
         this.voxelGrid.updateVoxelColors();
         this.voxelGrid.updateInstanceMatrices();
       }
-      this.currentGcodeLineNumber = 1;
+      this.currentGcodeLineNumber = 0;  // 0-based indexing - start at line 0
       this.elapsedTime = 0;
       this.wasStopped = false;  // Clear the stop flag
+
+      // Skip ahead to first actual movement (skip non-movement lines at start)
+      while (this.currentGcodeLineNumber <= this.totalGcodeLines && !this.getMovementForLine(this.currentGcodeLineNumber)) {
+        this.currentGcodeLineNumber++;
+      }
     }
     this.isPlaying = true;
     this.updateStatus();
@@ -2589,8 +2630,8 @@ class ToolpathAnimation {
    * Does NOT update viewer - caller is responsible for that to avoid feedback loops
    */
   seekToLineNumber(targetLineNumber) {
-    // Clamp to valid range
-    if (targetLineNumber < 1) targetLineNumber = 1;
+    // Clamp to valid range (0-based indexing: 0 to totalGcodeLines)
+    if (targetLineNumber < 0) targetLineNumber = 0;
     if (targetLineNumber > this.totalGcodeLines) targetLineNumber = this.totalGcodeLines;
 
     const oldLineNumber = this.currentGcodeLineNumber;
@@ -2606,9 +2647,9 @@ class ToolpathAnimation {
     }
 
     // Replay material removal from old to new line
-    if (isBackwardSeek && targetLineNumber > 1) {
-      // Backward seek: replay from line 1 to target
-      this._replayFromLineToLine(1, targetLineNumber);
+    if (isBackwardSeek && targetLineNumber > 0) {
+      // Backward seek: replay from line 0 to target
+      this._replayFromLineToLine(0, targetLineNumber);
     } else if (!isBackwardSeek && targetLineNumber > oldLineNumber) {
       // Forward seek: replay from current to target
       this._replayFromLineToLine(oldLineNumber, targetLineNumber);
@@ -2622,15 +2663,19 @@ class ToolpathAnimation {
     // Update tool and voxel grid
     const targetMovement = this.getMovementForLine(targetLineNumber);
     if (targetMovement) {
-      this.currentFeedRate = targetMovement.feedRate || 0;
+      this.currentFeedRate = targetMovement.f || 0;  // Use f (feed rate) from optimized structure
       // Update tool position to target line
-      this.updateToolPositionAtCoordinates(targetMovement.x, targetMovement.y, targetMovement.z, targetMovement.isG1, targetLineNumber);
+      const isCutting = targetMovement.isG1;  // movementTiming objects use .isG1
+      this.updateToolPositionAtCoordinates(targetMovement.x, targetMovement.y, targetMovement.z, isCutting, targetLineNumber);
     } else {
-      // No movement at this line, find last movement position
+      // No movement at this line, find last actual movement position
       let lastMovement = null;
-      for (let i = targetLineNumber - 1; i >= 1; i--) {
-        lastMovement = this.getMovementForLine(i);
-        if (lastMovement) break;
+      for (let i = targetLineNumber - 1; i >= 0; i--) {
+        const move = this.getMovementForLine(i);
+        if (move) {  // Found actual movement (movementTiming object)
+          lastMovement = move;
+          break;
+        }
       }
       if (lastMovement) {
         this.updateToolPositionAtCoordinates(lastMovement.x, lastMovement.y, lastMovement.z, false, targetLineNumber);
@@ -2728,11 +2773,11 @@ class ToolpathAnimation {
       if (!movement) continue;  // Line has no movement, skip
 
       if (movement.isG1 && this.voxelGrid && this.voxelMaterialRemover) {
-        // Find previous movement position for interpolation
+        // Find previous movement position for interpolation (only on cutting moves)
         let prevPos = { x: 0, y: 0, z: 5 };
-        for (let searchLine = lineNum - 1; searchLine >= 1; searchLine--) {
+        for (let searchLine = lineNum - 1; searchLine >= 0; searchLine--) {
           const prevMove = this.getMovementForLine(searchLine);
-          if (prevMove) {
+          if (prevMove) {  // Found actual movement
             prevPos = { x: prevMove.x, y: prevMove.y, z: prevMove.z };
             break;
           }
@@ -3085,14 +3130,19 @@ class ToolpathAnimation {
 
     // Check if current movement is complete and advance to next line if needed
     // (but only if playing, and not on the frame immediately after seeking)
-    if (this.isPlaying && !this.justSeeked && currentMovement && this.elapsedTime >= movementDuration) {
-      // Movement is complete, advance to next line
+    // Also advance if we're on a non-movement line (currentMovement is null)
+    const shouldAdvance = this.isPlaying && !this.justSeeked &&
+                          ((!currentMovement) ||  // Skip non-movement lines immediately
+                           (currentMovement && this.elapsedTime >= movementDuration));  // Or when movement is complete
+
+    if (shouldAdvance) {
+      // Movement is complete (or non-movement line), advance to next line
       this.currentGcodeLineNumber++;
       this.elapsedTime = 0;  // Reset time for next line
       this.justAdvancedLine = true;  // Skip tool update this frame
 
       // Skip ahead until we find a line with a movement or reach end
-      let maxIterations = this.totalGcodeLines;
+      let maxIterations = this.totalGcodeLines + 1;  // Total number of lines (0 to totalGcodeLines inclusive)
       while (this.currentGcodeLineNumber <= this.totalGcodeLines && !this.getMovementForLine(this.currentGcodeLineNumber) && maxIterations-- > 0) {
         this.currentGcodeLineNumber++;
       }

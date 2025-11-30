@@ -4,6 +4,11 @@
  * Handles variable G-code commands, axis ordering, and axis inversions based on post-processor profiles
  */
 
+// Movement type constants - match G-code conventions: G0 = rapid, G1 = cutting
+const NON_MOVEMENT = -1;  // Non-movement lines (comments, empty lines, M-codes, etc.)
+const RAPID = 0;          // G0 - Rapid positioning move
+const CUT = 1;            // G1 - Linear cutting move
+
 // Pre-compiled regex patterns for performance (avoid recreating on every iteration)
 const TOOL_REGEX = /Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/;
 const COORD_REGEX = /([XYZ])([\d.-]+)/gi;
@@ -79,10 +84,32 @@ function createGcodeParseConfig(profile) {
 }
 
 /**
- * Parse a G-code string and extract movements
+ * Shared non-movement object - referenced by all non-movement entries to save memory
+ * Movement type: NON_MOVEMENT (-1) = non-movement (comment, empty line, unrecognized command)
+ */
+const SHARED_NON_MOVEMENT = Object.freeze({
+    x: 0,
+    y: 0,
+    z: 0,
+    f: 0,       // feedRate
+    t: -1,      // tool index (-1 = no tool)
+    m: NON_MOVEMENT  // movement type (-1 = non-movement)
+});
+
+/**
+ * Parse a G-code string and extract movements with optimized memory structure
+ *
+ * Movement object (6 fields instead of 14):
+ *   x, y, z - coordinates
+ *   f - feed rate
+ *   t - tool index (-1 for no tool, 0+ for index into tools array)
+ *   m - movement type: 0=non-movement, 1=rapid (G0), 2=cutting (G1)
+ *
+ * Non-movement entries reference SHARED_NON_MOVEMENT to save memory
+ *
  * @param {string} gcode - G-code string
  * @param {object} parseConfig - Parse configuration from createGcodeParseConfig()
- * @returns {array} - Array of movement objects
+ * @returns {object} - { movements: array, tools: array } where tools are shared across movements
  */
 function parseGcodeFile(gcode, parseConfig) {
     if (!parseConfig) {
@@ -91,43 +118,20 @@ function parseGcodeFile(gcode, parseConfig) {
 
     const lines = gcode.split('\n');
     const movements = [];
+    const tools = [];           // Deduplicated tool list
+    const toolMap = new Map();  // toolId -> index mapping for fast lookup
+
     let currentX = 0, currentY = 0, currentZ = 0;
     let currentFeedRate = 1000;
-    let currentTool = null;
-    let currentToolId = null;
-    let currentToolType = null;
-    let currentToolDiameter = 0;
-    let currentToolAngle = 0;
-    let currentStepDown = 0;
+    let currentToolIndex = -1;  // Index into tools array (-1 = no tool)
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const line = lines[lineIndex];
         const trimmed = line.trim();
-        const gcodeLineNumber = lineIndex + 1;  // 1-indexed line number
 
-        // Create a placeholder entry for every G-code line to maintain 1-to-1 mapping
-        // This is updated if the line is a valid movement
-        let movement = {
-            x: currentX,
-            y: currentY,
-            z: currentZ,
-            isMovement: false,  // Flag to indicate if this is an actual movement
-            isG1: false,
-            isCutting: false,
-            feedRate: currentFeedRate,
-            type: 'non-movement',
-            tool: currentTool,
-            toolId: currentToolId,
-            toolType: currentToolType,
-            toolDiameter: currentToolDiameter,
-            toolAngle: currentToolAngle,
-            stepDown: currentStepDown,
-            gcodeLineNumber: gcodeLineNumber  // 1-indexed line number from G-code file
-        };
-
-        // Skip empty lines
+        // Skip empty lines - reference shared non-movement object
         if (!trimmed) {
-            movements.push(movement);  // Add placeholder for empty line
+            movements.push(SHARED_NON_MOVEMENT);
             continue;
         }
 
@@ -136,39 +140,45 @@ function parseGcodeFile(gcode, parseConfig) {
             // Extract comment text based on format
             let commentText = '';
             if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
-                // Format: (Tool: ID=...)
                 commentText = trimmed.substring(1, trimmed.length - 1);
             } else if (trimmed.startsWith(';')) {
-                // Format: ;Tool: ID=...
                 commentText = trimmed.substring(1);
             } else if (trimmed.startsWith('(')) {
-                // Unclosed parenthesis (some formats don't close)
                 commentText = trimmed.substring(1);
             }
 
             // Try to extract tool info from comment text (pre-check to avoid expensive regex)
-            // Pattern handles multi-word tool types like "End Mill" and "Ball Nose"
             if (commentText.includes('Tool:')) {
                 const toolMatch = commentText.match(TOOL_REGEX);
                 if (toolMatch) {
-                    currentToolId = toolMatch[1];
-                    currentToolType = toolMatch[2].trim();  // Remove extra spaces
-                    currentToolDiameter = parseFloat(toolMatch[3]) || 0;
-                    currentToolAngle = parseFloat(toolMatch[4]) || 0;
-                    currentStepDown = parseFloat(toolMatch[5]) || 0;
-                    currentTool = `${currentToolType} (${currentToolDiameter}mm)`;
+                    const toolId = toolMatch[1];
+                    const toolType = toolMatch[2].trim();
+                    const toolDiameter = parseFloat(toolMatch[3]) || 0;
+                    const toolAngle = parseFloat(toolMatch[4]) || 0;
+                    const stepDown = parseFloat(toolMatch[5]) || 0;
 
-                    // Update placeholder with tool info
-                    movement.tool = currentTool;
-                    movement.toolId = currentToolId;
-                    movement.toolType = currentToolType;
-                    movement.toolDiameter = currentToolDiameter;
-                    movement.toolAngle = currentToolAngle;
-                    movement.stepDown = currentStepDown;
+                    // Check if this tool already exists in our tools array
+                    if (!toolMap.has(toolId)) {
+                        // New tool - add to tools array and map
+                        const toolIndex = tools.length;
+                        tools.push({
+                            id: toolId,
+                            type: toolType,
+                            diameter: toolDiameter,
+                            angle: toolAngle,
+                            stepDown: stepDown
+                        });
+                        toolMap.set(toolId, toolIndex);
+                        currentToolIndex = toolIndex;
+                    } else {
+                        // Tool already exists - use its index
+                        currentToolIndex = toolMap.get(toolId);
+                    }
                 }
             }
 
-            movements.push(movement);  // Add placeholder for comment line
+            // Comment lines reference shared non-movement object
+            movements.push(SHARED_NON_MOVEMENT);
             continue;
         }
 
@@ -190,8 +200,8 @@ function parseGcodeFile(gcode, parseConfig) {
             axes = parseConfig.cutAxes;
             inversions = parseConfig.cutInversions;
         } else {
-            // Not a movement command we recognize - add placeholder and continue
-            movements.push(movement);
+            // Not a movement command we recognize - reference shared non-movement
+            movements.push(SHARED_NON_MOVEMENT);
             continue;
         }
 
@@ -233,23 +243,17 @@ function parseGcodeFile(gcode, parseConfig) {
             }
         }
 
-        // This IS a valid movement - update the placeholder
-        movement.x = newPos.x;
-        movement.y = newPos.y;
-        movement.z = newPos.z;
-        movement.isMovement = true;  // Mark as actual movement
-        movement.isG1 = isCutting;
-        movement.isCutting = isCutting;
-        movement.feedRate = currentFeedRate;
-        movement.type = isCutting ? 'feed' : 'rapid';
-        movement.tool = currentTool;
-        movement.toolId = currentToolId;
-        movement.toolType = currentToolType;
-        movement.toolDiameter = currentToolDiameter;
-        movement.toolAngle = currentToolAngle;
-        movement.stepDown = currentStepDown;
+        // Create optimized movement object (6 fields instead of 14)
+        // m: RAPID (0) = G0 rapid move, CUT (1) = G1 cutting move
+        const movement = {
+            x: newPos.x,
+            y: newPos.y,
+            z: newPos.z,
+            f: currentFeedRate,
+            t: currentToolIndex,
+            m: isCutting ? CUT : RAPID  // CUT (1) = G1, RAPID (0) = G0
+        };
 
-        // Add movement
         movements.push(movement);
 
         // Update current position
@@ -258,5 +262,12 @@ function parseGcodeFile(gcode, parseConfig) {
         currentZ = newPos.z;
     }
 
-    return movements;
+    // Return movements and tools
+    // movements[i] corresponds to G-code line i (0-based indexing)
+    // Tools array is shared across all movements that reference it by index
+    return {
+        movements: movements,
+        tools: tools,
+        sharedNonMovement: SHARED_NON_MOVEMENT  // For reference if needed
+    };
 }
