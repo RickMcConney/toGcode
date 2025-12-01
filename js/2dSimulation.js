@@ -9,6 +9,8 @@
  * - V-bit circle radius based on tool angle and depth
  * - Tool change tracking and preprocessing
  * - Canvas-based visualization
+ *
+ * Note: Uses movement type constants from gcodeParser.js (NON_MOVEMENT=-1, RAPID=0, CUT=1)
  */
 
 // Global simulation state
@@ -24,7 +26,7 @@ var simulation2D = {
     currentLineIndex: 0,
 
     // Precomputed points (new: one point per G-code line)
-    precomputedPoints: [],  // Array of {lineNumber, moveType, x, y, z, startX, startY, startZ, feedRate, moveTime, toolRadius, operation, tool}
+    precomputedPoints: [],  // Array of {moveType, x, y, z, startX, startY, startZ, feedRate, moveTime, toolRadius, tool, frustumData, isFrustum}
     currentLineProgress: 0,  // 0 to 1: position within current segment for interpolation
     lastFrameTime: null,    // Timestamp for delta-time calculation
 
@@ -152,8 +154,7 @@ function precomputePoints(movements, tools) {
             // Add placeholder point for non-movement line
             // This keeps the precomputedPoints array in 1-to-1 sync with G-code lines (0-based)
             const placeholderPoint = {
-                lineNumber: i,  // 0-based line index (array index = line number)
-                moveType: 'non-movement',
+                moveType: NON_MOVEMENT,
                 x: toolPos.x * viewScale + origin.x,
                 y: origin.y - toolPos.y * viewScale,
                 z: toolPos.z,
@@ -163,7 +164,6 @@ function precomputePoints(movements, tools) {
                 feedRate: currentFeedRate,
                 moveTime: 0.001,  // Minimal time for non-movement lines
                 toolRadius: 0,
-                operation: 'Non-Movement',
                 tool: currentTool
             };
             points.push(placeholderPoint);
@@ -182,8 +182,7 @@ function precomputePoints(movements, tools) {
         // Build point from parser movement (coordinates already respect profile inversions)
         const isCuttingMove = movement.m === CUT;
         let point = {
-            lineNumber: i,  // 0-based line index (array index = line number)
-            moveType: isCuttingMove ? 'cut' : 'rapid',
+            moveType: isCuttingMove ? CUT : RAPID,
             x: movement.x * viewScale + origin.x,           // Endpoint in WORLD SPACE
             y: origin.y - movement.y * viewScale,           // Y inverted for screen space
             z: movement.z,
@@ -193,7 +192,6 @@ function precomputePoints(movements, tools) {
             feedRate: feedRate,
             moveTime: 0.001,        // Will be calculated below
             toolRadius: 0,          // Will be calculated below
-            operation: isCuttingMove ? 'Cut' : 'Rapid',
             tool: currentTool
         };
 
@@ -554,7 +552,7 @@ function drawMaterialRemovalCircles() {
         const pointType = point.moveType;
 
         // Skip non-movement points (comments, empty lines, etc.) - don't draw them
-        if (pointType === 'non-movement') {
+        if (pointType === NON_MOVEMENT) {
             continue;
         }
 
@@ -580,7 +578,6 @@ function drawMaterialRemovalCircles() {
                 z: interpZ,
                 radius: interpRadius,
                 moveType: point.moveType,
-                operation: point.operation,
                 frustumData: point.frustumData,
                 isFrustum: point.isFrustum
             };
@@ -592,7 +589,6 @@ function drawMaterialRemovalCircles() {
                 z: point.z,
                 radius: point.toolRadius,
                 moveType: point.moveType,
-                operation: point.operation,
                 frustumData: point.frustumData,
                 isFrustum: point.isFrustum
             };
@@ -601,9 +597,9 @@ function drawMaterialRemovalCircles() {
         // If type changed, draw and reset segment
         if (currentSegmentType !== null && pointType !== currentSegmentType) {
             // Draw the previous segment
-            if (currentSegmentType === 'rapid') {
+            if (currentSegmentType === RAPID) {
                 drawDashedSegment(segmentPoints);
-            } else if (currentSegmentType === 'cut') {
+            } else if (currentSegmentType === CUT) {
                 drawCutSegment(segmentPoints);
             }
             segmentPoints = [];
@@ -617,9 +613,9 @@ function drawMaterialRemovalCircles() {
 
     // Draw final segment (including partially drawn current segment)
     if (segmentPoints.length > 0) {
-        if (currentSegmentType === 'rapid') {
+        if (currentSegmentType === RAPID) {
             drawDashedSegment(segmentPoints);
-        } else if (currentSegmentType === 'cut') {
+        } else if (currentSegmentType === CUT) {
             drawCutSegment(segmentPoints);
         }
     }
@@ -1008,6 +1004,13 @@ function stopSimulation2D() {
     simulation2D.currentLineIndex = 0;
     simulation2D.totalElapsedTime = 0;
 
+    // Clear parsed data to free memory (will be re-parsed if simulation is restarted)
+    simulation2D.movements = [];
+    simulation2D.tools = [];
+    simulation2D.precomputedPoints = [];
+    simulation2D.gcode = '';
+    simulation2D.gcodeLines = [];
+
     updateSimulation2DDisplay();
     redrawImmediate();
 }
@@ -1032,12 +1035,12 @@ function setSimulation2DLineNumber(targetLineNum) {
     }
 
     // Find the last precomputed point at or before this G-code line
-    // precomputedPoints[i].lineNumber is 0-indexed
+    // Array index IS the line number (0-indexed)
     let pointIndex = 0;
     if (simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
         for (let i = 0; i < simulation2D.precomputedPoints.length; i++) {
-            // Compare: precomputedPoints[i].lineNumber (0-indexed) with targetLineNum (0-indexed)
-            if (simulation2D.precomputedPoints[i].lineNumber <= targetLineNum) {
+            // Compare: array index i (0-indexed) with targetLineNum (0-indexed)
+            if (i <= targetLineNum) {
                 pointIndex = i;
             } else {
                 break;
@@ -1062,12 +1065,9 @@ function setSimulation2DLineNumber(targetLineNum) {
     // Update display
     updateSimulation2DDisplay();
 
-    // Update G-code viewer highlight (use the actual G-code line number from the point)
+    // Update G-code viewer highlight (array index IS the line number)
     if (typeof gcodeView !== 'undefined' && gcodeView) {
-        const currentPoint = simulation2D.precomputedPoints[pointIndex];
-        if (currentPoint) {
-            gcodeView.setCurrentLine(currentPoint.lineNumber);  // lineNumber is 0-indexed
-        }
+        gcodeView.setCurrentLine(pointIndex);  // pointIndex is array index = line number (0-indexed)
     }
 
     // Trigger redraw (will draw up to currentLineIndex)
@@ -1103,16 +1103,14 @@ function setSimulation2DLineNumber(targetLineNum) {
  * Update the control display with current simulation state
  */
 function updateSimulation2DDisplay() {
-    // Update line number (use 0-based indexing from precomputed points)
+    // Update line number (use 0-based indexing)
     const lineDisplay = document.getElementById('2d-step-display');
-    if (lineDisplay && simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
-        // Get current line number from precomputed point (lineNumber is 0-indexed)
-        const currentPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
-        const currentLineNum = currentPoint ? currentPoint.lineNumber : 0;
+    if (lineDisplay && simulation2D.movements && simulation2D.movements.length > 0) {
+        // Array index IS the line number (0-based)
+        const currentLineNum = simulation2D.currentLineIndex;
 
-        // Get total G-code lines from movements array (0-based, so max line = length - 1)
-        const totalLineNum = simulation2D.movements && simulation2D.movements.length > 0 ?
-            simulation2D.movements.length - 1 : 0;
+        // Total G-code lines
+        const totalLineNum = simulation2D.movements.length;
 
         lineDisplay.textContent = `${currentLineNum} / ${totalLineNum}`;
     }
@@ -1141,12 +1139,10 @@ function updateSimulation2DDisplay() {
 
     // Update progress slider if present (use 0-based G-code line numbers)
     const progressSlider = document.getElementById('simulation-step');
-    if (progressSlider && simulation2D.precomputedPoints && simulation2D.movements && simulation2D.movements.length > 0) {
-        const currentPoint = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
-
-        // Slider represents 0-indexed G-code line numbers
-        progressSlider.value = currentPoint ? currentPoint.lineNumber : 0;
-        progressSlider.max = simulation2D.movements.length - 1;  // Max line = array length - 1
+    if (progressSlider && simulation2D.movements && simulation2D.movements.length > 0) {
+        // Slider value is the array index (which IS the line number in 0-based indexing)
+        progressSlider.value = simulation2D.currentLineIndex;
+        progressSlider.max = simulation2D.movements.length - 1;  // Max index = array length - 1
     }
 }
 

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-11-30";
+var APP_VERSION = "Ver 2025-12-01";
 
 var mode = "Select";
 var options = [];
@@ -2058,10 +2058,9 @@ function create2DSimulationControls() {
 
     // Simulation step control (progress slider) - seek to G-code line
     document.getElementById('simulation-step').addEventListener('input', function (e) {
-        const lineIndex = parseInt(e.target.value);  // 0-indexed from slider (0 to 36 for 37 lines)
-        const lineNumber = lineIndex + 1;             // Convert to 1-indexed for setSimulation2DLineNumber
+        const lineIndex = parseInt(e.target.value);  // 0-indexed from slider (array index is line number)
         if (typeof setSimulation2DLineNumber === 'function') {
-            setSimulation2DLineNumber(lineNumber);
+            setSimulation2DLineNumber(lineIndex);  // Pass 0-based line number directly
         }
     });
 }
