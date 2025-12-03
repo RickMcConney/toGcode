@@ -806,7 +806,9 @@ function runSimulation2D() {
 
         // Check if we've finished all lines
         if (simulation2D.currentLineIndex >= simulation2D.precomputedPoints.length) {
+            simulation2D.currentLineIndex--;
             finishSimulation2D();
+           
             return;
         }
     }
@@ -867,6 +869,15 @@ function startSimulation2D() {
                     'Failed to generate G-code'
         ));
         return;
+    }
+
+    // Show gcode viewer when starting 2D simulation
+    if (typeof gcodeView !== 'undefined' && gcodeView) {
+        const gcode = simulation2D.gcode;
+        gcodeView.populate(gcode);
+        if (typeof showGcodeViewerPanel === 'function') {
+            showGcodeViewerPanel();
+        }
     }
 
     simulation2D.currentLineIndex = 0;
@@ -978,6 +989,7 @@ function stopSimulation2D() {
         simulation2D.animationFrameId = null;
     }
 
+    // Hide gcode viewer when stopping 2D simulation
     if (typeof hideGcodeViewerPanel === 'function') {
         hideGcodeViewerPanel();
     }
@@ -1107,7 +1119,7 @@ function updateSimulation2DDisplay() {
     const lineDisplay = document.getElementById('2d-step-display');
     if (lineDisplay && simulation2D.movements && simulation2D.movements.length > 0) {
         // Array index IS the line number (0-based)
-        const currentLineNum = simulation2D.currentLineIndex;
+        const currentLineNum = simulation2D.currentLineIndex+1;
 
         // Total G-code lines
         const totalLineNum = simulation2D.movements.length;

@@ -113,7 +113,7 @@ class GcodeView {
             // Format: "N: G-code text" (0-based indexing to match movement array)
             const lineText = document.createElement('span');
             lineText.className = 'gcode-line-number';
-            lineText.textContent = lineNumber + ': ';  // 0-based indexing
+            lineText.textContent = (lineNumber+1) + ': ';  // 0-based indexing
 
             const codeText = document.createElement('span');
             codeText.className = 'gcode-line-code';
@@ -168,15 +168,16 @@ class GcodeView {
         this.setCurrentLine(lineNumber);
 
         // Seek the simulator to this line
-        // Check 2D simulation first (even if paused, it's the active simulation)
+        // Simulations are mutually exclusive - only one should be active
+        // Check 2D simulation first (running or paused means it's the active one)
         if (typeof simulation2D !== 'undefined' && (simulation2D.isRunning || simulation2D.isPaused)) {
-            // 2D simulation is active (running or paused) - direct line-based seeking
+            // 2D simulation is active - use direct line-based seeking
             if (typeof setSimulation2DLineNumber === 'function') {
                 setSimulation2DLineNumber(lineNumber);
             }
-        } else if (typeof toolpathAnimation !== 'undefined' && toolpathAnimation) {
-            // 3D simulation - use seekToLineNumber for line-driven animation
-            toolpathAnimation.seekToLineNumber(lineNumber);
+        } else if (typeof setSimulation3DProgress === 'function') {
+            // 3D simulation is active - use setSimulation3DProgress which handles all updates
+            setSimulation3DProgress(lineNumber);
         }
     }
 

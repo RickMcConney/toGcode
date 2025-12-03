@@ -931,7 +931,8 @@ window.setWorkpieceVisibility3D = function(visible) {
 
 window.startSimulation3D = function() {
   if (toolpathAnimation && !toolpathAnimation.isPlaying) {
-    if (toolpathAnimation.elapsedTime >= toolpathAnimation.totalAnimationTime) {
+    // If at the end of the file, reset to beginning. Otherwise continue from current line.
+    if (toolpathAnimation.currentGcodeLineNumber >= toolpathAnimation.totalGcodeLines - 1) {
       toolpathAnimation.setProgress(0);
     }
 
@@ -944,14 +945,10 @@ window.startSimulation3D = function() {
 
     toolpathAnimation.play();
 
-    // Update total time display when starting
+    // Update 3D total time display when starting
     const totalTimeElem = document.getElementById('3d-total-time');
     if (totalTimeElem) {
       totalTimeElem.textContent = formatTime(toolpathAnimation.totalAnimationTime);
-    }
-    const totalTimeElem2d = document.getElementById('2d-total-time');
-    if (totalTimeElem2d) {
-      totalTimeElem2d.textContent = formatTime(toolpathAnimation.totalAnimationTime);
     }
 
     updateSimulation3DUI();
@@ -987,9 +984,10 @@ window.setSimulation3DProgress = function(lineNumber) {
     if (typeof gcodeView !== 'undefined' && gcodeView) {
       gcodeView.setCurrentLine(lineNumber);
     }
-    // FIX: Update status displays when slider is dragged (not just during animation)
-    updateSimulation2DDisplays();
+    // Update 3D display when slider is dragged
     updateSimulation3DDisplays();
+    // Update button states after seeking (wasStopped flag was reset)
+    updateSimulation3DUI();
   }
 };
 
@@ -1003,52 +1001,6 @@ function formatTime(seconds) {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
-
-/**
- * Update 2D simulation display elements
- */
-function updateSimulation2DDisplays() {
-  if (!toolpathAnimation) return;
-
-  const lineDisplay = document.getElementById('2d-step-display');
-  const feedRateDisplay = document.getElementById('2d-feed-rate-display');
-  const simTimeElem = document.getElementById('2d-simulation-time');
-  const totalTimeElem = document.getElementById('2d-total-time');
-
-  if (lineDisplay) {
-    lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
-  }
-
-  if (feedRateDisplay) {
-    feedRateDisplay.textContent = `${Math.round(toolpathAnimation.currentFeedRate)}`;
-  }
-
-  if (simTimeElem) {
-    // Calculate cumulative elapsed time by finding previous movement's cumulative time + current elapsed
-    let cumulativeElapsedTime = 0;
-
-    // Find previous movement (same logic as in update() method)
-    let prevMovement = null;
-    for (const move of toolpathAnimation.movementTiming) {
-      if (move.gcodeLineNumber < toolpathAnimation.currentGcodeLineNumber) {
-        if (!prevMovement || move.gcodeLineNumber > prevMovement.gcodeLineNumber) {
-          prevMovement = move;
-        }
-      }
-    }
-
-    // Cumulative elapsed = previous movement's cumulative time + current elapsed within movement
-    const prevMovementEndTime = prevMovement ? prevMovement.cumulativeTime : 0;
-    cumulativeElapsedTime = prevMovementEndTime + toolpathAnimation.elapsedTime;
-
-    simTimeElem.textContent = formatTime(cumulativeElapsedTime);
-  }
-
-  if (totalTimeElem) {
-    totalTimeElem.textContent = formatTime(toolpathAnimation.totalAnimationTime);
-  }
-}
-
 /**
  * Update 3D simulation display elements
  */
@@ -1063,7 +1015,8 @@ function updateSimulation3DDisplays() {
   const totalTimeElem = document.getElementById('3d-total-time');
 
   if (lineDisplay) {
-    lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber} / ${toolpathAnimation.totalGcodeLines}`;
+    // Display 1-indexed line number (add 1 to convert from 0-indexed)
+    lineDisplay.textContent = `${toolpathAnimation.currentGcodeLineNumber + 1} / ${toolpathAnimation.totalGcodeLines}`;
   }
 
   if (feedRateDisplay) {
@@ -1071,15 +1024,17 @@ function updateSimulation3DDisplays() {
   }
 
   if (progressSlider && toolpathAnimation.totalGcodeLines >= 0) {
-    progressSlider.max = toolpathAnimation.totalGcodeLines;  // totalGcodeLines is now the max line number
+    progressSlider.max = toolpathAnimation.totalGcodeLines - 1;  // max is last line index (0-indexed)
     progressSlider.value = toolpathAnimation.currentGcodeLineNumber;
   }
 
   if (progressDisplay) {
+    // Calculate percent based on 1-indexed position
     const percent = toolpathAnimation.totalGcodeLines > 0
-      ? Math.round((toolpathAnimation.currentGcodeLineNumber / toolpathAnimation.totalGcodeLines) * 100)
+      ? Math.round(((toolpathAnimation.currentGcodeLineNumber + 1) / toolpathAnimation.totalGcodeLines) * 100)
       : 0;
-    progressDisplay.textContent = `Line ${toolpathAnimation.currentGcodeLineNumber} (${percent}%)`;
+    // Display 1-indexed line number
+    progressDisplay.textContent = `Line ${toolpathAnimation.currentGcodeLineNumber + 1} (${percent}%)`;
   }
 
   if (simTimeElem) {
@@ -1153,12 +1108,11 @@ function animate() {
     const progressSlider = document.getElementById('3d-simulation-progress');
     if (progressSlider) {
       progressSlider.value = toolpathAnimation.currentGcodeLineNumber;
-      const lineDisplay = toolpathAnimation.currentGcodeLineNumber + ' / ' + toolpathAnimation.totalGcodeLines;
+      const lineDisplay = (toolpathAnimation.currentGcodeLineNumber + 1) + ' / ' + toolpathAnimation.totalGcodeLines;
       document.getElementById('3d-progress-display').textContent = lineDisplay;
     }
 
-    // Update simulation displays for both 2D and 3D
-    updateSimulation2DDisplays();
+    // Update 3D display during animation
     updateSimulation3DDisplays();
 
     // If animation has completed, update UI to re-enable play button
@@ -2164,7 +2118,7 @@ class ToolpathAnimation {
     this.gcodeLines = lines;  // Store for line-by-line animation
 
     // Set maximum G-code line number (0-based indexing: if 100 lines, max index = 99)
-    this.totalGcodeLines = Math.max(0, lines.length - 1);
+    this.totalGcodeLines = Math.max(0, lines.length);
 
     // Use shared G-code parser to parse movements
     timers.parseStart = performance.now();
@@ -2550,8 +2504,9 @@ class ToolpathAnimation {
   }
 
   play() {
-    // Reset voxels and line number if coming from a stop or if animation naturally finished
-    if (this.wasStopped || this.currentGcodeLineNumber > this.totalGcodeLines) {
+    // Reset voxels and line number only if at the end of the file
+    // If we seeked to a different line, continue from that line
+    if (this.currentGcodeLineNumber >= this.totalGcodeLines - 1) {
       if (this.voxelGrid) {
         this.voxelGrid.reset();
         this.voxelMaterialRemover.reset();
@@ -2575,10 +2530,11 @@ class ToolpathAnimation {
     this.isPlaying = false;
     // FIX: If animation finished naturally, set wasStopped=true so next play resets
     // Only clear wasStopped if we're pausing in the MIDDLE of animation (before the end)
-    if (this.currentGcodeLineNumber < this.totalGcodeLines) {
+    // currentGcodeLineNumber is 0-indexed, last valid index is totalGcodeLines - 1
+    if (this.currentGcodeLineNumber < this.totalGcodeLines - 1) {
       this.wasStopped = false;  // Pause in middle keeps current position
     } else {
-      this.wasStopped = true;  // Animation finished - next play will reset
+      this.wasStopped = true;  // Animation finished at last line - next play will reset
     }
     this.updateStatus();
   }
@@ -2647,12 +2603,13 @@ class ToolpathAnimation {
     }
 
     // Replay material removal from old to new line
+    // Replay UP TO but NOT INCLUDING the target line (show state BEFORE current line executes)
     if (isBackwardSeek && targetLineNumber > 0) {
-      // Backward seek: replay from line 0 to target
-      this._replayFromLineToLine(0, targetLineNumber);
+      // Backward seek: replay from line 0 to one before target
+      this._replayFromLineToLine(0, targetLineNumber - 1);
     } else if (!isBackwardSeek && targetLineNumber > oldLineNumber) {
-      // Forward seek: replay from current to target
-      this._replayFromLineToLine(oldLineNumber, targetLineNumber);
+      // Forward seek: replay from current to one before target
+      this._replayFromLineToLine(oldLineNumber, targetLineNumber - 1);
     }
 
     // Set state to target line
@@ -2661,12 +2618,26 @@ class ToolpathAnimation {
     this.justSeeked = true;  // Prevent advancing on next update call
 
     // Update tool and voxel grid
+    // Set tool to BEFORE this line (previous movement's end position)
     const targetMovement = this.getMovementForLine(targetLineNumber);
     if (targetMovement) {
       this.currentFeedRate = targetMovement.f || 0;  // Use f (feed rate) from optimized structure
-      // Update tool position to target line
-      const isCutting = targetMovement.isG1;  // movementTiming objects use .isG1
-      this.updateToolPositionAtCoordinates(targetMovement.x, targetMovement.y, targetMovement.z, isCutting, targetLineNumber);
+      // Find previous movement to position tool at START of current line
+      let prevMovement = null;
+      for (let i = targetLineNumber - 1; i >= 0; i--) {
+        const move = this.getMovementForLine(i);
+        if (move) {  // Found actual movement
+          prevMovement = move;
+          break;
+        }
+      }
+      if (prevMovement) {
+        // Position tool at end of previous movement (start of current line)
+        this.updateToolPositionAtCoordinates(prevMovement.x, prevMovement.y, prevMovement.z, false, prevMovement.gcodeLineNumber || targetLineNumber);
+      } else {
+        // No previous movement, use safe starting position
+        this.updateToolPositionAtCoordinates(0, 0, 5, false, 0);
+      }
     } else {
       // No movement at this line, find last actual movement position
       let lastMovement = null;
@@ -2678,7 +2649,7 @@ class ToolpathAnimation {
         }
       }
       if (lastMovement) {
-        this.updateToolPositionAtCoordinates(lastMovement.x, lastMovement.y, lastMovement.z, false, targetLineNumber);
+        this.updateToolPositionAtCoordinates(lastMovement.x, lastMovement.y, lastMovement.z, false, lastMovement.gcodeLineNumber || targetLineNumber);
       }
     }
 
@@ -2728,22 +2699,32 @@ class ToolpathAnimation {
       }
       this.currentToolInfo = null;
 
-      // Replay from start to target
+      // Replay from start to target (exclude target line to show state before it runs)
+      // Note: if targetMovementIndex = 0, we don't replay anything (fresh start)
       if (targetMovementIndex > 0) {
-        this._replayFromMovementIndexToIndex(0, targetMovementIndex);
+        this._replayFromMovementIndexToIndex(0, targetMovementIndex - 1);
       }
     } else {
-      // Small forward step: incremental replay
-      this._replayFromMovementIndexToIndex(oldMovementIndex, targetMovementIndex);
+      // Small forward step: incremental replay (exclude target line to show state before it runs)
+      // Replay from old position through one before target
+      if (oldMovementIndex < targetMovementIndex) {
+        this._replayFromMovementIndexToIndex(oldMovementIndex, targetMovementIndex - 1);
+      }
     }
 
     // Set state directly from the target movement
     this.currentMovementIndex = targetMovementIndex;
     const targetMovement = this.movementTiming[targetMovementIndex];
     this.currentGcodeLineNumber = targetMovement.gcodeLineNumber;
-    this.elapsedTime = targetMovement.cumulativeTime;
-    this.previousElapsedTime = this.elapsedTime;
+    // Set elapsed time to 0 (beginning of movement) to show state BEFORE this line executes
+    this.elapsedTime = 0;
+    this.previousElapsedTime = 0;
     this.currentFeedRate = targetMovement.feedRate || 0;
+
+
+    // Reset wasStopped flag when seeking to allow restart
+    // wasStopped is only set to true when animation finishes; seeking to any line should allow restart
+    this.wasStopped = false;
 
     // Update G-code viewer highlight when progress slider moves
     if (!skipViewerUpdate && typeof gcodeView !== 'undefined' && gcodeView) {
@@ -3147,9 +3128,9 @@ class ToolpathAnimation {
         this.currentGcodeLineNumber++;
       }
 
-      // If we've reached the end, clamp to total lines, pause, and keep voxels visible
-      if (this.currentGcodeLineNumber > this.totalGcodeLines) {
-        this.currentGcodeLineNumber = this.totalGcodeLines;  // Clamp to final line
+      // If we've reached the end, clamp to last valid line index, pause, and keep voxels visible
+      if (this.currentGcodeLineNumber >= this.totalGcodeLines) {
+        this.currentGcodeLineNumber = this.totalGcodeLines - 1;  // Clamp to last valid line (0-indexed)
 
         // Update tool position one final time to show final location
         const finalMovement = this.getMovementForLine(this.currentGcodeLineNumber);

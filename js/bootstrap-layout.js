@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-12-01";
+var APP_VERSION = "Ver 2025-12-02";
 
 var mode = "Select";
 var options = [];
@@ -967,12 +967,12 @@ function createSidebar() {
 
     if (canvas2DTab) {
         canvas2DTab.addEventListener('shown.bs.tab', function () {
-            // When switching away from 3D view, pause the 3D simulation if it's playing
-            if (typeof pauseSimulation3D === 'function') {
-                pauseSimulation3D();
+            // Stop 3D simulation when switching to 2D (simulations are mutually exclusive)
+            if (typeof stopSimulation3D === 'function') {
+                stopSimulation3D();
             }
 
-            // Hide G-code viewer and restore previous sidebar tab
+            // Hide gcode viewer when switching to 2D view
             if (typeof hideGcodeViewerPanel === 'function') {
                 hideGcodeViewerPanel();
             }
@@ -998,13 +998,12 @@ function createSidebar() {
 
     if (canvas3DTab) {
         canvas3DTab.addEventListener('shown.bs.tab', function () {
-            // When switching to 3D view, show 3D overlay and hide 2D overlay
-            const overlay2D = document.getElementById('simulation-overlay-2d');
-            if (overlay2D) overlay2D.classList.add('d-none');
-            const overlay3D = document.getElementById('simulation-overlay-3d');
-            if (overlay3D) overlay3D.classList.remove('d-none');
+            // Stop 2D simulation when switching to 3D (simulations are mutually exclusive)
+            if (typeof stopSimulation2D === 'function') {
+                stopSimulation2D();
+            }
 
-            // Show G-code viewer and populate with current G-code
+            // Load and show gcode viewer when switching to 3D view
             if (typeof gcodeView !== 'undefined' && gcodeView && typeof toGcode === 'function') {
                 const gcode = toGcode();
                 gcodeView.populate(gcode);
@@ -1013,9 +1012,20 @@ function createSidebar() {
                 }
             }
 
+            // When switching to 3D view, show 3D overlay and hide 2D overlay
+            const overlay2D = document.getElementById('simulation-overlay-2d');
+            if (overlay2D) overlay2D.classList.add('d-none');
+            const overlay3D = document.getElementById('simulation-overlay-3d');
+            if (overlay3D) overlay3D.classList.remove('d-none');
+
             // Update simulation UI button states when switching to 3D view
             if (typeof updateSimulation3DUI === 'function') {
                 updateSimulation3DUI();
+            }
+
+            // Update 3D display to show current animation state
+            if (typeof updateSimulation3DDisplays === 'function') {
+                updateSimulation3DDisplays();
             }
         });
 
@@ -1029,12 +1039,15 @@ function createSidebar() {
 
     if (canvasToolsTab) {
         canvasToolsTab.addEventListener('shown.bs.tab', function () {
-            // When switching away from 3D view, pause the 3D simulation if it's playing
-            if (typeof pauseSimulation3D === 'function') {
-                pauseSimulation3D();
+            // Stop both simulations when switching to Tools tab
+            if (typeof stopSimulation2D === 'function') {
+                stopSimulation2D();
+            }
+            if (typeof stopSimulation3D === 'function') {
+                stopSimulation3D();
             }
 
-            // Hide G-code viewer and restore previous sidebar tab
+            // Hide gcode viewer when switching to Tools tab
             if (typeof hideGcodeViewerPanel === 'function') {
                 hideGcodeViewerPanel();
             }
