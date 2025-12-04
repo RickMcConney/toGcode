@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-12-02";
+var APP_VERSION = "Ver 2025-12-04";
 
 var mode = "Select";
 var options = [];
@@ -320,9 +320,146 @@ fileOpen.addEventListener('change', function (e) {
     fileOpen.value = "";
 });
 
+var pngFileInput = document.createElement('input');
+pngFileInput.type = 'file';
+pngFileInput.accept = '.png,.jpg,.jpeg';
+pngFileInput.id = 'pngFileInput';
+pngFileInput.addEventListener('change', function (e) {
+    autoCloseToolProperties('PNG import');
+
+    var file = pngFileInput.files[0];
+    if (!file) return;
+
+    currentFileName = file.name.split('.').shift();
+
+    var reader = new FileReader();
+    reader.onload = function (event) {
+        var dataUrl = event.target.result;
+
+        // Use ImageTracer to convert PNG to SVG
+        ImageTracer.imageToSVG(dataUrl, function(svgString) {
+            // Remove boundary/corner paths before importing
+            var cleanedSvg = removeBoundaryPaths(svgString);
+
+            // Parse the cleaned SVG and import it
+            parseSvgContent(cleanedSvg, file.name);
+            center();
+            redraw();
+        }, {
+            // ImageTracer options for cleaner line tracing
+            numberofcolors: 4,      // Reduce to 2 colors for simpler tracing
+            colorsampling: 0,       // No color sampling for more consistent results
+            pathomit: 40,           // Ignore small artifacts (triangles)
+            blurradius: 3,          // Blur to smooth edges and reduce noise
+            blurdelta: 20,          // Threshold for selective blur
+            ltres: 1,               // Line threshold
+            qtres: 1,               // Quad threshold
+            strokewidth: 1,         // No stroke - use fills only to avoid double paths
+            linefilter: true,       // Enable line filtering for cleaner output
+            rightangleenhance: true // Enhance right angles for cleaner geometry
+        });
+    };
+    reader.readAsDataURL(file);
+    pngFileInput.value = "";
+});
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
+
+/**
+ * Remove boundary/corner paths from ImageTracer SVG output
+ * These are typically rectangular paths at the image edges
+ */
+function removeBoundaryPaths(svgString) {
+    try {
+        // Parse SVG string into DOM
+        var parser = new DOMParser();
+        var svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+        var svgElement = svgDoc.querySelector('svg');
+
+        if (!svgElement) return svgString;
+
+        // Get SVG dimensions
+        var viewBox = svgElement.getAttribute('viewBox');
+        var width, height;
+
+        if (viewBox) {
+            var vb = viewBox.split(/\s+/);
+            width = parseFloat(vb[2]);
+            height = parseFloat(vb[3]);
+        } else {
+            width = parseFloat(svgElement.getAttribute('width')) || 0;
+            height = parseFloat(svgElement.getAttribute('height')) || 0;
+        }
+
+        if (!width || !height) return svgString;
+
+        // Get all path elements
+        var paths = svgDoc.querySelectorAll('path');
+        var pathsToRemove = [];
+
+        // Threshold for considering a path as boundary (within 5% of edge)
+        var edgeThreshold = 2;
+
+        paths.forEach(function(pathElement) {
+            var d = pathElement.getAttribute('d');
+            if (!d) return;
+
+            // Extract all coordinate pairs from the path
+            var coordMatches = d.match(/(-?[\d.]+)\s+(-?[\d.]+)/g);
+            if (!coordMatches || coordMatches.length === 0) return;
+
+            var coords = coordMatches.map(function(pair) {
+                var parts = pair.trim().split(/\s+/);
+                return {
+                    x: parseFloat(parts[0]),
+                    y: parseFloat(parts[1])
+                };
+            });
+
+            // Check if path has any actual corner coordinates
+            // A corner point must have BOTH x at edge AND y at edge (same point)
+            var hasTopLeftCorner = coords.some(function(c) {
+                return c.x <= edgeThreshold && c.y <= edgeThreshold;
+            });
+            var hasTopRightCorner = coords.some(function(c) {
+                return c.x >= width - edgeThreshold && c.y <= edgeThreshold;
+            });
+            var hasBottomLeftCorner = coords.some(function(c) {
+                return c.x <= edgeThreshold && c.y >= height - edgeThreshold;
+            });
+            var hasBottomRightCorner = coords.some(function(c) {
+                return c.x >= width - edgeThreshold && c.y >= height - edgeThreshold;
+            });
+
+            // Count how many different corners this path touches
+            var cornerCount = 0;
+            if (hasTopLeftCorner) cornerCount++;
+            if (hasTopRightCorner) cornerCount++;
+            if (hasBottomLeftCorner) cornerCount++;
+            if (hasBottomRightCorner) cornerCount++;
+
+            // Only remove if path touches 2 or more corners (boundary artifacts)
+            if (cornerCount >= 1) {
+                pathsToRemove.push(pathElement);
+            }
+        });
+
+        // Remove identified boundary paths
+        pathsToRemove.forEach(function(path) {
+            path.parentNode.removeChild(path);
+        });
+
+        // Serialize back to string
+        var serializer = new XMLSerializer();
+        return serializer.serializeToString(svgDoc);
+
+    } catch (e) {
+        console.error('Error removing boundary paths:', e);
+        return svgString; // Return original on error
+    }
+}
 
 /**
  * Collect form data from input elements into an object
@@ -546,7 +683,10 @@ function createToolbar() {
                     <i data-lucide="save"></i>Save
                 </button>
                 <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import SVG file">
-                    <i data-lucide="import"></i>Import
+                    <i data-lucide="import"></i>Import SVG
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import-png" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import PNG file">
+                    <i data-lucide="image"></i>Import PNG
                 </button>
                 <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Generate G-code">
                     <i data-lucide="file-cog"></i>G-code
@@ -600,6 +740,9 @@ function createToolbar() {
                 break;
             case 'import':
                 fileInput.click();
+                break;
+            case 'import-png':
+                pngFileInput.click();
                 break;
             case 'gcode':
                 doGcode();
