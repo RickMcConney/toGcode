@@ -400,7 +400,9 @@ class Shape extends Operation {
     onPropertiesChanged(data) {
 
         let shape = data.shape;
-        this.showProperties(shape);
+        if (shape) {
+            this.showProperties(shape);
+        }
 
         this.properties = { ...this.properties, ...data };
 

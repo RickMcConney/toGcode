@@ -1554,7 +1554,7 @@ function showToolPropertiesEditor(operationName) {
             //input.addEventListener('input', handleInputChange);
         });
 
-        // Handle operation-specific buttons (e.g., Generate Tabs)
+        // Handle operation-specific buttons (e.g., Generate Tabs, Apply Smoothing)
         const buttons = form.querySelectorAll('button');
         buttons.forEach(button => {
             if (button.id === 'generateTabsBtn') {
@@ -1565,16 +1565,25 @@ function showToolPropertiesEditor(operationName) {
                         operation.generateTabs();
                     }
                 });
+            } else if (button.id === 'applySmoothBtn') {
+                button.addEventListener('click', () => {
+                    if (typeof operation.applySmoothingToPath === 'function') {
+                        operation.applySmoothingToPath();
+                    }
+                });
             }
         });
+
+        // Refresh Lucide icons after adding all HTML and handlers
+        if (window.lucide) {
+            window.lucide.createIcons();
+        }
     } else {
         form.innerHTML = '<p class="text-muted">No properties available for this tool.</p>';
     }
 
     // Help content is managed by StepWiseHelpSystem when operation.start() is called
     // No need to set it here - it will be updated automatically
-
-    lucide.createIcons();
 }
 
 /**

@@ -116,12 +116,37 @@ class PathEdit extends Select {
             this.selectedPath = clickedPath;
             this.originalPath = null;
 
+            // Update properties panel to show smooth controls
+            const form = document.getElementById('tool-properties-form');
+            if (form) {
+                form.innerHTML = this.getPropertiesHTML();
+
+                // Re-wire the Apply Smooth button event handler
+                const smoothBtn = document.getElementById('applySmoothBtn');
+                if (smoothBtn) {
+                    smoothBtn.addEventListener('click', () => {
+                        this.applySmoothingToPath();
+                    });
+                }
+
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }
+
             redraw();
         } else {
             // Clicked on empty space - deselect all
             selectMgr.unselectAll();
             this.selectedPath = null;
             this.originalPath = null;
+
+            // Update properties panel to show "select a path" message
+            const form = document.getElementById('tool-properties-form');
+            if (form) {
+                form.innerHTML = this.getPropertiesHTML();
+            }
+
             redraw();
         }
     }
@@ -385,23 +410,21 @@ class PathEdit extends Select {
         // Update selected path reference
         this.selectedPath = selectMgr.lastSelected();
 
-        if (!this.selectedPath) {
-            return `
-                <div class="alert alert-info mb-3">
-                    <strong>Edit Points Tool</strong><br>
-                    Select a path to edit its points.
-                </div>
-            `;
-        }
+        const hasSelection = !!this.selectedPath;
+        const pointCount = hasSelection ? this.selectedPath.path.length : 0;
+        const minPoints = hasSelection ? (this.selectedPath.closed ? 3 : 2) : 2;
 
-        const pointCount = this.selectedPath.path.length;
-        const minPoints = this.selectedPath.closed ? 3 : 2;
         return `
             <div class="alert alert-info mb-3">
-                <strong>Editing Path Points</strong><br>
-                Path: ${this.selectedPath.name}<br>
-                Points: ${pointCount}
+                <strong>${hasSelection ? 'Editing Path Points' : 'Edit Points Tool'}</strong><br>
+                ${hasSelection ? `Path: ${this.selectedPath.name}<br>Points: ${pointCount}` : 'Select a path to edit its points.'}
             </div>
+
+            <button type="button" class="btn btn-primary btn-sm w-100 mb-3" id="applySmoothBtn" ${!hasSelection ? 'disabled' : ''}>
+                <i data-lucide="sparkles"></i> Apply Smoothing
+            </button>
+            <small class="form-text text-muted text-center d-block mb-3">Click repeatedly for more smoothing (no new points added)</small>
+
             <div class="alert alert-secondary">
                 <i data-lucide="info"></i>
                 <small>
@@ -413,5 +436,97 @@ class PathEdit extends Select {
                 </small>
             </div>
         `;
+    }
+
+    onPropertiesChanged(data) {
+        // PathEdit doesn't need to handle property changes
+        // Button event handlers are wired up in bootstrap-layout.js
+    }
+
+    applySmoothingToPath() {
+        this.selectedPath = selectMgr.lastSelected();
+
+        if (!this.selectedPath || !this.selectedPath.path) {
+            console.log('No path selected for smoothing');
+            return;
+        }
+
+        // Add undo before smoothing
+        addUndo(false, true, false);
+
+        // Apply single iteration of Laplacian smoothing
+        let smoothedPath = this.laplacianSmooth(this.selectedPath.path, this.selectedPath.closed);
+
+        // Update the path
+        this.selectedPath.path = smoothedPath;
+
+        // Recalculate bounding box
+        this.selectedPath.bbox = boundingBox(this.selectedPath.path);
+
+        redraw();
+    }
+
+    /**
+     * Laplacian smoothing - moves points toward average of neighbors
+     * Does NOT add new points, just repositions existing ones
+     * @param {Array} path - Array of {x, y} points
+     * @param {Boolean} closed - Whether the path is closed
+     * @returns {Array} Smoothed path with same number of points
+     */
+    laplacianSmooth(path, closed) {
+        if (path.length < 3) return path;
+
+        const smoothed = [];
+        const smoothingFactor = 0.5; // How much to move toward neighbors (0-1)
+
+        // Check if this is a closed path with duplicate first/last point
+        const hasDuplicateEndpoint = closed && path.length > 1 &&
+                                      path[0].x === path[path.length - 1].x &&
+                                      path[0].y === path[path.length - 1].y;
+
+        for (let i = 0; i < path.length; i++) {
+            const current = path[i];
+
+            // For open paths, keep first and last points fixed
+            if (!closed && (i === 0 || i === path.length - 1)) {
+                smoothed.push({ x: current.x, y: current.y });
+                continue;
+            }
+
+            // For closed paths with duplicate endpoint, skip the last point (will copy first point later)
+            if (hasDuplicateEndpoint && i === path.length - 1) {
+                continue; // Will be filled in after the loop
+            }
+
+            // Get neighbors
+            const prevIndex = (i - 1 + path.length) % path.length;
+            const nextIndex = (i + 1) % path.length;
+
+            // For open paths, skip if we're at the edges
+            if (!closed && (prevIndex >= path.length || nextIndex >= path.length)) {
+                smoothed.push({ x: current.x, y: current.y });
+                continue;
+            }
+
+            const prev = path[prevIndex];
+            const next = path[nextIndex];
+
+            // Calculate average position of neighbors
+            const avgX = (prev.x + next.x) / 2;
+            const avgY = (prev.y + next.y) / 2;
+
+            // Move current point toward the average
+            const newX = current.x + (avgX - current.x) * smoothingFactor;
+            const newY = current.y + (avgY - current.y) * smoothingFactor;
+
+            smoothed.push({ x: newX, y: newY });
+        }
+
+        // For closed paths with duplicate endpoint, copy the smoothed first point to the end
+        if (hasDuplicateEndpoint) {
+            smoothed.push({ x: smoothed[0].x, y: smoothed[0].y });
+        }
+
+        return smoothed;
     }
 }

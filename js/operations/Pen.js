@@ -93,6 +93,7 @@ class Pen extends Operation {
                     closing: false
                 }
             }
+            redraw(); // Trigger redraw to show preview line and green circle
         }
     }
     onMouseUp(canvas, evt) {
