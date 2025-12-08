@@ -1,3 +1,10 @@
+// Constants
+const SMOOTHING_FACTOR = 0.5;
+const MIN_SEGMENT_LENGTH = 0.001;
+const MIN_ANGLE_THRESHOLD = 0.01;
+const MAX_TANGENT_RATIO = 0.99;
+const ARC_POINTS_PER_RADIAN = 3;
+
 class PathEdit extends Select {
     constructor() {
         super('Edit','edit');
@@ -9,7 +16,7 @@ class PathEdit extends Select {
         this.unselectOnMouseDown = false; // Don't auto-deselect when clicking
         this.handleSize = 8; // Size of point handles (in pixels)
         this.activeHandle = null;
-        this.selectedPath = null;
+        this._selectedPath = null;
         this.originalPath = null;
 
         // Add/Delete point functionality
@@ -41,19 +48,35 @@ class PathEdit extends Select {
         };
     }
 
+    // Getter for selectedPath - centralizes selectMgr access
+    get selectedPath() {
+        return selectMgr.lastSelected();
+    }
+
+    // Setter for selectedPath - kept for compatibility but value is ignored
+    // Selection is managed through selectMgr
+    set selectedPath(value) {
+        // No-op: selection is managed through selectMgr
+    }
+
+    // Helper to update properties panel and refresh icons
+    updatePropertiesPanel() {
+        const form = document.getElementById('tool-properties-form');
+        if (form) {
+            form.innerHTML = this.getPropertiesHTML();
+            this.wireRadiusControls();
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        }
+    }
+
     start() {
         super.start();
         this.activeHandle = null;
-        this.selectedPath = null;
         this.originalPath = null;
         this.selectedHandlesForRadius = [];
         this.originalPathBeforeRadius = null;
-
-        // Check if there's already a selected path
-        const selected = selectMgr.lastSelected();
-        if (selected) {
-            this.selectedPath = selected;
-        }
 
         // Add keydown listener when tool becomes active
         document.addEventListener('keydown', this.keydownHandler);
@@ -62,7 +85,6 @@ class PathEdit extends Select {
     stop() {
         super.stop();
         this.activeHandle = null;
-        this.selectedPath = null;
         this.originalPath = null;
         this.insertPreviewPoint = null;
         this.hoveredHandle = null;
@@ -77,7 +99,7 @@ class PathEdit extends Select {
     }
 
     onMouseDown(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
+        const mouse = this.normalizeEvent(canvas, evt);
         this.mouseDown = true;
 
         // Check if Alt key is held for adding a point
@@ -133,65 +155,45 @@ class PathEdit extends Select {
         }
 
         // If not clicking on a handle, check for path selection
-        var clickedPath = closestPath(mouse, false);
+        const clickedPath = closestPath(mouse, false);
         if (clickedPath) {
             // Deselect all other paths
-
             selectMgr.unselectAll();
 
             // Select the clicked path
             selectMgr.selectPath(clickedPath);
-            this.selectedPath = clickedPath;
             this.originalPath = null;
             this.selectedHandlesForRadius = []; // Clear radius selection on path change
             this.originalPathBeforeRadius = null; // Clear saved original on path change
 
-            // Update properties panel to show smooth controls
-            const form = document.getElementById('tool-properties-form');
-            if (form) {
-                form.innerHTML = this.getPropertiesHTML();
-                this.wireRadiusControls();
-
-                if (window.lucide) {
-                    window.lucide.createIcons();
-                }
-            }
-
+            this.updatePropertiesPanel();
             redraw();
         } else {
             // Clicked on empty space - deselect all
             selectMgr.unselectAll();
-            this.selectedPath = null;
             this.originalPath = null;
             this.selectedHandlesForRadius = [];
 
-            // Update properties panel to show "select a path" message
-            const form = document.getElementById('tool-properties-form');
-            if (form) {
-                form.innerHTML = this.getPropertiesHTML();
-            }
-
+            this.updatePropertiesPanel();
             redraw();
         }
     }
 
     onMouseMove(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
+        const mouse = this.normalizeEvent(canvas, evt);
+        const selectedPath = this.selectedPath;
 
-        // Update selected path reference
-        this.selectedPath = selectMgr.lastSelected();
-
-        if (this.mouseDown && this.activeHandle !== null && this.selectedPath) {
+        if (this.mouseDown && this.activeHandle !== null && selectedPath) {
             // Mark that we dragged the handle
             this.handleWasDragged = true;
 
             // Update the point position
-            this.selectedPath.path[this.activeHandle].x = mouse.x;
-            this.selectedPath.path[this.activeHandle].y = mouse.y;
+            selectedPath.path[this.activeHandle].x = mouse.x;
+            selectedPath.path[this.activeHandle].y = mouse.y;
 
             // For closed paths with duplicate endpoints, synchronize first/last points
             if (this.syncFirstLast) {
-                const path = this.selectedPath.path;
+                const path = selectedPath.path;
                 const n = path.length;
 
                 // If dragging first point, also update last point
@@ -207,12 +209,14 @@ class PathEdit extends Select {
             }
 
             // Recalculate bounding box
-            this.selectedPath.bbox = boundingBox(this.selectedPath.path);
+            selectedPath.bbox = boundingBox(selectedPath.path);
 
             redraw();
-        } else if (!this.mouseDown && this.selectedPath) {
+        } else if (!this.mouseDown && selectedPath) {
             // Check if hovering over a handle for cursor feedback
             const hoverHandle = this.getHandleAtPoint(mouse);
+            const oldHover = this.hoveredHandle;
+            const oldPreview = this.insertPreviewPoint;
             this.hoveredHandle = hoverHandle;
 
             // Check if Alt key is held for adding points
@@ -242,7 +246,10 @@ class PathEdit extends Select {
                 }
             }
 
-            redraw();
+            // Only redraw if hover state changed
+            if (oldHover !== this.hoveredHandle || oldPreview !== this.insertPreviewPoint) {
+                redraw();
+            }
         }
         else {
             closestPath(mouse, true);
@@ -265,16 +272,7 @@ class PathEdit extends Select {
                     this.selectedHandlesForRadius.push(this.activeHandle);
                 }
 
-                // Update properties panel
-                const form = document.getElementById('tool-properties-form');
-                if (form) {
-                    form.innerHTML = this.getPropertiesHTML();
-                    this.wireRadiusControls();
-
-                    if (window.lucide) {
-                        window.lucide.createIcons();
-                    }
-                }
+                this.updatePropertiesPanel();
             }
 
             // Finished with handle
@@ -289,12 +287,13 @@ class PathEdit extends Select {
     draw(ctx) {
         super.draw(ctx);
 
-        // Update selectedPath reference from svgpaths array
-        this.selectedPath = selectMgr.lastSelected();
+        const selectedPath = this.selectedPath;
 
         // Draw point handles for selected path
-        if (this.selectedPath && this.selectedPath.visible) {
-            const path = this.selectedPath.path;
+        if (selectedPath && selectedPath.visible) {
+            const path = selectedPath.path;
+            // Use Set for O(1) lookup instead of O(n) includes()
+            const selectedSet = new Set(this.selectedHandlesForRadius);
 
             ctx.save();
             for (let i = 0; i < path.length; i++) {
@@ -310,7 +309,7 @@ class PathEdit extends Select {
                     // Red for actively dragging
                     ctx.fillStyle = handleActiveColor;
                     ctx.strokeStyle = handleActiveStroke;
-                } else if (this.selectedHandlesForRadius.includes(i)) {
+                } else if (selectedSet.has(i)) {
                     // Purple for selected for radius application
                     ctx.fillStyle = '#9333ea';
                     ctx.strokeStyle = '#6b21a8';
@@ -361,12 +360,10 @@ class PathEdit extends Select {
     }
 
     getHandleAtPoint(point) {
-        // Always get the current selected path from svgpaths
-        this.selectedPath = selectMgr.lastSelected();
+        const selectedPath = this.selectedPath;
+        if (!selectedPath) return null;
 
-        if (!this.selectedPath) return null;
-
-        const path = this.selectedPath.path;
+        const path = selectedPath.path;
         let closestHandle = null;
         let closestDistance = this.handleSize * 2;
 
@@ -480,12 +477,10 @@ class PathEdit extends Select {
 
     // Properties Editor Interface
     getPropertiesHTML() {
-        // Update selected path reference
-        this.selectedPath = selectMgr.lastSelected();
-
-        const hasSelection = !!this.selectedPath;
-        const pointCount = hasSelection ? this.selectedPath.path.length : 0;
-        const minPoints = hasSelection ? (this.selectedPath.closed ? 3 : 2) : 2;
+        const selectedPath = this.selectedPath;
+        const hasSelection = !!selectedPath;
+        const pointCount = hasSelection ? selectedPath.path.length : 0;
+        const minPoints = hasSelection ? (selectedPath.closed ? 3 : 2) : 2;
         const selectedCount = this.selectedHandlesForRadius.length;
         const hasSelectedHandles = selectedCount > 0;
 
@@ -501,7 +496,7 @@ class PathEdit extends Select {
         return `
             <div class="alert alert-info mb-3">
                 <strong>${hasSelection ? 'Editing Path Points' : 'Edit Points Tool'}</strong><br>
-                ${hasSelection ? `Path: ${this.selectedPath.name}<br>Points: ${pointCount}` : 'Select a path to edit its points.'}
+                ${hasSelection ? `Path: ${selectedPath.name}<br>Points: ${pointCount}` : 'Select a path to edit its points.'}
                 ${hasSelection ? `<br><span class="badge" style="background-color: ${hasSelectedHandles ? '#9333ea' : '#6c757d'};">${selectionMessage}</span>` : ''}
             </div>
 
@@ -556,9 +551,9 @@ class PathEdit extends Select {
     }
 
     applySmoothingToPath() {
-        this.selectedPath = selectMgr.lastSelected();
+        const selectedPath = this.selectedPath;
 
-        if (!this.selectedPath || !this.selectedPath.path) {
+        if (!selectedPath || !selectedPath.path) {
             console.log('No path selected for smoothing');
             return;
         }
@@ -567,13 +562,13 @@ class PathEdit extends Select {
         addUndo(false, true, false);
 
         // Apply single iteration of Laplacian smoothing
-        let smoothedPath = this.laplacianSmooth(this.selectedPath.path, this.selectedPath.closed);
+        const smoothedPath = this.laplacianSmooth(selectedPath.path, selectedPath.closed);
 
         // Update the path
-        this.selectedPath.path = smoothedPath;
+        selectedPath.path = smoothedPath;
 
         // Recalculate bounding box
-        this.selectedPath.bbox = boundingBox(this.selectedPath.path);
+        selectedPath.bbox = boundingBox(selectedPath.path);
 
         redraw();
     }
@@ -589,7 +584,6 @@ class PathEdit extends Select {
         if (path.length < 3) return path;
 
         const smoothed = [];
-        const smoothingFactor = 0.5; // How much to move toward neighbors (0-1)
 
         // Check if this is a closed path with duplicate first/last point
         const hasDuplicateEndpoint = closed && path.length > 1 &&
@@ -628,8 +622,8 @@ class PathEdit extends Select {
             const avgY = (prev.y + next.y) / 2;
 
             // Move current point toward the average
-            const newX = current.x + (avgX - current.x) * smoothingFactor;
-            const newY = current.y + (avgY - current.y) * smoothingFactor;
+            const newX = current.x + (avgX - current.x) * SMOOTHING_FACTOR;
+            const newY = current.y + (avgY - current.y) * SMOOTHING_FACTOR;
 
             smoothed.push({ x: newX, y: newY });
         }
@@ -665,7 +659,8 @@ class PathEdit extends Select {
      * Apply a radius corner to the selected handles (or all if none selected)
      */
     applyRadiusCorner() {
-        if (!this.selectedPath) {
+        const selectedPath = this.selectedPath;
+        if (!selectedPath) {
             console.log('No path selected for radius corner');
             return;
         }
@@ -681,7 +676,7 @@ class PathEdit extends Select {
         // Get radius using parseDimension (supports mm, inches, and fractions)
         const radiusMM = parseDimension(radiusInput.value);
         if (isNaN(radiusMM) || radiusMM <= 0) {
-            alert('Please enter a valid radius value (e.g., "5mm", "1/4in", "0.25")');
+            console.log('Invalid radius value. Please enter a valid value (e.g., "5mm", "1/4in", "0.25")');
             return;
         }
 
@@ -695,16 +690,16 @@ class PathEdit extends Select {
         // Save original path if not already saved
         if (!this.originalPathBeforeRadius) {
             this.originalPathBeforeRadius = {
-                path: this.selectedPath.path.map(pt => ({ x: pt.x, y: pt.y })),
-                closed: this.selectedPath.closed
+                path: selectedPath.path.map(pt => ({ x: pt.x, y: pt.y })),
+                closed: selectedPath.closed
             };
         }
 
         // Restore from original before applying new radius
-        this.selectedPath.path = this.originalPathBeforeRadius.path.map(pt => ({ x: pt.x, y: pt.y }));
+        selectedPath.path = this.originalPathBeforeRadius.path.map(pt => ({ x: pt.x, y: pt.y }));
 
         // Check if path has duplicate endpoint (closed path)
-        const path = this.selectedPath.path;
+        const path = selectedPath.path;
         const n = path.length;
         const hasDuplicateEndpoint = n > 1 &&
             path[0].x === path[n - 1].x &&
@@ -740,7 +735,7 @@ class PathEdit extends Select {
 
         for (const pointIndex of pointsToProcess) {
             const success = this.insertRadiusCorner(
-                this.selectedPath,
+                selectedPath,
                 pointIndex,
                 radiusWorld,
                 invert
@@ -757,7 +752,7 @@ class PathEdit extends Select {
 
         // If we processed point 0 and had a duplicate endpoint, fix the closure
         if (processedPoint0 && hasDuplicateEndpoint) {
-            const updatedPath = this.selectedPath.path;
+            const updatedPath = selectedPath.path;
             const lastIndex = updatedPath.length - 1;
             // Update the last point to match the new first point
             updatedPath[lastIndex] = {
@@ -769,19 +764,10 @@ class PathEdit extends Select {
         // Clear selection
         this.selectedHandlesForRadius = [];
 
-        // Update properties panel
-        const form = document.getElementById('tool-properties-form');
-        if (form) {
-            form.innerHTML = this.getPropertiesHTML();
-            this.wireRadiusControls();
-
-            if (window.lucide) {
-                window.lucide.createIcons();
-            }
-        }
+        this.updatePropertiesPanel();
 
         // Recalculate bounding box
-        this.selectedPath.bbox = boundingBox(this.selectedPath.path);
+        selectedPath.bbox = boundingBox(selectedPath.path);
 
         // Show result
         if (failCount > 0) {
@@ -835,7 +821,7 @@ class PathEdit extends Select {
         const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
         const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
 
-        if (len1 < 0.001 || len2 < 0.001) {
+        if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) {
             return false; // Silently skip - adjacent points too close
         }
 
@@ -847,11 +833,11 @@ class PathEdit extends Select {
         const dotProduct = u1.x * u2.x + u1.y * u2.y;
         const angle = Math.acos(Math.max(-1, Math.min(1, dotProduct)));
 
-        if (Math.abs(angle) < 0.01) {
+        if (Math.abs(angle) < MIN_ANGLE_THRESHOLD) {
             return false; // Silently skip - points are collinear
         }
 
-        if (Math.abs(angle - Math.PI) < 0.01) {
+        if (Math.abs(angle - Math.PI) < MIN_ANGLE_THRESHOLD) {
             return false; // Silently skip - angle too flat
         }
 
@@ -859,7 +845,7 @@ class PathEdit extends Select {
         const tangentDistance = radius / Math.tan(angle / 2);
 
         // Check if tangent distance is too large for the segments
-        if (tangentDistance >= len1 * 0.99 || tangentDistance >= len2 * 0.99) {
+        if (tangentDistance >= len1 * MAX_TANGENT_RATIO || tangentDistance >= len2 * MAX_TANGENT_RATIO) {
             return false; // Silently skip - radius too large
         }
 
@@ -884,7 +870,7 @@ class PathEdit extends Select {
             };
 
             // Check that intersections are within the segments
-            if (radius >= len1 * 0.99 || radius >= len2 * 0.99) {
+            if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
                 return false; // Silently skip - radius too large
             }
 
@@ -910,7 +896,7 @@ class PathEdit extends Select {
             }
 
             // Generate arc points
-            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * 3));
+            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
             arcPoints = [];
 
             for (let i = 0; i <= numArcPoints; i++) {
@@ -936,7 +922,7 @@ class PathEdit extends Select {
             };
 
             // Check that intersection points are within the segments
-            if (radius >= len1 * 0.99 || radius >= len2 * 0.99) {
+            if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
                 return false; // Silently skip - radius too large
             }
 
@@ -967,19 +953,6 @@ class PathEdit extends Select {
                 y: intersect1.y + perp1.y * arcRadius
             };
 
-            // Verify with intersect2 (optional debugging)
-            const arcCenter2 = {
-                x: intersect2.x + perp2.x * arcRadius,
-                y: intersect2.y + perp2.y * arcRadius
-            };
-            const centerDiff = Math.sqrt(
-                Math.pow(arcCenter.x - arcCenter2.x, 2) +
-                Math.pow(arcCenter.y - arcCenter2.y, 2)
-            );
-            if (centerDiff > 0.1) {
-                console.warn('Arc center mismatch:', centerDiff, 'center1:', arcCenter, 'center2:', arcCenter2);
-            }
-
             // Calculate angles for arc generation
             startAngle = Math.atan2(intersect1.y - arcCenter.y, intersect1.x - arcCenter.x);
             endAngle = Math.atan2(intersect2.y - arcCenter.y, intersect2.x - arcCenter.x);
@@ -998,7 +971,7 @@ class PathEdit extends Select {
             // (the shorter arc that goes around the exterior of the corner)
 
             // Generate arc points - make sure to use EXACTLY the intersection points as endpoints
-            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * 3));
+            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
             arcPoints = [];
 
             // First point is exactly intersect1
