@@ -186,41 +186,65 @@ function inchesToMm(inches) {
 }
 
 function closestPath(pt, clear) {
-	var min = 100;
 	var svgpath = null;
-	var possiblePath = [];
+	var maxDistSquared = 100; // Maximum distance threshold for highlighting
+	var bboxMargin = 10; // Margin to expand bounding boxes (sqrt of maxDistSquared)
 
+	// Clear all highlights first
+	for (var i = 0; i < svgpaths.length; i++) {
+		if (clear)
+			svgpaths[i].highlight = false;
+	}
+
+	// Find the minimum distance to each visible path
+	// Use expanded bounding box check for performance optimization
+	var minDistPerPath = [];
+	var visiblePaths = [];
 
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (!svgpaths[i].visible) continue;
-		if (clear)
-			svgpaths[i].highlight = false;
+
 		var bbox = svgpaths[i].bbox;
-		if (pointInBoundingBox(pt, bbox)) {
-			possiblePath.push(svgpaths[i]);
+
+		// Check if point is within expanded bounding box (bbox + margin)
+		// This optimization skips paths that are too far away
+		if (pt.x < bbox.minx - bboxMargin || pt.x > bbox.maxx + bboxMargin ||
+		    pt.y < bbox.miny - bboxMargin || pt.y > bbox.maxy + bboxMargin) {
+			continue; // Skip this path, it's too far away
 		}
-	}
-	if (possiblePath.length == 1)
-		svgpath = possiblePath[0];
-	else {
-		for (var i = 0; i < possiblePath.length; i++) {
-			var path = possiblePath[i].path;
-			for (var j = 0; j < path.length; j++) {
-				var k = (j + 1) % path.length;
-				var start = path[j];
-				var end = path[k];
-				var dist = distToSegmentSquared(pt, start, end);
-				if (dist < min) {
-					min = dist;
-					svgpath = possiblePath[i];
-				}
+
+		visiblePaths.push(svgpaths[i]);
+		var path = svgpaths[i].path;
+		var minDistForThisPath = Infinity;
+
+		for (var j = 0; j < path.length; j++) {
+			var k = (j + 1) % path.length;
+			var start = path[j];
+			var end = path[k];
+			var dist = distToSegmentSquared(pt, start, end);
+			if (dist < minDistForThisPath) {
+				minDistForThisPath = dist;
 			}
 		}
+		minDistPerPath.push(minDistForThisPath);
 	}
-	if (svgpath) {
+
+	// Select the path with the smallest minimum distance (within threshold)
+	var overallMin = Infinity;
+	var selectedIndex = -1;
+	for (var i = 0; i < minDistPerPath.length; i++) {
+		if (minDistPerPath[i] < overallMin && minDistPerPath[i] < maxDistSquared) {
+			overallMin = minDistPerPath[i];
+			selectedIndex = i;
+		}
+	}
+
+	if (selectedIndex >= 0) {
+		svgpath = visiblePaths[selectedIndex];
 		svgpath.highlight = true;
 		redraw();
 	}
+
 	return svgpath;
 }
 
