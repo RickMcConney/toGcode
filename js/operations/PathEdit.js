@@ -102,6 +102,15 @@ class PathEdit extends Select {
         const mouse = this.normalizeEvent(canvas, evt);
         this.mouseDown = true;
 
+        // Check if Shift key is held for setting first point
+        if (evt.shiftKey && this.selectedPath) {
+            const clickedHandle = this.getHandleAtPoint(mouse);
+            if (clickedHandle !== null && clickedHandle !== 0) {
+                this.setFirstPoint(clickedHandle);
+                return;
+            }
+        }
+
         // Check if Alt key is held for adding a point
         if (evt.altKey && this.selectedPath && this.insertPreviewPoint) {
             // Add a new point at the preview location
@@ -295,8 +304,15 @@ class PathEdit extends Select {
             // Use Set for O(1) lookup instead of O(n) includes()
             const selectedSet = new Set(this.selectedHandlesForRadius);
 
+            // Check if last point is duplicate of first (closed path)
+            const n = path.length;
+            const skipLastPoint = n > 1 &&
+                path[0].x === path[n - 1].x &&
+                path[0].y === path[n - 1].y;
+            const drawCount = skipLastPoint ? n - 1 : n;
+
             ctx.save();
-            for (let i = 0; i < path.length; i++) {
+            for (let i = 0; i < drawCount; i++) {
                 const pt = path[i];
                 const screenPt = worldToScreen(pt.x, pt.y);
 
@@ -317,6 +333,10 @@ class PathEdit extends Select {
                     // Yellow highlight for hovered (deletable)
                     ctx.fillStyle = handleHoverColor;
                     ctx.strokeStyle = handleHoverStroke;
+                } else if (i === 0) {
+                    // Green for first point
+                    ctx.fillStyle = '#22c55e';
+                    ctx.strokeStyle = '#16a34a';
                 } else {
                     // Blue for normal
                     ctx.fillStyle = handleNormalColor;
@@ -475,6 +495,63 @@ class PathEdit extends Select {
         redraw();
     }
 
+    // Set a new first point by reordering the path array
+    setFirstPoint(newFirstIndex) {
+        const selectedPath = this.selectedPath;
+        if (!selectedPath || !selectedPath.path) return;
+
+        // Find this path in svgpaths array to ensure we're modifying the right object
+        const svgPathIndex = svgpaths.findIndex(p => p.id === selectedPath.id);
+        if (svgPathIndex === -1) return;
+
+        const pathObj = svgpaths[svgPathIndex];
+        const path = pathObj.path;
+        const n = path.length;
+
+        if (newFirstIndex <= 0 || newFirstIndex >= n) return;
+
+        // Check if path has duplicate endpoint (closed path)
+        const hasDuplicateEndpoint = n > 1 &&
+            path[0].x === path[n - 1].x &&
+            path[0].y === path[n - 1].y;
+
+        // Add undo before modification
+        addUndo(false, true, false);
+
+        let newPath;
+        if (hasDuplicateEndpoint) {
+            // For closed paths with duplicate endpoint:
+            // Remove the last point, rotate, then add new last point matching new first
+            const pathWithoutLast = path.slice(0, n - 1);
+            const rotated = [
+                ...pathWithoutLast.slice(newFirstIndex),
+                ...pathWithoutLast.slice(0, newFirstIndex)
+            ];
+            // Add the new last point (same as new first)
+            rotated.push({ x: rotated[0].x, y: rotated[0].y });
+            newPath = rotated;
+        } else {
+            // For open paths, just rotate the array
+            newPath = [
+                ...path.slice(newFirstIndex),
+                ...path.slice(0, newFirstIndex)
+            ];
+        }
+
+        // Modify the path array in-place to preserve reference
+        path.splice(0, path.length, ...newPath);
+
+        // Recalculate bounding box
+        pathObj.bbox = boundingBox(path);
+
+        // Clear radius selection since indices have changed
+        this.selectedHandlesForRadius = [];
+        this.originalPathBeforeRadius = null;
+
+        this.updatePropertiesPanel();
+        redraw();
+    }
+
     // Properties Editor Interface
     getPropertiesHTML() {
         const selectedPath = this.selectedPath;
@@ -537,6 +614,7 @@ class PathEdit extends Select {
                     <strong>Edit Points:</strong><br>
                     • <strong>Click</strong> a point to select for radius (purple)<br>
                     • <strong>Drag</strong> handles to move points<br>
+                    • <strong>Shift+Click</strong> a point to set as first point (green)<br>
                     • <strong>Alt+Click</strong> on a line segment to add a point<br>
                     • <strong>Hover + Delete</strong> key to remove a point (min ${minPoints} points)<br>
                     • Click on a different path to edit it

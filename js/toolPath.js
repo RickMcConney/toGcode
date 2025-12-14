@@ -264,6 +264,9 @@ function largestEmptyCircles(norms, startRadius, subpath) {
 }
 
 function offsetPath(svgpath, radius, outside) {
+	// Store the original first point to preserve starting position after ClipperJS reorders
+	var originalFirstPoint = svgpath.length > 0 ? {x: svgpath[0].x, y: svgpath[0].y} : null;
+
 	var offset = new clipper.ClipperOffset(20, 0.025);
 	offset.AddPath(svgpath, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
 	var sol = [];
@@ -272,9 +275,37 @@ function offsetPath(svgpath, radius, outside) {
 	else
 		offset.Execute(sol, -radius);
 
+	// Rotate each output path to start at the point closest to the original first point
+	// This preserves the user's chosen starting point despite ClipperJS reordering
 	for (var i = 0; i < sol.length; i++) {
+		if (originalFirstPoint && sol[i].length > 0) {
+			var closestIndex = 0;
+			var minDist = Infinity;
+
+			// Find the point in the offset path closest to the original first point
+			for (var j = 0; j < sol[i].length; j++) {
+				var dx = sol[i][j].x - originalFirstPoint.x;
+				var dy = sol[i][j].y - originalFirstPoint.y;
+				var dist = dx * dx + dy * dy;
+				if (dist < minDist) {
+					minDist = dist;
+					closestIndex = j;
+				}
+			}
+
+			// Rotate the path to start at the closest point
+			if (closestIndex > 0) {
+				var rotated = [
+					...sol[i].slice(closestIndex),
+					...sol[i].slice(0, closestIndex)
+				];
+				sol[i] = rotated;
+			}
+		}
+
 		sol[i].push(sol[i][0]); // close path
 	}
+
 	return sol;
 }
 
