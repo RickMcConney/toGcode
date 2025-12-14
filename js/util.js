@@ -126,7 +126,7 @@ function formatDimension(mm, showFractions) {
 		result += frac.numerator + '/' + frac.denominator;
 	}
 
-	return result + ' in' || '0' + ' in';
+	return (result || '0') + ' in';
 }
 
 // Parse user input dimension back to mm
@@ -295,19 +295,22 @@ function closestPoint(pt) {
 }
 
 function boundingBoxPaths(paths) {
-	var outterbbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity }
+	var outerBbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity }
 	for (var i = 0; i < paths.length; i++) {
 
 		var bbox = paths[i].bbox;
-		if (outterbbox.minx > bbox.minx) outterbbox.minx = bbox.minx;
-		if (outterbbox.miny > bbox.miny) outterbbox.miny = bbox.miny;
-		if (outterbbox.maxx < bbox.maxx) outterbbox.maxx = bbox.maxx;
-		if (outterbbox.maxy < bbox.maxy) outterbbox.maxy = bbox.maxy;
+		if (outerBbox.minx > bbox.minx) outerBbox.minx = bbox.minx;
+		if (outerBbox.miny > bbox.miny) outerBbox.miny = bbox.miny;
+		if (outerBbox.maxx < bbox.maxx) outerBbox.maxx = bbox.maxx;
+		if (outerBbox.maxy < bbox.maxy) outerBbox.maxy = bbox.maxy;
 	}
-	return outterbbox;
+	return outerBbox;
 }
 
 function boundingBox(path) {
+	if (!path || path.length === 0) {
+		return { minx: 0, miny: 0, maxx: 0, maxy: 0 };
+	}
 	var bbox = { minx: path[0].x, miny: path[0].y, maxx: path[0].x, maxy: path[0].y }
 	for (var i = 0; i < path.length; i++) {
 		if (bbox.minx > path[i].x) bbox.minx = path[i].x;
@@ -323,7 +326,7 @@ function boundingBox(path) {
 function isClockwise(path) {
 	var area = 0;
 	for (var i = 0; i < path.length; i++) {
-		j = (i + 1) % path.length;
+		var j = (i + 1) % path.length;
 		area += path[i].x * path[j].y;
 		area -= path[j].x * path[i].y;
 	}
@@ -340,7 +343,7 @@ function dist2(v, w) {
 function distToSegmentSquared(p, v, w) {
 	var l2 = dist2(v, w);
 
-	if (l2 == 0) {
+	if (l2 === 0) {
 		return dist2(p, v);
 	}
 
@@ -357,7 +360,7 @@ function distToSegmentSquared(p, v, w) {
 function distanceToClosestPath(pt, path, r) {
 
 	var rs = r * r;
-	min = Infinity
+	var min = Infinity;
 
 	for (var i = 0; i < path.length - 1; i++) {
 		var j = (i + 1) % path.length;
@@ -383,8 +386,6 @@ function isPointInCircle(pt, path, r) {
 		if (dist < rs) {
 			var diff = rs - dist;
 			if (diff > 0.01) {
-				//debug.push({p:pt,s:start,e:end});
-				//console.log("diff = "+(rs-dist));
 				return Math.sqrt(dist);
 			}
 		}
@@ -432,7 +433,7 @@ function checkLineIntersection(line1Start, line1End, line2Start, line2End) {
 		onLine2: false
 	};
 	denominator = ((line2End.y - line2Start.y) * (line1End.x - line1Start.x)) - ((line2End.x - line2Start.x) * (line1End.y - line1Start.y));
-	if (denominator == 0) {
+	if (denominator === 0) {
 		return result;
 	}
 	a = line1Start.y - line2Start.y;
@@ -461,7 +462,7 @@ function checkLineIntersection(line1Start, line1End, line2Start, line2End) {
 }
 
 function lineIntersectsPath(p0, p1, path) {
-	count = 0;
+	var count = 0;
 	for (var i = 0, j = path.length - 2; i < path.length - 1; j = i++) {
 		var p2 = { x: path[i].x, y: path[i].y };
 		var p3 = { x: path[j].x, y: path[j].y };
@@ -629,7 +630,7 @@ function rotatePoint(point, centerX, centerY, angleRad) {
 }
 
 function pathIn(outer, inner) {
-	for (var i in inner) {
+	for (var i = 0; i < inner.length; i++) {
 		var p = inner[i];
 		if (!pointInPolygon(p, outer))
 			return false;
