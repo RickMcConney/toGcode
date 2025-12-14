@@ -195,12 +195,15 @@ function vbitRadius(tool) {
 	// Ball Nose: spherical profile - effective radius at depth
 	if (tool.bit === "Ball Nose") {
 		// For a sphere: r = sqrt(d * (2R - d)) where R is ball radius, d is depth
+		if (depth <= 0) {
+			return 0;  // No cutting at surface level
+		}
 		// Only valid if d <= R (within spherical part)
 		if (depth <= toolRadius) {
 			var r = Math.sqrt(depth * (2 * toolRadius - depth));
 			return r;
 		}
-		// If depth > radius, we're in the cylindrical shaft
+		// If depth > radius, we're past the equator - use max radius
 		return toolRadius;
 	}
 
