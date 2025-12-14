@@ -506,7 +506,7 @@ function doOutside() {
 	}
 
 	setMode("Outside");
-	var radius = toolRadius();
+	var radius = vbitRadius(currentTool) * viewScale;
 	var name = 'Outside';
 
 	let selectedPaths = selectMgr.selectedPaths();
@@ -551,7 +551,7 @@ function doInside() {
 	}
 	setMode("Inside");
 
-	var radius = toolRadius();
+	var radius = vbitRadius(currentTool) * viewScale;
 	var name = 'Inside';
 	
 	let selectedPaths = selectMgr.selectedPaths();
@@ -588,7 +588,7 @@ function doCenter() {
 	}
 
 	setMode("Center");
-	var radius = toolRadius();
+	var radius = vbitRadius(currentTool) * viewScale;
 	var name = 'Center';
 
 	let selectedPaths = selectMgr.selectedPaths();

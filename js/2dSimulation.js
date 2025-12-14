@@ -1132,7 +1132,7 @@ function updateSimulation2DDisplay() {
         const point = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
         const feedDisplay = document.getElementById('2d-feed-rate-display');
         if (feedDisplay && point && point.feedRate) {
-            feedDisplay.textContent = `${point.feedRate.toFixed(0)} mm/min`;
+            feedDisplay.textContent = `${point.feedRate.toFixed(0)}`;
         }
     }
 

@@ -88,7 +88,7 @@ function makeNorms(subpath, path, cw, r, outside) {
 			}
 		}
 		else {
-			}
+		}
 
 
 	}
@@ -189,13 +189,32 @@ function bitPos(start, end) {
 }
 
 function vbitRadius(tool) {
-	if (tool.bit != "VBit") return tool.diameter / 2;
+	var toolRadius = tool.diameter / 2;
 	var depth = tool.depth || 1;
-	var angle = tool.angle * Math.PI / 180.0;
-	var r = depth / Math.sin(angle / 2) / 2;
-	if (r > tool.diameter / 2) r = tool.diameter / 2;
 
-	return r;
+	// Ball Nose: spherical profile - effective radius at depth
+	if (tool.bit === "Ball Nose") {
+		// For a sphere: r = sqrt(d * (2R - d)) where R is ball radius, d is depth
+		// Only valid if d <= R (within spherical part)
+		if (depth <= toolRadius) {
+			var r = Math.sqrt(depth * (2 * toolRadius - depth));
+			return r;
+		}
+		// If depth > radius, we're in the cylindrical shaft
+		return toolRadius;
+	}
+
+	// V-Bit: conical profile - radius at depth
+	if (tool.bit === "VBit") {
+		var angle = tool.angle * Math.PI / 180.0;
+		var r = depth * Math.tan(angle / 2);
+		// Cap at maximum diameter
+		if (r > toolRadius) r = toolRadius;
+		return r;
+	}
+
+	// End Mill and other tools: constant radius
+	return toolRadius;
 }
 
 function largestEmptyCircles(norms, startRadius, subpath) {
@@ -883,8 +902,8 @@ function detectMultiSegment(path) {
 
 	for (let i = 0; i < path.length - 1; i++) {
 		const segmentLength = Math.hypot(
-			path[i+1].x - path[i].x,
-			path[i+1].y - path[i].y
+			path[i + 1].x - path[i].x,
+			path[i + 1].y - path[i].y
 		);
 		if (segmentLength > avgSegmentLength * 2) {
 			return true;  // Large gap detected
@@ -897,8 +916,8 @@ function calculatePathLength(path) {
 	let length = 0;
 	for (let i = 0; i < path.length - 1; i++) {
 		length += Math.hypot(
-			path[i+1].x - path[i].x,
-			path[i+1].y - path[i].y
+			path[i + 1].x - path[i].x,
+			path[i + 1].y - path[i].y
 		);
 	}
 	return length;
@@ -927,7 +946,7 @@ function getUnionOfPaths(inputPaths) {
 	return solutionPaths;
 }
 
-function medialAxis(name, path, holes, svgId) {
+function medialAxis(name, path, holes, svgId, holeSvgIds) {
 
 	let descritize_threshold = 1e-1;
 	let descritize_method = 2;
@@ -1005,7 +1024,14 @@ function medialAxis(name, path, holes, svgId) {
 		p.r = Math.min(p.r, maxRadius)
 	}
 	var paths = [{ path: circles, tpath: tpath }];
-	pushToolPath(paths, name, 'VCarve', svgId);
+
+	// Collect all SVG IDs: outer path + all holes
+	var allSvgIds = [svgId];
+	if (holeSvgIds && holeSvgIds.length > 0) {
+		allSvgIds = allSvgIds.concat(holeSvgIds);
+	}
+
+	pushToolPath(paths, name, 'VCarve', svgId, allSvgIds);
 }
 
 function computeWithMedialAxis(outside, name) {
@@ -1015,16 +1041,18 @@ function computeWithMedialAxis(outside, name) {
 	for (var i in selected) {
 		if (selected[i].hole) continue;
 		var holes = []
+		var holeSvgIds = []
 		var path = selected[i].path;
 		for (var j in selected) {
 			if (i != j) {
 				if (pathIn(path, selected[j].path)) {
 					holes.push(selected[j].path);
+					holeSvgIds.push(selected[j].id);
 					selected[j].hole = true;
 				}
 			}
 		}
-		medialAxis(name, path, holes, selected[i].id);
+		medialAxis(name, path, holes, selected[i].id, holeSvgIds);
 	}
 
 }
@@ -1055,7 +1083,7 @@ function computeVcarve(outside, name) {
 
 
 		var subpath = subdividePath(path, 2); // max path length
-	
+
 
 		norms = makeNorms(subpath, path, cw, 1, outside);
 		drawNorms(norms)
