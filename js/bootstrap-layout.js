@@ -2703,13 +2703,13 @@ function createModals() {
                                 Getting Started
                             </h6>
                             <ol class="small">
-                                <li class="mb-2"><strong>Import SVG:</strong> Click "Open SVG" to import your design file</li>
+                                <li class="mb-2"><strong>Import SVG:</strong> Click "Import SVG" to import your design file</li>
                                 <li class="mb-2"><strong>Configure Workpiece:</strong> Set material dimensions and origin point</li>
                                 <li class="mb-2"><strong>Select Paths:</strong> Choose which SVG paths to machine</li>
-                                <li class="mb-2"><strong>Select Tool:</strong> Note: Depth field of tool determines depth of cut, copy tool and change depth to cut different depths. Depth and Step can be given as a percentage of workpiece thickness. So for example 100% will cut all the way through the work piece.</li>
-                                <li class="mb-2"><strong>Warning:</strong> If workpiece thickness is chaged check the step size it will be colored red if the step size is too aggressive for the bit.</li>
-                                <li class="mb-2"><strong>Apply Operations:</strong> Use Profile, Pocket, or V-Carve operations</li>
-                                <li class="mb-2"><strong>Export G-code:</strong> Click "Save Gcode" to download your toolpaths</li>
+                                <li class="mb-2"><strong>Assign Operations:</strong> Apply machining operations to selected paths</li>
+                                <li class="mb-2"><strong>Set Tools:</strong> Define cutting tools in the Tool Library</li>
+                                <li class="mb-2"><strong>Simulate Toolpaths:</strong> Preview machining in 2D/3D simulation</li>
+                                <li class="mb-2"><strong>Export G-code:</strong> Click "Gcode" to download your toolpaths</li>
                             </ol>
                         </div>
 
@@ -2793,12 +2793,12 @@ function createModals() {
                                 Tips & Tricks
                             </h6>
                             <ul class="small">
-                                <li class="mb-2"><strong>Tool Library:</strong> Configure your tools in the bottom panel - set diameter, feed rates, and RPM</li>
+                                <li class="mb-2"><strong>Tool Library:</strong> Configure your tools in the Tools tab - set diameter, feed rates, and RPM</li>
                                 <li class="mb-2"><strong>Operation Order:</strong> Toolpaths are automatically sorted for safe machining: Drill → V-Carve → Pocket → Profiles</li>
                                 <li class="mb-2"><strong>Visibility:</strong> Toggle path visibility with the eye icon to control what gets exported</li>
                                 <li class="mb-2"><strong>G-code Profiles:</strong> Create custom post-processor profiles for different CNC machines</li>
                                 <li class="mb-2"><strong>Material Selection:</strong> Choose wood species in Workpiece settings for optimized feed rates</li>
-                                <li class="mb-2"><strong>Simulation:</strong> Use the simulation controls to preview toolpaths before exporting</li>
+                                <li class="mb-2"><strong>Simulation:</strong> Use the 2D or 3Dsimulation controls to preview toolpaths before exporting</li>
                             </ul>
                         </div>
 
@@ -2814,7 +2814,7 @@ function createModals() {
                                 <p class="mb-2"><strong>Post Processor Templates:</strong></p>
                                 <ul>
                                     <li>Use <code>X Y Z F S</code> placeholders in G-code templates</li>
-                                    <li>Axis inversion: <code>-X Y -Z</code> negates values</li>
+                                    <li>Axis inversion: <code>-X -Y -Z</code> negates values</li>
                                     <li>Axis swapping: <code>Y X Z</code> swaps coordinates</li>
                                     <li><code>S</code> placeholder uses tool RPM for spindle speed</li>
                                 </ul>
