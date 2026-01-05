@@ -104,6 +104,21 @@ class Transform extends Select {
             svgpath.originalPath = [];
             for (let i = 0; i < path.length; i++)
                 svgpath.originalPath.push({ x: path[i].x, y: path[i].y });
+
+            // Store original tabs for transformation reference
+            if (svgpath.creationProperties && svgpath.creationProperties.tabs) {
+                svgpath.originalTabs = svgpath.creationProperties.tabs.map(tab => ({
+                    x: tab.x,
+                    y: tab.y,
+                    angle: tab.angle,
+                    pathDistance: tab.pathDistance,
+                    isConvex: tab.isConvex,
+                    edgeIndex: tab.edgeIndex,
+                    edgeP1: tab.edgeP1 ? { x: tab.edgeP1.x, y: tab.edgeP1.y } : null,
+                    edgeP2: tab.edgeP2 ? { x: tab.edgeP2.x, y: tab.edgeP2.y } : null,
+                    positionFraction: tab.positionFraction
+                }));
+            }
         });
     }
 
@@ -447,6 +462,17 @@ class Transform extends Select {
                     }
                 }
                 svgpath.bbox = boundingBox(path);
+
+                // Transform tabs from original positions to match the scaled path
+                if (svgpath.originalTabs && svgpath.creationProperties) {
+                    // Restore tabs from original
+                    svgpath.creationProperties.tabs = svgpath.originalTabs.map(tab => ({...tab,
+                        edgeP1: tab.edgeP1 ? {...tab.edgeP1} : null,
+                        edgeP2: tab.edgeP2 ? {...tab.edgeP2} : null
+                    }));
+                    // Apply scale transformation
+                    this.transformTabsScale(svgpath, cx, cy, scaleX, scaleY);
+                }
             }
         });
     }
@@ -481,6 +507,17 @@ class Transform extends Select {
                     }
                 }
                 svgpath.bbox = boundingBox(svgpath.path);
+
+                // Transform tabs from original positions to match the rotated path
+                if (svgpath.originalTabs && svgpath.creationProperties) {
+                    // Restore tabs from original
+                    svgpath.creationProperties.tabs = svgpath.originalTabs.map(tab => ({...tab,
+                        edgeP1: tab.edgeP1 ? {...tab.edgeP1} : null,
+                        edgeP2: tab.edgeP2 ? {...tab.edgeP2} : null
+                    }));
+                    // Apply rotation transformation
+                    this.transformTabsRotate(svgpath, px, py, rotationRad);
+                }
             }
         });
     }
@@ -502,6 +539,9 @@ class Transform extends Select {
             }
 
             svgpath.bbox = boundingBox(path);
+
+            // Transform tabs to match the mirrored path
+            this.transformTabsMirrorX(svgpath, centerX);
         });
     }
 
@@ -521,6 +561,9 @@ class Transform extends Select {
                 }
             }
             svgpath.bbox = boundingBox(path);
+
+            // Transform tabs to match the mirrored path
+            this.transformTabsMirrorY(svgpath, centerY);
         });
     }
 
@@ -1013,6 +1056,29 @@ class Transform extends Select {
                 });
 
                 path.bbox = boundingBox(path.path);
+
+                // Transform tabs from original positions to match the transformed path
+                if (path.originalTabs && path.creationProperties) {
+                    // Restore tabs from original
+                    path.creationProperties.tabs = path.originalTabs.map(tab => ({...tab,
+                        edgeP1: tab.edgeP1 ? {...tab.edgeP1} : null,
+                        edgeP2: tab.edgeP2 ? {...tab.edgeP2} : null
+                    }));
+
+                    // Apply the same transformations: scale, rotate, translate
+                    // 1. Scale
+                    if (this.scaleX !== 1 || this.scaleY !== 1) {
+                        this.transformTabsScale(path, centerX, centerY, this.scaleX, this.scaleY);
+                    }
+                    // 2. Rotate
+                    if (rotationRad !== 0) {
+                        this.transformTabsRotate(path, this.pivotCenter.x, this.pivotCenter.y, rotationRad);
+                    }
+                    // 3. Translate
+                    if (this.deltaX !== 0 || this.deltaY !== 0) {
+                        this.transformTabsTranslate(path, this.deltaX, this.deltaY);
+                    }
+                }
             }
 
         });
@@ -1054,6 +1120,161 @@ class Transform extends Select {
                     }
                 }
             }
+        });
+    }
+
+    /**
+     * Transform tabs during translation (moving) operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} deltaX - Translation in X direction
+     * @param {Number} deltaY - Translation in Y direction
+     */
+    transformTabsTranslate(svgpath, deltaX, deltaY) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Move tab position
+            tab.x += deltaX;
+            tab.y += deltaY;
+
+            // Move edge points
+            if (tab.edgeP1) {
+                tab.edgeP1.x += deltaX;
+                tab.edgeP1.y += deltaY;
+            }
+            if (tab.edgeP2) {
+                tab.edgeP2.x += deltaX;
+                tab.edgeP2.y += deltaY;
+            }
+            // Angle remains unchanged during translation
+        });
+    }
+
+    /**
+     * Transform tabs during scaling operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} centerX - Center X for scaling
+     * @param {Number} centerY - Center Y for scaling
+     * @param {Number} scaleX - Horizontal scale factor
+     * @param {Number} scaleY - Vertical scale factor
+     */
+    transformTabsScale(svgpath, centerX, centerY, scaleX, scaleY) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Scale tab position around center point
+            tab.x = centerX + (tab.x - centerX) * scaleX;
+            tab.y = centerY + (tab.y - centerY) * scaleY;
+
+            // Scale edge points
+            if (tab.edgeP1) {
+                tab.edgeP1.x = centerX + (tab.edgeP1.x - centerX) * scaleX;
+                tab.edgeP1.y = centerY + (tab.edgeP1.y - centerY) * scaleY;
+            }
+            if (tab.edgeP2) {
+                tab.edgeP2.x = centerX + (tab.edgeP2.x - centerX) * scaleX;
+                tab.edgeP2.y = centerY + (tab.edgeP2.y - centerY) * scaleY;
+            }
+
+            // Recalculate angle based on new edge points
+            if (tab.edgeP1 && tab.edgeP2) {
+                const dx = tab.edgeP2.x - tab.edgeP1.x;
+                const dy = tab.edgeP2.y - tab.edgeP1.y;
+                tab.angle = Math.atan2(dy, dx);
+            }
+        });
+    }
+
+    /**
+     * Transform tabs during rotation operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} pivotX - Pivot X for rotation
+     * @param {Number} pivotY - Pivot Y for rotation
+     * @param {Number} angleRad - Rotation angle in radians
+     */
+    transformTabsRotate(svgpath, pivotX, pivotY, angleRad) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Rotate tab position around pivot point
+            const dx = tab.x - pivotX;
+            const dy = tab.y - pivotY;
+            tab.x = pivotX + (dx * cos - dy * sin);
+            tab.y = pivotY + (dx * sin + dy * cos);
+
+            // Rotate edge points
+            if (tab.edgeP1) {
+                const dx1 = tab.edgeP1.x - pivotX;
+                const dy1 = tab.edgeP1.y - pivotY;
+                tab.edgeP1.x = pivotX + (dx1 * cos - dy1 * sin);
+                tab.edgeP1.y = pivotY + (dx1 * sin + dy1 * cos);
+            }
+            if (tab.edgeP2) {
+                const dx2 = tab.edgeP2.x - pivotX;
+                const dy2 = tab.edgeP2.y - pivotY;
+                tab.edgeP2.x = pivotX + (dx2 * cos - dy2 * sin);
+                tab.edgeP2.y = pivotY + (dx2 * sin + dy2 * cos);
+            }
+
+            // Rotate the angle
+            tab.angle += angleRad;
+        });
+    }
+
+    /**
+     * Transform tabs during horizontal mirror operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} centerX - Center X for mirroring
+     */
+    transformTabsMirrorX(svgpath, centerX) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        const cx = 2 * centerX;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Mirror tab position horizontally
+            tab.x = cx - tab.x;
+
+            // Mirror edge points
+            if (tab.edgeP1) {
+                tab.edgeP1.x = cx - tab.edgeP1.x;
+            }
+            if (tab.edgeP2) {
+                tab.edgeP2.x = cx - tab.edgeP2.x;
+            }
+
+            // Flip the angle (mirror horizontally reverses X component)
+            tab.angle = Math.PI - tab.angle;
+        });
+    }
+
+    /**
+     * Transform tabs during vertical mirror operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} centerY - Center Y for mirroring
+     */
+    transformTabsMirrorY(svgpath, centerY) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        const cy = 2 * centerY;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Mirror tab position vertically
+            tab.y = cy - tab.y;
+
+            // Mirror edge points
+            if (tab.edgeP1) {
+                tab.edgeP1.y = cy - tab.edgeP1.y;
+            }
+            if (tab.edgeP2) {
+                tab.edgeP2.y = cy - tab.edgeP2.y;
+            }
+
+            // Flip the angle (mirror vertically reverses Y component)
+            tab.angle = -tab.angle;
         });
     }
 }

@@ -362,10 +362,37 @@ class Select extends Operation {
 
     }
 
+    /**
+     * Translate tabs along with the path
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} dx - Translation in X direction
+     * @param {Number} dy - Translation in Y direction
+     */
+    translateTabs(svgpath, dx, dy) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            // Move tab position
+            tab.x += dx;
+            tab.y += dy;
+
+            // Move edge points
+            if (tab.edgeP1) {
+                tab.edgeP1.x += dx;
+                tab.edgeP1.y += dy;
+            }
+            if (tab.edgeP2) {
+                tab.edgeP2.x += dx;
+                tab.edgeP2.y += dy;
+            }
+            // Angle remains unchanged during translation
+        });
+    }
+
     translateSelected(dx, dy) {
         let selected = this.selectedPaths();
         selected.forEach(svgpath => {
-        
+
             let path = svgpath.path;
             for (let i = 0; i < path.length; i++) {
                 let pt = path[i];
@@ -375,6 +402,9 @@ class Select extends Operation {
                 }
             }
             svgpath.bbox = boundingBox(path);
+
+            // Translate tabs along with the path
+            this.translateTabs(svgpath, dx, dy);
         });
     }
 
@@ -388,6 +418,9 @@ class Select extends Operation {
             }
         }
         svgpath.bbox = boundingBox(path);
+
+        // Translate tabs along with the path
+        this.translateTabs(svgpath, dx, dy);
     }
 
     draw(ctx) {

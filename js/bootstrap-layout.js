@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2025-12-14";
+var APP_VERSION = "Ver 2026-01-05";
 
 var mode = "Select";
 var options = [];
@@ -196,7 +196,7 @@ function loadTools() {
             name: "6mm VBit",
             direction: 'Climb',
             diameter: 6,
-            flutes: 1,
+            flutes: 4,
             rpm: 16000,
             feed: 500,
             zfeed: 200,
@@ -226,7 +226,7 @@ function loadTools() {
             stepPercent: 25,
         }, {
             recid: 4,
-            color: 'F8CBAD',
+            color: '0E5EB4',
             name: "6mm Ball Nose",
             direction: 'Climb',
             diameter: 6,
