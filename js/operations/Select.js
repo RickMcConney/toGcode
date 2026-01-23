@@ -183,8 +183,36 @@ class Select extends Operation {
         this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
         this.dragPath = null;
 
+        // Find any currently highlighted path by checking the highlight property directly
+        const highlightedPath = this.findHighlightedPath();
+
+        // Capture the path to potentially drag:
+        // If a path is highlighted and mouse is inside its bounding box, use that path
+        // This ensures the visually highlighted shape is the one that gets dragged
+        if (highlightedPath && pointInBoundingBox(mouse, highlightedPath.bbox)) {
+            this.potentialDragPath = highlightedPath;
+            // Keep it highlighted
+            highlightedPath.highlight = true;
+        } else {
+            // Mouse is outside the highlighted path - fall back to other detection methods
+            this.potentialDragPath = this.pointInPath(mouse);
+        }
+
         // Don't change state yet - wait for onMouseMove to detect threshold crossing
         // State will transition to DRAGGING or SELECTING when threshold exceeded
+    }
+
+    /**
+     * Find the currently highlighted path by checking the highlight property
+     * @returns {Object|null} The highlighted path, or null if none
+     */
+    findHighlightedPath() {
+        for (let i = 0; i < svgpaths.length; i++) {
+            if (svgpaths[i].visible && svgpaths[i].highlight) {
+                return svgpaths[i];
+            }
+        }
+        return null;
     }
 
     /**
@@ -231,6 +259,11 @@ class Select extends Operation {
                     else
                         this.translateSelected(dragDeltaX, dragDeltaY);
 
+                    // Keep the dragged path highlighted during drag
+                    if (this.dragPath) {
+                        this.dragPath.highlight = true;
+                    }
+
                     this.dragStartX = mouse.x;
                     this.dragStartY = mouse.y;
                 }
@@ -254,8 +287,8 @@ class Select extends Operation {
                 }
                 // Not yet in a drag state - detect which type of drag to start
                 else if (Select.state == Select.IDLE) {
-                    // Try to find a path at the start position
-                    this.dragPath = closestPath(mouse, false);
+                    // Use the highlighted path captured at mouse down, or fall back to closestPath
+                    this.dragPath = this.potentialDragPath || closestPath(mouse, false);
 
                     if (this.dragPath) {
                         if (selectMgr.isSelected(this.dragPath) || selectMgr.noSelection()) {
@@ -288,8 +321,28 @@ class Select extends Operation {
             redraw();
         }
         else {
-            // Mouse not down - update hover state
-            closestPath(mouse, true);
+            // Mouse not down - update hover state and track the hovered path
+            // First, remember the currently highlighted path before closestPath clears it
+            const previouslyHighlighted = this.findHighlightedPath();
+
+            // Find the closest path to the mouse (this clears all highlights first)
+            const nearestPath = closestPath(mouse, true);
+
+            if (nearestPath) {
+                // Found a path near the edge - use it
+                this.lastHoveredPath = nearestPath;
+            } else if (previouslyHighlighted && previouslyHighlighted.visible &&
+                       pointInBoundingBox(mouse, previouslyHighlighted.bbox)) {
+                // No path near edge, but mouse is still inside the previously highlighted shape
+                // Keep it highlighted
+                previouslyHighlighted.highlight = true;
+                this.lastHoveredPath = previouslyHighlighted;
+                redraw();
+            } else {
+                // Mouse moved outside any relevant shape
+                this.lastHoveredPath = null;
+            }
+
             Select.state = Select.IDLE;
         }
     }
@@ -301,7 +354,9 @@ class Select extends Operation {
         // Only toggle selection if we stayed in IDLE (never crossed 8px threshold)
         // If we transitioned to DRAGGING or SELECTING, don't change selection
         if (Select.state == Select.IDLE) {
-            let path = closestPath(mouse, false);
+            // Use the path captured at mouse down (which includes highlighted paths)
+            // Fall back to closestPath for clicks near edges
+            let path = this.potentialDragPath || closestPath(mouse, false);
             this.toggleSelection(path, evt);
         }
 
@@ -312,8 +367,9 @@ class Select extends Operation {
             this.selectBox = null;
         }
 
-        // Clear drag path reference
+        // Clear drag path references
         this.dragPath = null;
+        this.potentialDragPath = null;
 
         // Return to IDLE state
         Select.state = Select.IDLE;
