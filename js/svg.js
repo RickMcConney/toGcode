@@ -41,7 +41,10 @@ function parseSvgContent(data, name) {
 			return null;
 		}
 
-		// Paper.js is now properly initialized
+		// Clear any existing Paper.js project content to avoid artifacts
+		if (paper.project) {
+			paper.project.clear();
+		}
 
 		// Parse SVG using Paper.js
 		if (data.indexOf("Adobe Illustrator") >= 0) {
@@ -49,6 +52,9 @@ function parseSvgContent(data, name) {
 		}
 		else if (data.indexOf("woodgears.ca") >= 0) {
 			pixelsPerInch = 254; // 100 pixels per mm
+		}
+		else if (data.indexOf("tinkercad") >= 0) {
+			pixelsPerInch = 25.4; // 10 pixels per mm
 		}
 		else {
 			pixelsPerInch = 96;
@@ -67,14 +73,28 @@ function parseSvgContent(data, name) {
 			var d = pathEl.getAttribute('d');
 			if (d) {
 				try {
-
+					// Try as CompoundPath first (handles multiple subpaths)
 					var paperPath = new paper.CompoundPath(d);
 
 					var children = paperPath.children;
-					for (var j = 0; j < children.length; j++) {
-						var child = children[j];
-						var convertedPaths = newTransformFromPaperPath(child, "Path");
+					if (children && children.length > 0) {
+						// Has children - process each child path
+						for (var j = 0; j < children.length; j++) {
+							var child = children[j];
+							var convertedPaths = newTransformFromPaperPath(child, "Path");
+							paths = paths.concat(convertedPaths);
+						}
+					} else if (paperPath.segments && paperPath.segments.length > 0) {
+						// No children but has segments directly on compound path
+						var convertedPaths = newTransformFromPaperPath(paperPath, "Path");
 						paths = paths.concat(convertedPaths);
+					} else {
+						// Fallback: try as simple Path
+						var simplePath = new paper.Path(d);
+						if (simplePath.segments && simplePath.segments.length > 0) {
+							var convertedPaths = newTransformFromPaperPath(simplePath, "Path");
+							paths = paths.concat(convertedPaths);
+						}
 					}
 
 				} catch (pathError) {
@@ -245,9 +265,60 @@ function parseSvgContent(data, name) {
 		const svgGroupId = 'svg-group-' + Date.now();
 		const groupedPaths = [];
 
+		// Lighten paths first
 		for (var i = 0; i < paths.length; i++) {
-			paths[i].geom = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
-			if (paths[i].geom.length > 0) {
+			var lightened = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
+			// Ensure we have a valid array of points
+			if (Array.isArray(lightened) && lightened.length > 0) {
+				paths[i].geom = lightened;
+			} else {
+				paths[i].geom = [];
+			}
+		}
+
+		// Calculate bounding box of all imported paths to center them on workpiece
+		var importedBbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity };
+		for (var i = 0; i < paths.length; i++) {
+			if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
+				var pathBbox = boundingBox(paths[i].geom);
+				if (importedBbox.minx > pathBbox.minx) importedBbox.minx = pathBbox.minx;
+				if (importedBbox.miny > pathBbox.miny) importedBbox.miny = pathBbox.miny;
+				if (importedBbox.maxx < pathBbox.maxx) importedBbox.maxx = pathBbox.maxx;
+				if (importedBbox.maxy < pathBbox.maxy) importedBbox.maxy = pathBbox.maxy;
+			}
+		}
+
+		// Calculate offset to center paths on workpiece
+		var offsetX = 0;
+		var offsetY = 0;
+		if (importedBbox.minx !== Infinity) {
+			var importedCenterX = (importedBbox.minx + importedBbox.maxx) / 2;
+			var importedCenterY = (importedBbox.miny + importedBbox.maxy) / 2;
+			var workpieceCenterX = (getOption("workpieceWidth") * viewScale) / 2;
+			var workpieceCenterY = (getOption("workpieceLength") * viewScale) / 2;
+			offsetX = workpieceCenterX - importedCenterX;
+			offsetY = workpieceCenterY - importedCenterY;
+		}
+
+		// Apply offset to center paths and create path objects
+		for (var i = 0; i < paths.length; i++) {
+			if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
+				var geom = paths[i].geom;
+				var len = geom.length;
+				// Check if path is closed (last point same as first)
+				var isClosed = len > 1 && geom[len - 1].x === geom[0].x && geom[len - 1].y === geom[0].y;
+				// Apply centering offset, skip last point if closed (it will match first after offset)
+				var stopAt = isClosed ? len - 1 : len;
+				for (var j = 0; j < stopAt; j++) {
+					geom[j].x += offsetX;
+					geom[j].y += offsetY;
+				}
+				// Update closing point to match the offset first point
+				if (isClosed) {
+					geom[len - 1].x = geom[0].x;
+					geom[len - 1].y = geom[0].y;
+				}
+
 				let pathName = paths[i].name + ' ' + svgpathId;
 				let id = paths[i].name + svgpathId;
 				const pathObj = {
@@ -262,7 +333,6 @@ function parseSvgContent(data, name) {
 				groupedPaths.push(pathObj);
 				svgpathId++;
 			}
-
 		}
 
 		// Add the SVG group to sidebar after all paths are created
@@ -334,7 +404,8 @@ function newTransformFromPaperPath(paperPath, name) {
 
 		// Close the path if it's closed and has segments
 		if (flattenedPath.closed && segments.length > 0 && segments[0] && segments[0].point) {
-			geom.push(geom[0]);
+			// Push a copy of the first point, not a reference to it
+			geom.push({ x: geom[0].x, y: geom[0].y });
 		}
 
 		// Only add path if it has geometry
@@ -345,10 +416,11 @@ function newTransformFromPaperPath(paperPath, name) {
 			});
 		} else if (geom.length === 1) {
 			// Single point - create a small line segment
+			// Note: point.x and point.y are already scaled
 			var point = geom[0];
 			geom.push({
-				x: (point.x + 0.1) * svgscale,
-				y: (point.y + 0.1) * svgscale
+				x: point.x + 0.1,
+				y: point.y + 0.1
 			});
 			paths.push({
 				geom: geom,
