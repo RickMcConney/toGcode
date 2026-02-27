@@ -2785,7 +2785,7 @@ function createModals() {
                             </h6>
                             <ul class="small">
                                 <li class="mb-2"><strong>Tool Library:</strong> Configure your tools in the Tools tab - set diameter, feed rates, and RPM</li>
-                                <li class="mb-2"><strong>Operation Order:</strong> Toolpaths are automatically sorted for safe machining: Drill → V-Carve → Pocket → Profiles</li>
+                                <li class="mb-2"><strong>Operation Order:</strong> Toolpaths are cut in the order they are in the side panel. Use the toolpath context menu to reorder operations</li>
                                 <li class="mb-2"><strong>Visibility:</strong> Toggle path visibility with the eye icon to control what gets exported</li>
                                 <li class="mb-2"><strong>G-code Profiles:</strong> Create custom post-processor profiles for different CNC machines</li>
                                 <li class="mb-2"><strong>Material Selection:</strong> Choose wood species in Workpiece settings for optimized feed rates</li>
