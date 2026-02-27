@@ -455,8 +455,8 @@ function getTabLiftAmount(z, tabs, workpieceThickness, tabHeight) {
 	// Calculate cut depth from surface
 	const cutDepth = Math.abs(z);
 
-	// Tab zone extends from bottom (workpieceThickness) up to (workpieceThickness - tabHeight)
-	// Tab surface is at depth: workpieceThickness - tabHeight
+	// Tab zone extends from the bottom of the workpiece up by tabHeight
+	// Tab surface is at depth: workpieceThickness - tabHeight from the top
 	const tabSurfaceDepth = workpieceThickness - tabHeight;
 
 	// If cutting depth reaches or exceeds tab surface, we need to lift

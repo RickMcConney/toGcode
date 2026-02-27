@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-02-09";
+var APP_VERSION = "Ver 2026-02-26";
 
 var mode = "Select";
 var options = [];
@@ -1563,6 +1563,12 @@ function showToolPropertiesEditor(operationName) {
                     operation.updateFromProperties(data);
                     if (typeof operation.generateTabs === 'function') {
                         operation.generateTabs();
+                    }
+                });
+            } else if (button.id === 'removeAllTabsBtn') {
+                button.addEventListener('click', () => {
+                    if (typeof operation.removeAllTabs === 'function') {
+                        operation.removeAllTabs();
                     }
                 });
             } else if (button.id === 'applySmoothBtn') {

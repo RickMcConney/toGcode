@@ -506,44 +506,26 @@ class TabEditor extends Select {
             }
         }
 
-        // Calculate effective tab length based on edge constraints
-        // For irregular shapes only - constrain to avoid consuming edge entirely
-        // For equal-length edges (circles), use full tabLength without constraint
-        const tabLengthWorld = this.properties.tabLength * viewScale;
-        let effectiveTabLengthWorld = tabLengthWorld;
-
-        if (!hasEqualLengthEdges) {
-            // For irregular shapes: constrain tabs to 80% of edge length
-            for (const tabAssignment of tabsPerEdge) {
-                const edge = tabAssignment.edge;
-                const count = tabAssignment.count;
-
-                // Maximum tab length in world units for this edge
-                // Tabs should not consume more than 80% of edge length
-                // If we have N tabs on an edge, all N tabs combined should be <= 0.8 * edge.length
-                // So each tab can be at most: (edge.length * 0.8) / count
-                const maxTabLengthWorldForEdge = (edge.length * 0.8) / count;
-
-                if (maxTabLengthWorldForEdge < effectiveTabLengthWorld) {
-                    effectiveTabLengthWorld = maxTabLengthWorldForEdge;
-                }
-            }
-        }
-
-        // Convert back to MM for storage
-        const effectiveTabLengthMM = effectiveTabLengthWorld / viewScale;
-
         // Store tabs in creation properties
         if (!this.selectedPath.creationProperties) {
             this.selectedPath.creationProperties = {};
         }
 
-        this.selectedPath.creationProperties.tabLength = effectiveTabLengthMM;
+        this.selectedPath.creationProperties.tabLength = this.properties.tabLength;
         this.selectedPath.creationProperties.tabHeight = this.properties.tabHeight;
         this.selectedPath.creationProperties.numberOfTabs = this.properties.numberOfTabs;
         this.selectedPath.creationProperties.tabs = tabs;
 
         addUndo(false, true, false);
+        redraw();
+    }
+
+    removeAllTabs() {
+        if (!this.selectedPath || !this.selectedPath.creationProperties || !this.selectedPath.creationProperties.tabs) return;
+
+        addUndo(false, true, false);
+        this.selectedPath.creationProperties.tabs = [];
+        this.hoveredTab = null;
         redraw();
     }
 
@@ -662,6 +644,9 @@ class TabEditor extends Select {
             <button class="btn btn-primary btn-sm w-100 mb-2" id="generateTabsBtn">
                 <i data-lucide="plus"></i> Generate Tabs
             </button>
+            <button class="btn btn-danger btn-sm w-100 mb-2" id="removeAllTabsBtn">
+                <i data-lucide="trash-2"></i> Remove All Tabs
+            </button>
             <div class="alert alert-secondary">
                 <i data-lucide="info"></i>
                 <small>
@@ -669,6 +654,7 @@ class TabEditor extends Select {
                     • <strong>Generate Tabs:</strong> Creates tabs evenly spaced around selected path<br>
                     • <strong>Drag</strong> tab handles to reposition along path<br>
                     • <strong>Hover + Delete</strong> key to remove a tab<br>
+                    • <strong>Remove All Tabs:</strong> Clears all tabs from selected path<br>
                     • Blue tabs = convex surface, Orange tabs = concave surface
                 </small>
             </div>
