@@ -1895,13 +1895,6 @@ function setupToolpathUpdateButton(operationName) {
             return;
         }
 
-        // Remove ALL old toolpaths
-        for (let i = toolpaths.length - 1; i >= 0; i--) {
-            if (activeToolpaths.some(atp => atp.id === toolpaths[i].id)) {
-                toolpaths.splice(i, 1);
-            }
-        }
-
         // Select all the original paths
         selectMgr.unselectAll();
         svgPathsToRegenerate.forEach(p => selectMgr.selectPath(p));
@@ -1919,34 +1912,22 @@ function setupToolpathUpdateButton(operationName) {
             overCut: data.overCut || 0
         };
 
-
-
         // Store the properties for later reference
         window.currentToolpathProperties = { ...data };
 
-        // Track toolpaths before regeneration
-        const beforeCount = toolpaths.length;
+        // Tell pushToolPath to update these existing toolpaths in-place
+        // rather than creating new ones, preserving name, id, and list position.
+        window.toolpathUpdateTargets = [...activeToolpaths];
 
-        // Regenerate ALL toolpaths with new tool/parameters
         try {
             handleOperationClick(operationName);
         } finally {
-            // Restore original tool
             window.currentTool = originalTool;
-            // Clear the stored properties
             window.currentToolpathProperties = null;
+            window.toolpathUpdateTargets = null;
         }
 
-        // Mark all newly created toolpaths as active
-        const afterCount = toolpaths.length;
-
-        if (afterCount > beforeCount) {
-            // Get all the newly created toolpaths
-            const newToolpaths = toolpaths.slice(beforeCount);
-
-            // Use centralized helper to set active state
-            setActiveToolpaths(newToolpaths);
-        }
+        setActiveToolpaths(activeToolpaths);
 
         // Refresh display
         refreshToolPathsDisplay();

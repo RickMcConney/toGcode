@@ -423,6 +423,22 @@ function addCircles(path, r) {
 function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 	addUndo(true, false, false);
 
+	// If we're updating existing toolpaths, update in-place instead of creating new ones.
+	// This preserves the toolpath's name, id, and position in the list.
+	if (window.toolpathUpdateTargets && window.toolpathUpdateTargets.length > 0) {
+		const existing = window.toolpathUpdateTargets.shift();
+		existing.paths = paths;
+		existing.operation = operation;
+		existing.tool = { ...currentTool };
+		existing.svgId = svgId || (svgIds && svgIds.length > 0 ? svgIds[0] : null);
+		existing.svgIds = svgIds;
+		if (window.currentToolpathProperties) {
+			existing.toolpathProperties = { ...window.currentToolpathProperties };
+		}
+		redraw();
+		return;
+	}
+
 	// Create toolpath object with tool data
 	const toolpathData = {
 		id: "T" + toolpathId,
