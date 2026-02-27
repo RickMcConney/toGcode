@@ -1655,7 +1655,9 @@ function generateToolpathForSelection() {
         step: data.step,
         stepover: data.stepover,
         inside: data.inside,
-        direction: data.direction
+        direction: data.direction,
+        numLoops: data.numLoops || 1,
+        overCut: data.overCut || 0
     };
 
     // Store the properties for later reference (to be used by pushToolPath)
@@ -1912,7 +1914,9 @@ function setupToolpathUpdateButton(operationName) {
             step: data.step,
             stepover: data.stepover,
             inside: data.inside,
-            direction: data.direction
+            direction: data.direction,
+            numLoops: data.numLoops || 1,
+            overCut: data.overCut || 0
         };
 
 

@@ -14,7 +14,7 @@ class ToolpathPropertiesManager {
             },
             'Profile': {
                 compatibleBits: ['End Mill', 'Ball Nose', 'VBit'],
-                fields: ['tool', 'depth', 'step', 'inside', 'direction'],
+                fields: ['tool', 'depth', 'step', 'inside', 'direction', 'numLoops', 'overCut'],
                 description: 'Cut along the profile of the selected path'
             },
             'Pocket': {
@@ -76,7 +76,9 @@ class ToolpathPropertiesManager {
                 stepover: 25,
                 angle: 0, // Default to horizontal (0°) for infill lines
                 inside: 'inside', // Default to 'inside' for inside/outside option
-                direction: 'climb' // Default to 'climb' for direction option
+                direction: 'climb', // Default to 'climb' for direction option
+                numLoops: 1,
+                overCut: 0
             };
         }
         return this.defaults[operationName];
@@ -206,6 +208,36 @@ class ToolpathPropertiesManager {
         return html;
     }
 
+    generateNumLoopsInputHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).numLoops;
+        }
+
+        let html = '<div class="mb-3">';
+        html += '<label for="numloops-input" class="form-label small"><strong>Profile Loops:</strong></label>';
+        html += '<input type="number" class="form-control form-control-sm" id="numloops-input" name="numLoops" ';
+        html += `value="${value}" step="1" min="1" required>`;
+        html += '<div class="form-text">Number of offset passes (1 = single pass)</div>';
+        html += '</div>';
+        return html;
+    }
+
+    generateOverCutInputHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).overCut;
+        }
+
+        value = formatDimension(value, false);
+
+        let html = '<div class="mb-3">';
+        html += '<label for="overcut-input" class="form-label small"><strong>Over/Under Cut:</strong></label>';
+        html += '<input type="text" class="form-control form-control-sm" id="overcut-input" name="overCut" ';
+        html += `value="${value}">`;
+        html += '<div class="form-text">+ leaves stock, − cuts past the line</div>';
+        html += '</div>';
+        return html;
+    }
+
     /**
      * Generate HTML for depth input
      */
@@ -322,6 +354,18 @@ class ToolpathPropertiesManager {
             html += this.generateStepInputHTML(operationName, step);
         }
 
+        // Profile loops input
+        if (config.fields.includes('numLoops')) {
+            const numLoops = existingProperties?.numLoops ?? null;
+            html += this.generateNumLoopsInputHTML(operationName, numLoops);
+        }
+
+        // Over/under cut input
+        if (config.fields.includes('overCut')) {
+            const overCut = existingProperties?.overCut ?? null;
+            html += this.generateOverCutInputHTML(operationName, overCut);
+        }
+
         // Stepover input
         if (config.fields.includes('stepover')) {
             const stepover = existingProperties?.stepover || null;
@@ -358,6 +402,8 @@ class ToolpathPropertiesManager {
         const angleInput = document.getElementById('angle-input');
         const insideInput = document.getElementById('inside-select');
         const directionInput = document.getElementById('direction-select');
+        const numLoopsInput = document.getElementById('numloops-input');
+        const overCutInput = document.getElementById('overcut-input');
 
         if (toolSelect) {
             data.toolId = parseInt(toolSelect.value);
@@ -379,6 +425,12 @@ class ToolpathPropertiesManager {
         }
         if (angleInput) {
             data.angle = parseFloat(angleInput.value);
+        }
+        if (numLoopsInput) {
+            data.numLoops = Math.max(1, parseInt(numLoopsInput.value) || 1);
+        }
+        if (overCutInput) {
+            data.overCut = parseDimension(overCutInput.value) || 0;
         }
 
         return data;

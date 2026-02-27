@@ -507,34 +507,35 @@ function doOutside() {
 
 	setMode("Outside");
 	var radius = vbitRadius(currentTool) * viewScale;
+	var numLoops = Math.max(1, Math.floor(currentTool.numLoops || 1));
+	var overCutWorld = (currentTool.overCut || 0) * viewScale;
 	var name = 'Outside';
 
 	let selectedPaths = selectMgr.selectedPaths();
 	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
 		var svgpath = selectedPaths[i];
-		var path = svgpath.path;
+		var srcPath = svgpath.path;
 
-		var offsetPaths = offsetPath(path, radius, true);
+		// Generate loops from outermost (roughing) to innermost (finishing pass at design line)
+		for (var loop = numLoops - 1; loop >= 0; loop--) {
+			var offsetAmount = radius + overCutWorld + loop * radius;
+			if (offsetAmount <= 0) continue;
 
-		for (var p = 0; p < offsetPaths.length; p++) {
-			var path = offsetPaths[p];
-			var subpath = subdividePath(path, 2);
-			var circles = checkPath(subpath, radius - 1);
+			var offsetPaths = offsetPath(srcPath, offsetAmount, true);
 
-			//var tpath1 = clipper.Clipper.SimplifyPolygon(circles,ClipperLib.PolyFillType.pftNonZero);   
-			var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+			for (var p = 0; p < offsetPaths.length; p++) {
+				var opath = offsetPaths[p];
+				var subpath = subdividePath(opath, 2);
+				var circles = checkPath(subpath, radius - 1);
+				var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 
-			//var tpath2 = window.simplify(circles,0.1,true);
-			if (currentTool.direction != "climb") {
-				var rcircles = reversePath(circles);
-				var rtpath = reversePath(tpath);
-				paths.push({ path: rcircles, tpath: rtpath });
+				if (currentTool.direction != "climb") {
+					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
+				} else {
+					paths.push({ path: circles, tpath: tpath });
+				}
 			}
-			else {
-				paths.push({ path: circles, tpath: tpath });
-			}
-
 		}
 		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
@@ -552,29 +553,34 @@ function doInside() {
 	setMode("Inside");
 
 	var radius = vbitRadius(currentTool) * viewScale;
+	var numLoops = Math.max(1, Math.floor(currentTool.numLoops || 1));
+	var overCutWorld = (currentTool.overCut || 0) * viewScale;
 	var name = 'Inside';
-	
+
 	let selectedPaths = selectMgr.selectedPaths();
 	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
 		var svgpath = selectedPaths[i];
-		var path = svgpath.path;
+		var srcPath = svgpath.path;
 
-		var offsetPaths = offsetPath(path, radius, false);
+		// Generate loops from most inward (roughing) to design edge (finishing pass)
+		for (var loop = numLoops - 1; loop >= 0; loop--) {
+			var offsetAmount = radius + overCutWorld + loop * radius;
+			if (offsetAmount <= 0) continue;
 
-		for (var p = 0; p < offsetPaths.length; p++) {
-			var path = offsetPaths[p];
-			var subpath = subdividePath(path, 2);
-			var circles = checkPath(subpath, radius - 1);
-			//var tpath = window.simplify(circles,0.1,true);
-			var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
-			if (currentTool.direction == "climb") {
-				var rcircles = reversePath(circles);
-				var rtpath = reversePath(tpath);
-				paths.push({ path: rcircles, tpath: rtpath });
-			}
-			else {
-				paths.push({ path: circles, tpath: tpath });
+			var offsetPaths = offsetPath(srcPath, offsetAmount, false);
+
+			for (var p = 0; p < offsetPaths.length; p++) {
+				var opath = offsetPaths[p];
+				var subpath = subdividePath(opath, 2);
+				var circles = checkPath(subpath, radius - 1);
+				var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+
+				if (currentTool.direction == "climb") {
+					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
+				} else {
+					paths.push({ path: circles, tpath: tpath });
+				}
 			}
 		}
 		pushToolPath(paths, name, 'Profile', svgpath.id);
@@ -589,32 +595,43 @@ function doCenter() {
 
 	setMode("Center");
 	var radius = vbitRadius(currentTool) * viewScale;
+	var numLoops = Math.max(1, Math.floor(currentTool.numLoops || 1));
+	var overCutWorld = (currentTool.overCut || 0) * viewScale;
 	var name = 'Center';
 
 	let selectedPaths = selectMgr.selectedPaths();
 	for (var i = 0; i < selectedPaths.length; i++) {
 		var paths = [];
 		var svgpath = selectedPaths[i];
-		var path = svgpath.path;
-		//var subpath = subdividePath(path, 2);
-		var circles = addCircles(path, radius);
-		var tpath = path;
-		//var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
-		//if(svgpaths[i].id.indexOf("Line") >=0 )
-		//tpath.pop(); // remove last point if not a closed path
+		var srcPath = svgpath.path;
 
-		if (currentTool.direction != "climb") {
-			var rcircles = reversePath(circles);
-			var rtpath = reversePath(tpath);
-			paths.push({ path: rcircles, tpath: rtpath });
-		}
-		else {
-			paths.push({ path: circles, tpath: tpath });
+		// Distribute loops evenly around the center path, shifted by overCut
+		// k=0 is the most inward, k=numLoops-1 is the most outward
+		for (var k = 0; k < numLoops; k++) {
+			var centerOffset = overCutWorld + (k - (numLoops - 1) / 2.0) * radius;
+
+			var loopPath, circles, tpath;
+
+			if (Math.abs(centerOffset) < 0.001) {
+				loopPath = srcPath;
+			} else {
+				var outward = centerOffset > 0;
+				var offsetResult = offsetPath(srcPath, Math.abs(centerOffset), outward);
+				loopPath = offsetResult.length > 0 ? offsetResult[0] : srcPath;
+			}
+
+			circles = addCircles(loopPath, radius);
+			tpath = loopPath;
+
+			if (currentTool.direction != "climb") {
+				paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
+			} else {
+				paths.push({ path: circles, tpath: tpath });
+			}
 		}
 
 		pushToolPath(paths, name, 'Profile', svgpath.id);
 	}
-
 }
 
 function doOrigin() {
