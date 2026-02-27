@@ -3448,10 +3448,78 @@ function handlePathClick(pathId) {
     }
 }
 
+// Move a toolpath one position earlier within its tool group
+function moveToolpathUp(toolpathId) {
+    const idx = toolpaths.findIndex(tp => tp.id === toolpathId);
+    if (idx <= 0) return;
+    const toolName = toolpaths[idx].tool.name;
+    for (let i = idx - 1; i >= 0; i--) {
+        if (toolpaths[i].tool.name === toolName) {
+            [toolpaths[i], toolpaths[idx]] = [toolpaths[idx], toolpaths[i]];
+            refreshToolPathsDisplay();
+            redraw();
+            return;
+        }
+    }
+}
+
+// Move a toolpath one position later within its tool group
+function moveToolpathDown(toolpathId) {
+    const idx = toolpaths.findIndex(tp => tp.id === toolpathId);
+    if (idx < 0) return;
+    const toolName = toolpaths[idx].tool.name;
+    for (let i = idx + 1; i < toolpaths.length; i++) {
+        if (toolpaths[i].tool.name === toolName) {
+            [toolpaths[i], toolpaths[idx]] = [toolpaths[idx], toolpaths[i]];
+            refreshToolPathsDisplay();
+            redraw();
+            return;
+        }
+    }
+}
+
+// Swap two tool groups in the toolpaths array
+function swapToolGroups(nameA, nameB) {
+    const groupA = toolpaths.filter(tp => tp.tool.name === nameA);
+    const groupB = toolpaths.filter(tp => tp.tool.name === nameB);
+    const firstAIdx = toolpaths.findIndex(tp => tp.tool.name === nameA);
+    const firstBIdx = toolpaths.findIndex(tp => tp.tool.name === nameB);
+    const insertAt = Math.min(firstAIdx, firstBIdx);
+
+    // Remove all items from both groups (back-to-front to preserve indices)
+    for (let i = toolpaths.length - 1; i >= 0; i--) {
+        if (toolpaths[i].tool.name === nameA || toolpaths[i].tool.name === nameB) {
+            toolpaths.splice(i, 1);
+        }
+    }
+
+    // Re-insert with the groups swapped
+    const [first, second] = firstAIdx < firstBIdx ? [groupB, groupA] : [groupA, groupB];
+    toolpaths.splice(insertAt, 0, ...first, ...second);
+    refreshToolPathsDisplay();
+    redraw();
+}
+
+// Get the ordered list of unique tool group names (by first occurrence in array)
+function getToolGroupOrder() {
+    const seen = new Set();
+    const order = [];
+    for (const tp of toolpaths) {
+        if (!seen.has(tp.tool.name)) {
+            seen.add(tp.tool.name);
+            order.push(tp.tool.name);
+        }
+    }
+    return order;
+}
+
 // Context menu for individual paths
 function showContextMenu(event, pathId) {
     createContextMenu(event, {
         items: [
+            { label: 'Move Up', icon: 'arrow-up', action: 'move-up' },
+            { label: 'Move Down', icon: 'arrow-down', action: 'move-down' },
+            { divider: true },
             { label: 'Show', icon: 'eye', action: 'show' },
             { label: 'Hide', icon: 'eye-off', action: 'hide' },
             { divider: true },
@@ -3460,6 +3528,12 @@ function showContextMenu(event, pathId) {
         data: pathId,
         onAction: function (action, pathId) {
             switch (action) {
+                case 'move-up':
+                    moveToolpathUp(pathId);
+                    break;
+                case 'move-down':
+                    moveToolpathDown(pathId);
+                    break;
                 case 'show':
                     setVisibility(pathId, true);
                     break;
@@ -3478,6 +3552,9 @@ function showContextMenu(event, pathId) {
 function showToolFolderContextMenu(event, toolName) {
     createContextMenu(event, {
         items: [
+            { label: 'Move Group Up', icon: 'arrow-up', action: 'move-up' },
+            { label: 'Move Group Down', icon: 'arrow-down', action: 'move-down' },
+            { divider: true },
             { label: 'Show All', icon: 'eye', action: 'show-all' },
             { label: 'Hide All', icon: 'eye-off', action: 'hide-all' },
             { divider: true },
@@ -3486,6 +3563,18 @@ function showToolFolderContextMenu(event, toolName) {
         data: toolName,
         onAction: function (action, toolName) {
             switch (action) {
+                case 'move-up': {
+                    const order = getToolGroupOrder();
+                    const idx = order.indexOf(toolName);
+                    if (idx > 0) swapToolGroups(toolName, order[idx - 1]);
+                    break;
+                }
+                case 'move-down': {
+                    const order = getToolGroupOrder();
+                    const idx = order.indexOf(toolName);
+                    if (idx >= 0 && idx < order.length - 1) swapToolGroups(toolName, order[idx + 1]);
+                    break;
+                }
                 case 'show-all':
                     setGroupVisibility(toolpaths, 'tool.name', toolName, true, 'toolpath(s)');
                     break;
@@ -3808,7 +3897,7 @@ function addToolPath(id, name, operation, toolName) {
     refreshToolPathsDisplay();
 }
 
-// Refresh the toolpaths display in sorted order
+// Refresh the toolpaths display in array order (no auto-sorting)
 function refreshToolPathsDisplay() {
     const section = document.getElementById('tool-paths-section');
     if (!section) return;
@@ -3821,26 +3910,20 @@ function refreshToolPathsDisplay() {
         return;
     }
 
-    // Create a sorted copy of toolpaths
-    var sortedToolpaths = toolpaths.slice().sort(function (a, b) {
-        var priorityA = getOperationPriority(a.operation);
-        var priorityB = getOperationPriority(b.operation);
-        if (priorityA === priorityB) return 0;
-        return priorityA - priorityB;
-    });
-
-    // Group by tool name
+    // Group by tool name, preserving the order toolpaths appear in the array
     var toolGroups = {};
-    sortedToolpaths.forEach(function (toolpath) {
+    var toolGroupOrder = [];
+    toolpaths.forEach(function (toolpath) {
         var toolName = toolpath.tool.name;
         if (!toolGroups[toolName]) {
             toolGroups[toolName] = [];
+            toolGroupOrder.push(toolName);
         }
         toolGroups[toolName].push(toolpath);
     });
 
-    // Render each tool group
-    Object.keys(toolGroups).forEach(function (toolName) {
+    // Render each tool group in array order
+    toolGroupOrder.forEach(function (toolName) {
         var toolGroup = document.createElement('div');
         toolGroup.className = 'ms-3';
         toolGroup.dataset.toolName = toolName;

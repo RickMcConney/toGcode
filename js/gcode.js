@@ -487,27 +487,9 @@ function _setupGcodeProfile() {
 	};
 }
 
-// HELPER FUNCTION: Prepare and sort toolpaths by priority
+// HELPER FUNCTION: Return toolpaths in user-defined array order (no auto-sorting)
 function _prepareAndSortToolpaths(allToolpaths) {
-	var sortedByOperation = getSortedToolpaths(allToolpaths);
-
-	// Separate drill and non-drill paths
-	var drillPaths = [];
-	var nonDrillPaths = [];
-
-	for (var i = 0; i < sortedByOperation.length; i++) {
-		if (sortedByOperation[i].operation === 'Drill') {
-			drillPaths.push(sortedByOperation[i]);
-		} else {
-			nonDrillPaths.push(sortedByOperation[i]);
-		}
-	}
-
-	// Optimize drill paths order
-	drillPaths = optimizePathOrder(drillPaths);
-
-	// Combine: drills first, then other operations
-	return drillPaths.concat(nonDrillPaths);
+	return allToolpaths.slice();
 }
 
 // HELPER FUNCTION: Get spindle speed from first visible toolpath
