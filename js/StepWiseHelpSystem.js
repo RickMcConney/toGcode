@@ -29,7 +29,7 @@ class StepWiseHelpSystem {
         } else {
             // Fall back to generic help
             this.activeOperation = operationName;
-            this.helpSteps = [`Use the ${operationName} tool by clicking and dragging on the canvas.`];
+            this.helpSteps = [`Use the ${operationName} tool by clicking on a path.`];
             this.currentStep = 0;
             this.updateDisplay();
         }
@@ -234,67 +234,49 @@ class StepWiseHelpSystem {
             'Polygon': [
                 'Set the number of sides in the properties panel',
                 'Click to place the center point of the polygon and drag outwards to size it',
-                'Polygon created! Adjust properties or click Done to finish'
+                'Polygon created! Adjust properties or close panel'
             ],
             'Shape': [
                 'Set the shape properties',
                 'Click to place the center point of the shape',
-                'Shape created! Adjust properties or click Done to finish'
+                'Shape created! Adjust properties or close panel'
             ],
             'Text': [
                 'Enter your text in the properties panel',
                 'Choose font and size settings',
                 'Click on the canvas to place the text',
-                'Text paths created! Edit properties or click Done'
+                'Text paths created! Edit properties or close panel'
             ],
             'Drill': [
                 'Click to generate drill toolpaths'
             ],
-            'Inside': [
-                'Select closed paths to cut inside',
-                'Tool will cut inside the path boundary',
-                'Depth of cut is determined by tool depth setting',
-                'Check tool diameter and cutting parameters',
-                'Inside cutting toolpath generated'
-            ],
             'Profile': [
                 'Select paths to cut along the profile',
                 'Select Inside, Outside or Center cutting option',
-                'Depth of cut is determined by tool depth setting',
+                'Set cutting depth, stepdown',
+                'You can use multiple loops to widen the profile cut',
                 'Useful for cutting parts out of stock material',
                 'Profile cutting toolpath generated'
             ],
-            'Outside': [
-                'Select closed paths to cut outside',
-                'Tool will cut outside the path boundary',
-                'Depth of cut is determined by tool depth setting',
-                'Useful for cutting parts out of stock material',
-                'Outside cutting toolpath generated'
-            ],
-            'Center': [
-                'Select paths to cut along the center line',
-                'Tool follows the exact path without offset',
-                'Depth of cut is determined by tool depth setting',
-                'Good for engraving or decorative cuts',
-                'Center line toolpath generated'
-            ],
             'Pocket': [
                 'Select closed paths to pocket out material',
+                'Preselect inner or outer boundaries to define the pocket area',
                 'Tool will remove all material inside the path',
-                'Depth of cut is determined by tool depth setting',
-                'Set cutting depth and stepover percentage',
+                'Set cutting depth, stepdown and stepover percentage',
+                'You can change infill angle to match the grain direction for better results',
                 'Pocket toolpath generated with multiple passes'
             ],
-            'Vcarve In': [
-                'Select paths for V-carving inside',
-                'Uses V-bit to create tapered cuts',
+            'VCarve': [
+                'Select paths for V-carving',
+                'Use center for engraving text or decorative details',
+                'Use inside or outside for cutting shapes with tapered sides like inlays',
                 'Deeper cuts create wider grooves',
                 'V-carve toolpath generated'
             ],
             'Workpiece': [
                 'Configure your workpiece dimensions: width, length, and thickness in millimeters',
                 'Select your wood species from the dropdown to optimize cutting parameters',
-                'Set the grid size and toggle display options (grid, origin, workpiece outline)',
+                'Set the grid size and toggle display options (grid, origin, snap, workpiece outline)',
                 'Choose the origin position by clicking on the 3x3 grid - this sets where (0,0) will be located',
                 'All changes update the canvas immediately and are saved automatically'
             ]

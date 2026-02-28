@@ -595,6 +595,7 @@ function setGroupVisibility(collection, filterKey, filterValue, visible, itemLab
         if (getNestedValue(item, filterKey) === filterValue) {
             item.visible = visible;
             changedCount++;
+            if (item.id) updatePathVisibilityIcon(item.id, visible);
         }
     });
 
@@ -3589,18 +3590,21 @@ function startRenameToolpath(pathId) {
 
 // Context menu for individual paths
 function showContextMenu(event, pathId) {
+    const isToolpath = toolpaths.some(tp => tp.id === pathId);
+    const items = [];
+    if (isToolpath) {
+        items.push({ label: 'Rename', icon: 'pencil', action: 'rename' });
+        items.push({ divider: true });
+        items.push({ label: 'Move Up', icon: 'arrow-up', action: 'move-up' });
+        items.push({ label: 'Move Down', icon: 'arrow-down', action: 'move-down' });
+        items.push({ divider: true });
+    }
+    items.push({ label: 'Show', icon: 'eye', action: 'show' });
+    items.push({ label: 'Hide', icon: 'eye-off', action: 'hide' });
+    items.push({ divider: true });
+    items.push({ label: 'Delete', icon: 'trash-2', action: 'delete', danger: true });
     createContextMenu(event, {
-        items: [
-            { label: 'Rename', icon: 'pencil', action: 'rename' },
-            { divider: true },
-            { label: 'Move Up', icon: 'arrow-up', action: 'move-up' },
-            { label: 'Move Down', icon: 'arrow-down', action: 'move-down' },
-            { divider: true },
-            { label: 'Show', icon: 'eye', action: 'show' },
-            { label: 'Hide', icon: 'eye-off', action: 'hide' },
-            { divider: true },
-            { label: 'Delete', icon: 'trash-2', action: 'delete', danger: true }
-        ],
+        items,
         data: pathId,
         onAction: function (action, pathId) {
             switch (action) {
@@ -4018,8 +4022,9 @@ function refreshToolPathsDisplay() {
             item.className = 'sidebar-item ms-4';
             item.dataset.pathId = toolpath.id;
             const displayName = toolpath.label || (toolpath.name + ' ' + toolpath.id.replace('T', ''));
+            const icon = toolpath.visible === false ? 'eye-off' : getOperationIcon(toolpath.name);
             item.innerHTML = `
-                <i data-lucide="${getOperationIcon(toolpath.name)}"></i>${displayName}
+                <i data-lucide="${icon}"></i>${displayName}
             `;
             toolGroup.appendChild(item);
         });
@@ -4112,6 +4117,26 @@ function getPathIcon(name) {
     if (name.includes('Subtract')) return 'squares-subtract';
     if (name.includes('Gemini')) return 'brain';
     return 'route';
+}
+
+function updatePathVisibilityIcon(id, visible) {
+    const item = document.querySelector(`[data-path-id="${id}"]`);
+    if (!item) return;
+
+    let iconName, displayName;
+    const toolpath = toolpaths.find(tp => tp.id === id);
+    if (toolpath) {
+        iconName = visible ? getOperationIcon(toolpath.name) : 'eye-off';
+        displayName = toolpath.label || (toolpath.name + ' ' + toolpath.id.replace('T', ''));
+    } else {
+        const svgpath = svgpaths.find(p => p.id === id);
+        if (!svgpath) return;
+        iconName = visible ? getPathIcon(svgpath.name) : 'eye-off';
+        displayName = svgpath.name;
+    }
+
+    item.innerHTML = `<i data-lucide="${iconName}"></i>${displayName}`;
+    lucide.createIcons();
 }
 
 function getOperationIcon(operation) {

@@ -154,6 +154,9 @@ function setVisibility(id, visible) {
 			toolpaths[i].visible = visible;
 		}
 	}
+	if (typeof updatePathVisibilityIcon === 'function') {
+		updatePathVisibilityIcon(id, visible);
+	}
 	redraw();
 }
 

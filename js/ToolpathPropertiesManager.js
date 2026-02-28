@@ -24,7 +24,7 @@ class ToolpathPropertiesManager {
             },
             'VCarve': {
                 compatibleBits: ['VBit'],
-                fields: ['tool', 'depth', 'inside'],
+                fields: ['tool', 'depth', 'inside', 'overCut'],
                 description: 'V-carve inside the path with tapered cuts'
             }
 

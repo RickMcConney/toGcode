@@ -1109,6 +1109,7 @@ function computeWithMedialAxis(outside, name) {
 
 function computeVcarve(outside, name) {
 	var radius = vbitRadius(currentTool) * viewScale;
+	var overCutWorld = (currentTool.overCut || 0) * viewScale;
 
 	for (var i = 0; i < svgpaths.length; i++) {
 		var paths = [];
@@ -1139,6 +1140,17 @@ function computeVcarve(outside, name) {
 		drawNorms(norms)
 
 		var circles = largestEmptyCircles(norms, r, subpath);
+
+		// Apply overcut: shift each circle along its norm direction
+		// norms[j] has the unit vector (dx,dy) pointing toward the cut side
+		if (overCutWorld !== 0) {
+			for (var j = 0; j < norms.length; j++) {
+				circles[j].x += norms[j].dx * overCutWorld;
+				circles[j].y += norms[j].dy * overCutWorld;
+			}
+			// circles[norms.length] is the closing duplicate of circles[0] (same object ref),
+			// so it was already updated above
+		}
 		//var tpath = simplify(circles,2,true);
 		var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
 
