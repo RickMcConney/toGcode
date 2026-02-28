@@ -4,13 +4,18 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-02-26";
+var APP_VERSION = "Ver 2026-02-27";
 
 var mode = "Select";
 var options = [];
 var tools = [];
 var currentTool = null;
 var currentFileName = "none";
+
+function setProjectName(name) {
+    const el = document.getElementById('project-name-display');
+    if (el) el.textContent = name || '';
+}
 var gcodeProfiles = [];
 var currentGcodeProfile = null;
 var currentOperationName = null;
@@ -92,7 +97,7 @@ function loadGcodeProfiles() {
                 recid: 1,
                 name: 'GRBL',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
-                endGcode: 'G0 Z5',
+                endGcode: 'G0 Z5\nG0 X0 Y0',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
@@ -106,7 +111,7 @@ function loadGcodeProfiles() {
                 recid: 2,
                 name: 'FluidNC',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
-                endGcode: 'G0 Z5',
+                endGcode: 'G0 Z5\nG0 X0 Y0',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
                 rapidTemplate: 'G0 X Y Z F',
                 cutTemplate: 'G1 X Y Z F',
@@ -136,25 +141,26 @@ function loadOptions() {
         options = JSON.parse(optionData);
     } else {
         options = [
-            { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid' },
-            { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin' },
-            { recid: 3, option: 'Inches', value: false, desc: 'Display Inches' },
-            { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm' },
-            { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance' },
-            { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm' },
-            { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)' },
-            { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)' },
-            { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)' },
-            { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species' },
-            { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates' },
-            { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)' },
-            { recid: 13, option: 'maxFeedRate', value: 1000, desc: 'Maximum Feed Rate (mm/min)' },
-            { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position' },
-            { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)' },
-            { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece' },
-            { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm' },
-            { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm' },
-            { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled' }
+            { recid: 1, option: 'showGrid', value: true, desc: 'Show Grid', hidden: true },
+            { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin', hidden: true },
+            { recid: 3, option: 'Inches', value: false, desc: 'Display Inches', hidden: false },
+            { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm', hidden: false },
+            { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance', hidden: false },
+            { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm', hidden: false },
+            { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)', hidden: true },
+            { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)', hidden: true },
+            { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)', hidden: true },
+            { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species', hidden: true },
+            { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates', hidden: false },
+            { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)', hidden: false },
+            { recid: 13, option: 'maxFeedRate', value: 1000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
+            { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position', hidden: true },
+            { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)', hidden: true },
+            { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece', hidden: true },
+            { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm', hidden: false },
+            { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm', hidden: false },
+            { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false },
+            { recid: 20, option: 'snapGrid', value: true, desc: 'Snap to Grid', hidden: true }
 
         ];
     }
@@ -311,6 +317,7 @@ fileOpen.addEventListener('change', function (e) {
 
     var file = fileOpen.files[0];
     currentFileName = file.name.split('.').shift();
+    setProjectName(currentFileName);
 
     var reader = new FileReader();
     reader.onload = function (event) {
@@ -730,6 +737,8 @@ function createToolbar() {
                     const tab = new bootstrap.Tab(canvas2DTab);
                     tab.show();
                 }
+                currentFileName = "none";
+                setProjectName('');
                 newProject();
                 break;
             case 'open':
@@ -1055,6 +1064,13 @@ function createSidebar() {
             e.preventDefault();
             showContextMenu(e, item.dataset.pathId);
         }
+    });
+
+    // Double-click to rename toolpath
+    sidebar.addEventListener('dblclick', function (e) {
+        const item = e.target.closest('#tool-paths-section .sidebar-item[data-path-id]');
+        if (!item) return;
+        startRenameToolpath(item.dataset.pathId);
     });
 
     // Add tab change event listeners to control bottom panel visibility
@@ -2185,6 +2201,11 @@ function create2DSimulationControls() {
                 <span class="small">Time:</span>
                 <span class="small"><span id="2d-simulation-time">0:00</span> / <span id="2d-total-time">0:00</span></span>
             </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
+                <span class="small">Z:</span>
+                <span class="small"><span id="2d-z-depth-display">0.00</span> mm</span>
+            </div>
         </div>
     `;
 
@@ -3062,8 +3083,15 @@ function renderOptionsTable() {
     const tbody = document.getElementById('options-table-body');
     tbody.innerHTML = '';
 
-    // Filter out workpiece options that are now managed by the workpiece properties panel
-    const filteredOptions = options.filter(option => !option.hidden);
+    // These options are managed by the Workpiece panel — always exclude from Options panel
+    const workpieceManaged = new Set([
+        'showGrid', 'showOrigin', 'workpieceWidth', 'workpieceLength', 'workpieceThickness',
+        'woodSpecies', 'originPosition', 'gridSize', 'showWorkpiece', 'snapGrid'
+    ]);
+    // Only show options that have a desc (declared in defaults) and aren't workpiece-managed.
+    // Options pushed dynamically by setOption() at runtime (internal state like textFont,
+    // lastUsedShape, etc.) have no desc and should never appear here.
+    const filteredOptions = options.filter(option => option.desc && !workpieceManaged.has(option.option));
 
     filteredOptions.forEach((option, filteredIndex) => {
         // Find the original index in the full options array for the change handler
@@ -3277,7 +3305,8 @@ function performOptionsReset() {
         { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece', hidden: true },
         { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm', hidden: false },
         { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm', hidden: false },
-        { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false }
+        { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false },
+        { recid: 20, option: 'snapGrid', value: true, desc: 'Snap to Grid', hidden: true }
     ];
 
     // Recalculate origin based on reset workpiece dimensions
@@ -3513,10 +3542,57 @@ function getToolGroupOrder() {
     return order;
 }
 
+// Inline rename for a toolpath sidebar item
+function startRenameToolpath(pathId) {
+    const item = document.querySelector(`#tool-paths-section [data-path-id="${pathId}"]`);
+    if (!item) return;
+
+    const toolpath = toolpaths.find(tp => tp.id === pathId);
+    if (!toolpath) return;
+
+    const currentName = toolpath.label || (toolpath.name + ' ' + toolpath.id.replace('T', ''));
+    const icon = item.querySelector('i');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.style.cssText = 'width:calc(100% - 24px);padding:0 4px;height:20px;font-size:inherit;border:1px solid #86b7fe;border-radius:3px;outline:none;background:#fff;color:#000;';
+
+    item.innerHTML = '';
+    if (icon) item.appendChild(icon);
+    item.appendChild(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+
+    function commit() {
+        if (committed) return;
+        committed = true;
+        const newName = input.value.trim();
+        if (newName) toolpath.label = newName;
+        refreshToolPathsDisplay();
+    }
+
+    function cancel() {
+        if (committed) return;
+        committed = true;
+        refreshToolPathsDisplay();
+    }
+
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', commit);
+}
+
 // Context menu for individual paths
 function showContextMenu(event, pathId) {
     createContextMenu(event, {
         items: [
+            { label: 'Rename', icon: 'pencil', action: 'rename' },
+            { divider: true },
             { label: 'Move Up', icon: 'arrow-up', action: 'move-up' },
             { label: 'Move Down', icon: 'arrow-down', action: 'move-down' },
             { divider: true },
@@ -3528,6 +3604,9 @@ function showContextMenu(event, pathId) {
         data: pathId,
         onAction: function (action, pathId) {
             switch (action) {
+                case 'rename':
+                    startRenameToolpath(pathId);
+                    break;
                 case 'move-up':
                     moveToolpathUp(pathId);
                     break;
@@ -3938,8 +4017,9 @@ function refreshToolPathsDisplay() {
             var item = document.createElement('div');
             item.className = 'sidebar-item ms-4';
             item.dataset.pathId = toolpath.id;
+            const displayName = toolpath.label || (toolpath.name + ' ' + toolpath.id.replace('T', ''));
             item.innerHTML = `
-                <i data-lucide="${getOperationIcon(toolpath.name)}"></i>${toolpath.name} ${toolpath.id.replace('T', '')}
+                <i data-lucide="${getOperationIcon(toolpath.name)}"></i>${displayName}
             `;
             toolGroup.appendChild(item);
         });

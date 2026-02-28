@@ -839,6 +839,13 @@ function saveString(text, filename) {
 
 }
 
+function _gcodeNameComment(name) {
+	var profile = (typeof currentGcodeProfile !== 'undefined' && currentGcodeProfile) ? currentGcodeProfile : {};
+	var commentChar = profile.commentChar || ';';
+	var closingChar = commentChar === '(' ? ')' : '';
+	return commentChar + name + closingChar + '\n';
+}
+
 async function doGcode() {
 	if (toolpaths.length == 0) {
 		notify('No toolpaths to export');
@@ -857,8 +864,9 @@ async function doGcode() {
 					accept: { 'text/plain': ['.gcode', '.nc', '.tap'] }
 				}]
 			});
+			const projectName = fileHandle.name.replace(/\.[^.]+$/, '');
 			const writable = await fileHandle.createWritable();
-			await writable.write(text);
+			await writable.write(_gcodeNameComment(projectName) + text);
 			await writable.close();
 			notify('G-code saved successfully');
 			return;
@@ -884,7 +892,8 @@ async function doGcode() {
 		filename += '.gcode';
 	}
 
-	saveString(text, filename);
+	const projectName = filename.replace(/\.[^.]+$/, '');
+	saveString(_gcodeNameComment(projectName) + text, filename);
 	notify('G-code download started');
 }
 

@@ -40,6 +40,7 @@ class Workpiece extends Operation {
         const currentSpecies = getOption("woodSpecies") || 'Pine';
         const currentOriginPosition = getOption("originPosition") || 'middle-center';
         const currentShowGrid = getOption("showGrid") !== false;
+        const currentSnapGrid = getOption("snapGrid") !== false;
         const currentShowOrigin = getOption("showOrigin") !== false;
         const currentShowWorkpiece = getOption("showWorkpiece") !== false;
 
@@ -140,6 +141,13 @@ class Workpiece extends Operation {
                                ${currentShowGrid ? 'checked' : ''}>
                         <label class="form-check-label" for="showGrid">
                             Show Grid
+                        </label>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" id="snapGrid" name="snapGrid"
+                               ${currentSnapGrid ? 'checked' : ''}>
+                        <label class="form-check-label" for="snapGrid">
+                            Snap to Grid
                         </label>
                     </div>
                 </div>
@@ -288,6 +296,10 @@ class Workpiece extends Operation {
 
         if ('showGrid' in data) {
             setOption("showGrid", data.showGrid);
+        }
+
+        if ('snapGrid' in data) {
+            setOption("snapGrid", data.snapGrid);
         }
 
         if ('showOrigin' in data) {

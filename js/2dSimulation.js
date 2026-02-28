@@ -1156,6 +1156,16 @@ function updateSimulation2DDisplay() {
         progressSlider.value = simulation2D.currentLineIndex;
         progressSlider.max = simulation2D.movements.length - 1;  // Max index = array length - 1
     }
+
+    // Update Z depth display (interpolated within current segment)
+    const zDepthDisplay = document.getElementById('2d-z-depth-display');
+    if (zDepthDisplay && simulation2D.currentLineIndex < simulation2D.precomputedPoints.length) {
+        const point = simulation2D.precomputedPoints[simulation2D.currentLineIndex];
+        if (point) {
+            const pos = interpolateSegmentPosition(point, simulation2D.currentLineProgress);
+            zDepthDisplay.textContent = pos.z.toFixed(2);
+        }
+    }
 }
 
 /**

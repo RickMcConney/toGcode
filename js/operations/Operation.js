@@ -54,10 +54,21 @@ class Operation {
         redraw(); // Trigger redraw by default
     }
 
+    // Return raw world coordinates without snap (for drag delta calculations)
+    normalizeEventRaw(target, e) {
+        var rect = target.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        if (typeof screenToWorld === 'function') {
+            return screenToWorld(x, y);
+        }
+        return { x, y };
+    }
+
     // Snap-to-grid functionality
     snapToGrid(x, y) {
-        // Only snap if grid is visible
-        if (typeof getOption === 'function' && !getOption("showGrid")) {
+        // Only snap if snap is enabled
+        if (typeof getOption === 'function' && getOption("snapGrid") === false) {
             return { x, y };
         }
 

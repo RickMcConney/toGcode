@@ -181,6 +181,9 @@ class Select extends Operation {
         this.initialMousePos = mouse;
         this.rawdragStartX = evt.offsetX || (evt.pageX - canvas.offsetLeft);
         this.rawdragStartY = evt.offsetY || (evt.pageY - canvas.offsetTop);
+        const rawMouse = this.normalizeEventRaw(canvas, evt);
+        this.dragStartXWorld = rawMouse.x;
+        this.dragStartYWorld = rawMouse.y;
         this.dragPath = null;
 
         // Find any currently highlighted path by checking the highlight property directly
@@ -233,19 +236,29 @@ class Select extends Operation {
 
     onMouseMove(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
+        const snapOff = typeof getOption === 'function' && getOption("snapGrid") === false;
+        const rawMouse = snapOff ? this.normalizeEventRaw(canvas, evt) : mouse;
 
         if (this.mouseDown) {
-            const thresholdExceeded = Math.abs(this.dragStartX - mouse.x) > Select.DRAG_THRESHOLD || Math.abs(this.dragStartY - mouse.y) > Select.DRAG_THRESHOLD;
+            const curX = snapOff ? rawMouse.x : mouse.x;
+            const curY = snapOff ? rawMouse.y : mouse.y;
+            const refX = snapOff ? this.dragStartXWorld : this.dragStartX;
+            const refY = snapOff ? this.dragStartYWorld : this.dragStartY;
+            // Threshold is only used to detect drag/select start — once DRAGGING,
+            // always process movement so snap-off gives smooth per-frame motion
+            const thresholdExceeded = Select.state == Select.DRAGGING ||
+                Math.abs(refX - curX) > Select.DRAG_THRESHOLD ||
+                Math.abs(refY - curY) > Select.DRAG_THRESHOLD;
 
             if (thresholdExceeded) {
                 // Check if in DRAGGING state
                 if (Select.state == Select.DRAGGING) {
-                    let dragDeltaX = mouse.x - this.dragStartX;
-                    let dragDeltaY = mouse.y - this.dragStartY;
+                    let dragDeltaX = curX - refX;
+                    let dragDeltaY = curY - refY;
 
                     if (evt.shiftKey) {
                         // Constrain movement to primary axis (larger delta)
-                        if (Math.abs(mouse.x - this.initialMousePos.x) > Math.abs(mouse.y - this.initialMousePos.y)) {
+                        if (Math.abs(curX - (snapOff ? this.dragStartXWorld : this.initialMousePos.x)) > Math.abs(curY - (snapOff ? this.dragStartYWorld : this.initialMousePos.y))) {
                             dragDeltaY = 0;  // Constrain to X axis
                         } else {
                             dragDeltaX = 0;  // Constrain to Y axis
@@ -266,6 +279,8 @@ class Select extends Operation {
 
                     this.dragStartX = mouse.x;
                     this.dragStartY = mouse.y;
+                    this.dragStartXWorld = rawMouse.x;
+                    this.dragStartYWorld = rawMouse.y;
                 }
                 // Check if in SELECTING state
                 else if (Select.state == Select.SELECTING) {
@@ -292,8 +307,13 @@ class Select extends Operation {
 
                     if (this.dragPath) {
                         if (selectMgr.isSelected(this.dragPath) || selectMgr.noSelection()) {
-                            // Starting a path drag
+                            // Starting a path drag — reset reference to current position
+                            // so the first drag delta is zero (no threshold-distance jump)
                             Select.state = Select.DRAGGING;
+                            this.dragStartX = mouse.x;
+                            this.dragStartY = mouse.y;
+                            this.dragStartXWorld = rawMouse.x;
+                            this.dragStartYWorld = rawMouse.y;
                             addUndo(false, true, false);
                         }
                     } else {
