@@ -327,6 +327,9 @@ class Text extends Operation {
         opentype.load(fontUrl, (err, font) => {
             if (err) {
                 console.error('Could not load font:', err);
+                var fontEntry = AVAILABLE_FONTS.find(f => f.value === fontname);
+                var displayName = fontEntry ? fontEntry.label : 'Unknown';
+                notify('Failed to load font "' + displayName + '". Check your internet connection.', 'error');
                 return;
             }
             else {
@@ -403,7 +406,13 @@ class Text extends Operation {
         // Text or font changed, need to recreate paths
         if (typeof opentype !== 'undefined') {
             opentype.load(data.font, (err, font) => {
-                if (!err && font) {
+                if (err) {
+                    var fontEntry = AVAILABLE_FONTS.find(f => f.value === data.font);
+                    var displayName = fontEntry ? fontEntry.label : 'Unknown';
+                    notify('Failed to load font "' + displayName + '". Check your internet connection.', 'error');
+                    return;
+                }
+                if (font) {
                     this.updateTextPathsInPlace(relatedPaths, font, data);
                     redraw();
                 }
