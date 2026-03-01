@@ -2184,6 +2184,7 @@ function create2DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
+                <hspacer style="width: 1px; height: 20px; margin: 0 8px; background-color: var(--bs-secondary);"></hspacer>
                 <span class="small">Progress:</span>
                 <input type="range" class="form-range form-range-sm" id="simulation-step" min="0" max="100" step="1" value="0" style="width: 150px;">
             </div>
@@ -2287,7 +2288,8 @@ function create3DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
-                <span class="small">Line:</span>
+            <hspacer style="width: 1px; height: 20px; margin: 0 8px; background-color: var(--bs-secondary);"></hspacer>
+                <span class="small">Progress:</span>
                 <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="1" step="1" value="0" style="width: 150px;">
                 <span id="3d-progress-display" class="small">Line 0 (0%)</span>
             </div>
