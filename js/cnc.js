@@ -137,7 +137,7 @@ function doPaste() {
 
 function toolChanged(tool) {
 	for (var i = 0; i < toolpaths.length; i++) {
-		if (toolpaths[i].tool.id == tool.id)
+		if (toolpaths[i].tool.recid == tool.recid)
 			toolpaths[i].tool = tool;
 	}
 	redraw();
