@@ -96,13 +96,13 @@ class Workpiece extends Operation {
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceWidth" class="form-label">Width</label>
+                    <label for="workpieceWidth" class="form-label">Width (X)</label>
                     <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth"
                            value="${displayWidth}" >
      
                 </div>
                 <div class="col-md-6">
-                    <label for="workpieceLength" class="form-label">Length</label>
+                    <label for="workpieceLength" class="form-label">Length (Y)</label>
                     <input type="text" class="form-control" id="workpieceLength" name="workpieceLength"
                            value="${displayLength}" >
      
@@ -111,7 +111,7 @@ class Workpiece extends Operation {
 
             <div class="row mb-3">
                 <div class="col-md-6">
-                    <label for="workpieceThickness" class="form-label">Thickness</label>
+                    <label for="workpieceThickness" class="form-label">Thickness (Z)</label>
                     <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness"
                            value="${displayThickness}" >
 
@@ -254,13 +254,27 @@ class Workpiece extends Operation {
         // Update global options when properties change
         // Parse inputs using parseDimension to handle both mm and inch inputs
         if ('workpieceWidth' in data) {
-            const newValue = parseDimension(data.workpieceWidth, useInches) || 300;
+            let newValue = parseDimension(data.workpieceWidth, useInches) || 300;
+            const tableWidth = getOption("tableWidth");
+            if (tableWidth && newValue > tableWidth) {
+                notify(`Workpiece width clamped to machine table limit (${tableWidth}mm)`, 'warning');
+                newValue = tableWidth;
+                const el = document.getElementById('workpieceWidth');
+                if (el) el.value = useInches ? (newValue / 25.4).toFixed(2) : newValue;
+            }
             setOption("workpieceWidth", newValue);
             dimensionChanged = true;
         }
 
         if ('workpieceLength' in data) {
-            const newValue = parseDimension(data.workpieceLength, useInches) || 200;
+            let newValue = parseDimension(data.workpieceLength, useInches) || 200;
+            const tableDepth = getOption("tableDepth");
+            if (tableDepth && newValue > tableDepth) {
+                notify(`Workpiece length clamped to machine table limit (${tableDepth}mm)`, 'warning');
+                newValue = tableDepth;
+                const el = document.getElementById('workpieceLength');
+                if (el) el.value = useInches ? (newValue / 25.4).toFixed(2) : newValue;
+            }
             setOption("workpieceLength", newValue);
             dimensionChanged = true;
         }

@@ -1022,7 +1022,7 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 		//if (pointInPolygon(p1, path))
 		circles.push(p1);
 	}
-	circles = clipper.JS.Lighten(circles, getOption("tolerance"));
+	circles = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 	var tpath = findBestPath(segments).toolpath;
 
@@ -1152,7 +1152,7 @@ function computeVcarve(outside, name) {
 			// so it was already updated above
 		}
 		//var tpath = simplify(circles,2,true);
-		var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+		var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 		if (outside) {
 			if (currentTool.direction != "climb") {

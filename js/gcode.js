@@ -905,6 +905,60 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 	return output;
 }
 
+// Check if toolpath coordinates exceed machine table limits
+// Returns warning message string if limits exceeded, null otherwise
+function checkTableLimits(tpaths) {
+	var tableWidth = getOption("tableWidth");
+	var tableDepth = getOption("tableDepth");
+	var tableHeight = getOption("tableHeight");
+	if (!tableWidth && !tableDepth && !tableHeight) return null;
+	var list = tpaths || toolpaths;
+	var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+	var maxDepth = 0;
+	for (var t = 0; t < list.length; t++) {
+		if (!list[t].visible || !list[t].paths) continue;
+		if (list[t].tool && list[t].tool.depth > maxDepth) {
+			maxDepth = list[t].tool.depth;
+		}
+		for (var p = 0; p < list[t].paths.length; p++) {
+			var path = list[t].paths[p].path;
+			if (!path) continue;
+			for (var pt = 0; pt < path.length; pt++) {
+				var mm = toMM(path[pt].x, path[pt].y);
+				if (mm.x < minX) minX = mm.x;
+				if (mm.x > maxX) maxX = mm.x;
+				if (mm.y < minY) minY = mm.y;
+				if (mm.y > maxY) maxY = mm.y;
+			}
+		}
+	}
+	if (minX === Infinity) return null;
+	var originPos = getOption("originPosition") || 'middle-center';
+	var limitMinX, limitMaxX, limitMinY, limitMaxY;
+	if (originPos.includes('left')) { limitMinX = 0; limitMaxX = tableWidth; }
+	else if (originPos.includes('right')) { limitMinX = -tableWidth; limitMaxX = 0; }
+	else { limitMinX = -tableWidth / 2; limitMaxX = tableWidth / 2; }
+	if (originPos.includes('bottom')) { limitMinY = 0; limitMaxY = tableDepth; }
+	else if (originPos.includes('top')) { limitMinY = -tableDepth; limitMaxY = 0; }
+	else { limitMinY = -tableDepth / 2; limitMaxY = tableDepth / 2; }
+	var exceeds = [];
+	if (tableWidth && (minX < limitMinX || maxX > limitMaxX))
+		exceeds.push('X (' + Math.round(minX) + ' to ' + Math.round(maxX) + 'mm, limit ' + Math.round(limitMinX) + ' to ' + Math.round(limitMaxX) + 'mm)');
+	if (tableDepth && (minY < limitMinY || maxY > limitMaxY))
+		exceeds.push('Y (' + Math.round(minY) + ' to ' + Math.round(maxY) + 'mm, limit ' + Math.round(limitMinY) + ' to ' + Math.round(limitMaxY) + 'mm)');
+	// Z range: from -maxDepth (deepest cut) to safeHeight + zbacklash (retract)
+	if (tableHeight) {
+		var safeHeight = getOption("safeHeight") + getOption("zbacklash");
+		var zRange = maxDepth + safeHeight;
+		if (zRange > tableHeight)
+			exceeds.push('Z range (' + Math.round(zRange) + 'mm from -' + Math.round(maxDepth) + ' to +' + Math.round(safeHeight) + 'mm, limit ' + tableHeight + 'mm)');
+	}
+	if (exceeds.length > 0) {
+		return 'G-code exceeds machine table limits: ' + exceeds.join(', ');
+	}
+	return null;
+}
+
 // MAIN FUNCTION: Generate G-code output for all toolpaths
 function toGcode() {
 	// 1. SETUP AND VALIDATION
@@ -914,6 +968,14 @@ function toGcode() {
 	var spindleSpeed = _getInitialSpindleSpeed(sortedToolpaths);
 
 	var output = "";
+
+	// Check if any toolpath coordinates exceed machine table limits
+	if (!window._skipTableLimitWarning) {
+		var tableLimitWarning = checkTableLimits(sortedToolpaths);
+		if (tableLimitWarning) {
+			notify(tableLimitWarning, 'warning');
+		}
+	}
 
 	// 2. GENERATE HEADER
 	output += _generateGcodeHeader(profile, spindleSpeed, useInches);

@@ -351,9 +351,10 @@ function initThree() {
 
   // Load toolpaths from generated G-code if available
   if (window.toolpaths && window.toolpaths.length > 0) {
-    // Generate G-code using the same toGcode function
-    if (typeof toGcode === 'function') {
-      const gcode = toGcode();
+    // Use cached gcode from bootstrap-layout tab switch if available, otherwise generate
+    const gcode = window._cachedGcode || (typeof toGcode === 'function' ? toGcode() : null);
+    window._cachedGcode = null;
+    if (gcode) {
       toolpathAnimation.loadFromGcode(gcode);
     } else {
       console.warn('toGcode function not found');

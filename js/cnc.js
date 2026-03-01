@@ -532,7 +532,7 @@ function doOutside() {
 				var opath = offsetPaths[p];
 				var subpath = subdividePath(opath, 2);
 				var circles = checkPath(subpath, radius - 1);
-				var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+				var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 				if (currentTool.direction != "climb") {
 					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
@@ -578,7 +578,7 @@ function doInside() {
 				var opath = offsetPaths[p];
 				var subpath = subdividePath(opath, 2);
 				var circles = checkPath(subpath, radius - 1);
-				var tpath = clipper.JS.Lighten(circles, getOption("tolerance"));
+				var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 				if (currentTool.direction == "climb") {
 					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
@@ -856,7 +856,28 @@ async function doGcode() {
 		return;
 	}
 
+	// Check table limits before saving - show Bootstrap confirm dialog if exceeded
+	var limitWarning = checkTableLimits();
+	if (limitWarning) {
+		var proceed = await new Promise(function(resolve) {
+			showConfirmModal({
+				title: 'Machine Table Limits Exceeded',
+				message: '<p>' + limitWarning + '</p><p>Do you want to save the G-code anyway?</p>',
+				confirmText: 'Save Anyway',
+				confirmClass: 'btn-warning',
+				headerClass: 'bg-warning text-dark',
+				onConfirm: function() { resolve(true); }
+			});
+			// If modal is dismissed without confirming, resolve false
+			var modalEl = document.getElementById('confirmModal');
+			modalEl.addEventListener('hidden.bs.modal', function() { resolve(false); }, { once: true });
+		});
+		if (!proceed) return;
+	}
+
+	window._skipTableLimitWarning = true;
 	var text = toGcode();
+	window._skipTableLimitWarning = false;
 
 	// Use the File System Access API if available (modern browsers)
 	if ('showSaveFilePicker' in window) {

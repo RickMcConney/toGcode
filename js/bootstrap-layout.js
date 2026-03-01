@@ -145,20 +145,21 @@ function loadOptions() {
             { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin', hidden: true },
             { recid: 3, option: 'Inches', value: false, desc: 'Display Inches', hidden: false },
             { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm', hidden: false },
-            { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance', hidden: false },
+            { recid: 5, option: 'tolerance', value: 0.1, desc: 'Tool path tolerance (mm)', hidden: false },
             { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm', hidden: false },
             { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)', hidden: true },
             { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)', hidden: true },
             { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)', hidden: true },
             { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species', hidden: true },
-            { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates', hidden: false },
+            { recid: 11, option: 'autoFeedRate', value: false, desc: 'Auto Calculate Feed Rates', hidden: false },
             { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)', hidden: false },
             { recid: 13, option: 'maxFeedRate', value: 1000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
             { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position', hidden: true },
             { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)', hidden: true },
             { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece', hidden: true },
-            { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm', hidden: false },
-            { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm', hidden: false },
+            { recid: 17, option: 'tableWidth', value: 4000, desc: 'Max cutting width (X travel)in mm', hidden: false },
+            { recid: 18, option: 'tableDepth', value: 2000, desc: 'Max cutting length (Y travel) in mm', hidden: false },
+            { recid: 21, option: 'tableHeight', value: 100, desc: 'Max cutting depth in mm (Z travel)', hidden: false },
             { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false },
             { recid: 20, option: 'snapGrid', value: true, desc: 'Snap to Grid', hidden: true }
 
@@ -1166,6 +1167,7 @@ function createSidebar() {
             // Load and show gcode viewer when switching to 3D view
             if (typeof gcodeView !== 'undefined' && gcodeView && typeof toGcode === 'function') {
                 const gcode = toGcode();
+                window._cachedGcode = gcode;
                 gcodeView.populate(gcode);
                 if (typeof showGcodeViewerPanel === 'function') {
                     showGcodeViewerPanel();
@@ -3294,20 +3296,21 @@ function performOptionsReset() {
         { recid: 2, option: 'showOrigin', value: true, desc: 'Show Origin', hidden: true },
         { recid: 3, option: 'Inches', value: false, desc: 'Display Inches', hidden: false },
         { recid: 4, option: 'safeHeight', value: 5, desc: 'Safe Height in mm', hidden: false },
-        { recid: 5, option: 'tolerance', value: 1, desc: 'Tool path tolerance', hidden: false },
+        { recid: 5, option: 'tolerance', value: 0.1, desc: 'Tool path tolerance (mm)', hidden: false },
         { recid: 6, option: 'zbacklash', value: 0.1, desc: 'Back lash compensation in mm', hidden: false },
         { recid: 7, option: 'workpieceWidth', value: 300, desc: 'Workpiece Width (mm)', hidden: true },
         { recid: 8, option: 'workpieceLength', value: 200, desc: 'Workpiece Length (mm)', hidden: true },
         { recid: 9, option: 'workpieceThickness', value: 19, desc: 'Workpiece Thickness (mm)', hidden: true },
         { recid: 10, option: 'woodSpecies', value: 'Pine', desc: 'Wood Species', hidden: true },
-        { recid: 11, option: 'autoFeedRate', value: true, desc: 'Auto Calculate Feed Rates', hidden: false },
+        { recid: 11, option: 'autoFeedRate', value: false, desc: 'Auto Calculate Feed Rates', hidden: false },
         { recid: 12, option: 'minFeedRate', value: 100, desc: 'Minimum Feed Rate (mm/min)', hidden: false },
-        { recid: 13, option: 'maxFeedRate', value: 3000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
+        { recid: 13, option: 'maxFeedRate', value: 1000, desc: 'Maximum Feed Rate (mm/min)', hidden: false },
         { recid: 14, option: 'originPosition', value: 'middle-center', desc: 'Origin Position', hidden: true },
         { recid: 15, option: 'gridSize', value: 10, desc: 'Grid Size (mm)', hidden: true },
         { recid: 16, option: 'showWorkpiece', value: true, desc: 'Show Workpiece', hidden: true },
-        { recid: 17, option: 'tableWidth', value: 2000, desc: 'Max cutting width in mm', hidden: false },
-        { recid: 18, option: 'tableLength', value: 4000, desc: 'Max cutting length in mm', hidden: false },
+        { recid: 17, option: 'tableWidth', value: 4000, desc: 'Max cutting width (X travel) in mm', hidden: false },
+        { recid: 18, option: 'tableDepth', value: 2000, desc: 'Max cutting length (Y travel) in mm', hidden: false },
+        { recid: 21, option: 'tableHeight', value: 100, desc: 'Max cutting depth (Z travel) in mm', hidden: false },
         { recid: 19, option: 'showTooltips', value: true, desc: 'Tooltips enabled', hidden: false },
         { recid: 20, option: 'snapGrid', value: true, desc: 'Snap to Grid', hidden: true }
     ];

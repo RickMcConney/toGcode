@@ -267,7 +267,7 @@ function parseSvgContent(data, name) {
 
 		// Lighten paths first
 		for (var i = 0; i < paths.length; i++) {
-			var lightened = clipper.JS.Lighten(paths[i].geom, getOption("tolerance"));
+			var lightened = clipper.JS.Lighten(paths[i].geom, getOption("tolerance") * viewScale);
 			// Ensure we have a valid array of points
 			if (Array.isArray(lightened) && lightened.length > 0) {
 				paths[i].geom = lightened;
