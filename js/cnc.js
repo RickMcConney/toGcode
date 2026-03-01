@@ -140,6 +140,7 @@ function toolChanged(tool) {
 		if (toolpaths[i].tool.recid == tool.recid)
 			toolpaths[i].tool = tool;
 	}
+	refreshToolPathsDisplay();
 	redraw();
 }
 
