@@ -728,8 +728,10 @@ function createToolbar() {
 
         const action = button.dataset.action;
 
-        // Auto-close tool properties on toolbar actions
-        autoCloseToolProperties('toolbar action: ' + action);
+        // Auto-close tool properties on toolbar actions (except undo/redo)
+        if (action !== 'undo' && action !== 'redo') {
+            autoCloseToolProperties('toolbar action: ' + action);
+        }
 
         switch (action) {
             case 'new':
@@ -1951,6 +1953,76 @@ function setupToolpathUpdateButton(operationName) {
         // Refresh display
         refreshToolPathsDisplay();
         notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+    });
+}
+
+/**
+ * Regenerate all toolpaths linked to the given svgpath IDs.
+ * Used after transforms to keep toolpaths in sync with their source paths.
+ */
+function regenerateToolpathsForPaths(changedPathIds) {
+    if (!changedPathIds || changedPathIds.length === 0) return;
+
+    // Find all toolpaths linked to any of the changed paths
+    const affectedToolpaths = toolpaths.filter(tp => {
+        if (tp.svgIds && Array.isArray(tp.svgIds)) {
+            return tp.svgIds.some(id => changedPathIds.includes(id));
+        }
+        return tp.svgId && changedPathIds.includes(tp.svgId);
+    });
+
+    if (affectedToolpaths.length === 0) return;
+
+    // Save current state to restore after regeneration
+    const savedSelection = selectMgr.selectedPaths().map(p => p.id);
+    const originalTool = window.currentTool;
+    const originalToolpathProps = window.currentToolpathProperties;
+
+    // Save originalPath refs — unselectAll destroys them but Transform needs them
+    const savedOriginalPaths = new Map();
+    svgpaths.forEach(p => {
+        if (p.originalPath) savedOriginalPaths.set(p.id, p.originalPath);
+    });
+
+    for (const toolpath of affectedToolpaths) {
+        // Skip Drill — drill points aren't linked to svgpath geometry
+        if (toolpath.operation === 'Drill') continue;
+
+        // Find source svgpaths
+        const sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
+        const sourcePaths = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean);
+        if (sourcePaths.length === 0) continue;
+
+        // Select source paths
+        selectMgr.unselectAll();
+        sourcePaths.forEach(p => selectMgr.selectPath(p));
+
+        // Reconstruct tool from stored snapshot
+        window.currentTool = { ...toolpath.tool };
+        window.currentToolpathProperties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : null;
+        window.toolpathUpdateTargets = [toolpath];
+
+        try {
+            handleOperationClick(toolpath.operation);
+        } finally {
+            window.toolpathUpdateTargets = null;
+            window.currentToolpathProperties = null;
+        }
+    }
+
+    // Restore original state
+    window.currentTool = originalTool;
+    window.currentToolpathProperties = originalToolpathProps;
+    selectMgr.unselectAll();
+    savedSelection.forEach(id => {
+        const p = svgpaths.find(sp => sp.id === id);
+        if (p) selectMgr.selectPath(p);
+    });
+
+    // Restore originalPath refs for Transform tool continuity
+    savedOriginalPaths.forEach((origPath, id) => {
+        const p = svgpaths.find(sp => sp.id === id);
+        if (p) p.originalPath = origPath;
     });
 }
 

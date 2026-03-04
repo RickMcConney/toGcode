@@ -257,8 +257,17 @@ function doUndo() {
 		selectMgr.unselectAll();
 		svgpaths = project.svgpaths;
 		svgpathId = 1;
+		var addedTextGroups = {};
 		for (var i in svgpaths) {
-			addSvgPath(svgpaths[i].id, svgpaths[i].name);
+			var sp = svgpaths[i];
+			if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
+				var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
+				var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
+				addTextGroup(sp.textGroupId, text, groupPaths);
+				addedTextGroups[sp.textGroupId] = true;
+			} else if (!sp.textGroupId) {
+				addSvgPath(sp.id, sp.name);
+			}
 			svgpathId++;
 		}
 	}
@@ -299,8 +308,17 @@ function doRedo() {
 		selectMgr.unselectAll();
 		svgpaths = project.svgpaths;
 		svgpathId = 1;
+		var addedTextGroups = {};
 		for (var i in svgpaths) {
-			addSvgPath(svgpaths[i].id, svgpaths[i].name);
+			var sp = svgpaths[i];
+			if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
+				var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
+				var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
+				addTextGroup(sp.textGroupId, text, groupPaths);
+				addedTextGroups[sp.textGroupId] = true;
+			} else if (!sp.textGroupId) {
+				addSvgPath(sp.id, sp.name);
+			}
 			svgpathId++;
 		}
 	}
@@ -420,8 +438,17 @@ function loadProject(json) {
 	}
 
 	svgpathId = 1;
+	var addedTextGroups = {};
 	for (var i in svgpaths) {
-		addSvgPath(svgpaths[i].id, svgpaths[i].name);
+		var sp = svgpaths[i];
+		if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
+			var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
+			var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
+			addTextGroup(sp.textGroupId, text, groupPaths);
+			addedTextGroups[sp.textGroupId] = true;
+		} else if (!sp.textGroupId) {
+			addSvgPath(sp.id, sp.name);
+		}
 		svgpathId++;
 	}
 	toolpathId = 1;

@@ -638,6 +638,42 @@ function pathIn(outer, inner) {
 	return true;
 }
 
+// Replay stored transform history on a svgpath's points
+function applyTransformHistory(svgpath) {
+	if (!svgpath.transformHistory || svgpath.transformHistory.length === 0) return;
+
+	for (const t of svgpath.transformHistory) {
+		svgpath.path = svgpath.path.map(pt => {
+			// Scale around center
+			let newX = t.centerX + (pt.x - t.centerX) * t.scaleX;
+			let newY = t.centerY + (pt.y - t.centerY) * t.scaleY;
+
+			// Skew around center
+			if (t.skewX !== 0 || t.skewY !== 0) {
+				const dx = newX - t.centerX;
+				const dy = newY - t.centerY;
+				newX = t.centerX + dx + dy * Math.tan(-t.skewX * Math.PI / 180);
+				newY = t.centerY + dy + dx * Math.tan(t.skewY * Math.PI / 180);
+			}
+
+			// Rotate around pivot
+			const rotRad = -t.rotation * Math.PI / 180;
+			if (rotRad !== 0) {
+				const dx = newX - t.pivotCenterX;
+				const dy = newY - t.pivotCenterY;
+				newX = t.pivotCenterX + (dx * Math.cos(rotRad) - dy * Math.sin(rotRad));
+				newY = t.pivotCenterY + (dx * Math.sin(rotRad) + dy * Math.cos(rotRad));
+			}
+
+			// Translate
+			newX += t.deltaX;
+			newY += t.deltaY;
+			return { x: newX, y: newY };
+		});
+	}
+	svgpath.bbox = boundingBox(svgpath.path);
+}
+
 // Helper function: Calculate distance between two points
 function distance(p1, p2) {
 	return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));

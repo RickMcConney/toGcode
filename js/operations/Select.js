@@ -369,6 +369,7 @@ class Select extends Operation {
 
     onMouseUp(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
+        const wasDragging = Select.state == Select.DRAGGING;
         this.mouseDown = false;
 
         // Only toggle selection if we stayed in IDLE (never crossed 8px threshold)
@@ -385,6 +386,15 @@ class Select extends Operation {
             //this.selectPathsInRect(this.selectBox, evt.shiftKey);
             this.selectHighlighted(evt.shiftKey);
             this.selectBox = null;
+        }
+
+        // Regenerate toolpaths linked to dragged paths
+        if (wasDragging && typeof regenerateToolpathsForPaths === 'function') {
+            const draggedIds = this.selectedPaths().map(p => p.id);
+            if (this.dragPath && draggedIds.length === 0) {
+                draggedIds.push(this.dragPath.id);
+            }
+            regenerateToolpathsForPaths(draggedIds);
         }
 
         // Clear drag path references

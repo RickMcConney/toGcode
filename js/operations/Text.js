@@ -400,10 +400,7 @@ class Text extends Operation {
             path = this.currentPath;
         if (!path || !path.creationProperties) return;
         const relatedPaths = svgpaths.filter(p =>
-            p.creationTool === 'Text' &&
-            p.creationProperties &&
-            p.creationProperties.position.x === path.creationProperties.position.x &&
-            p.creationProperties.position.y === path.creationProperties.position.y
+            p.textGroupId === path.textGroupId
         );
 
 
@@ -438,12 +435,12 @@ class Text extends Operation {
         const x = position.x;
         const y = position.y;
 
-        // Store original path IDs, names, and textGroupId to preserve them
+        // Store original path IDs, names, textGroupId, and transformHistory to preserve them
         const textGroupId = textPaths[0].textGroupId || ('TextGroup' + Date.now());
+        const savedTransformHistory = textPaths[0].transformHistory || null;
         const originalPaths = textPaths.map(p => ({
             id: p.id,
             name: p.name
-
         }));
 
         // Remove existing text paths from sidebar and array
@@ -480,9 +477,12 @@ class Text extends Operation {
                 originalPaths.slice(pathIdCounter) // Pass remaining original paths for ID reuse
             );
 
-            // Add created paths to svgpaths array
+            // Add created paths to svgpaths array, restoring transforms
             createdPaths.forEach(svgPath => {
-                
+                if (savedTransformHistory) {
+                    svgPath.transformHistory = savedTransformHistory.map(t => ({...t}));
+                    applyTransformHistory(svgPath);
+                }
                 svgpaths.push(svgPath);
                 selectMgr.selectPath(svgPath);
                 this.currentPath = svgPath;
@@ -497,6 +497,12 @@ class Text extends Operation {
         const updatedTextPaths = svgpaths.filter(p => p.textGroupId === textGroupId);
         if (updatedTextPaths.length > 0) {
             addTextGroup(textGroupId, text, updatedTextPaths);
+        }
+
+        // Regenerate toolpaths linked to any of the text paths (using preserved IDs)
+        if (typeof regenerateToolpathsForPaths === 'function') {
+            const allIds = updatedTextPaths.map(p => p.id);
+            regenerateToolpathsForPaths(allIds);
         }
     }
 

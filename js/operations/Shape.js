@@ -248,6 +248,10 @@ class Shape extends Operation {
             svgPath.bbox = boundingBox(path);
             svgPath.creationProperties.shape = shape;
             svgPath.creationProperties.properties = { ...this.properties };
+            // Reapply stored transforms after regeneration
+            if (svgPath.transformHistory) {
+                applyTransformHistory(svgPath);
+            }
         }
 
         addOrReplaceSvgPath(oldId, svgPath.id, svgPath.name);
@@ -256,6 +260,20 @@ class Shape extends Operation {
 
         const title = document.getElementById('tool-properties-title');
         title.textContent = `Edit ${shape} - ${svgPath.name}`;
+
+        // Regenerate toolpaths linked to this shape (when editing, not creating)
+        if (oldId != null && typeof regenerateToolpathsForPaths === 'function') {
+            // If shape type changed, the ID changed — update toolpath references
+            if (oldId !== svgPath.id) {
+                toolpaths.forEach(tp => {
+                    if (tp.svgId === oldId) tp.svgId = svgPath.id;
+                    if (tp.svgIds && Array.isArray(tp.svgIds)) {
+                        tp.svgIds = tp.svgIds.map(id => id === oldId ? svgPath.id : id);
+                    }
+                });
+            }
+            regenerateToolpathsForPaths([svgPath.id]);
+        }
 
         redraw();
     }

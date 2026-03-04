@@ -65,6 +65,7 @@ class Transform extends Select {
         // Initialize based on selection
         if (this.hasSelectedPaths()) {
             this.setupTransformBox();
+            this.recoverTotalsFromHistory();
             this.updateCenterDisplay();
         } else {
             this.transformBox = null;
@@ -89,6 +90,32 @@ class Transform extends Select {
         this.skewY = 0;
         this.rotation = 0;
         // Note: Don't reset pivotCenter or initialTransformBox here - they're needed for transforms
+    }
+
+    // Recover totalRotation/totalSkew from selected paths' transformHistory
+    recoverTotalsFromHistory() {
+        const selected = selectMgr.selectedPaths();
+        if (selected.length === 0) {
+            this.totalRotation = 0;
+            this.totalSkewX = 0;
+            this.totalSkewY = 0;
+            return;
+        }
+
+        // Sum up rotation/skew from each path's transform history
+        // If multiple paths have different totals, use the first path's values
+        const path = selected[0];
+        let rotation = 0, skewX = 0, skewY = 0;
+        if (path.transformHistory) {
+            for (const t of path.transformHistory) {
+                rotation += t.rotation || 0;
+                skewX += t.skewX || 0;
+                skewY += t.skewY || 0;
+            }
+        }
+        this.totalRotation = rotation;
+        this.totalSkewX = skewX;
+        this.totalSkewY = skewY;
     }
 
     // Helper method to setup transform box with pivot center
@@ -213,9 +240,7 @@ class Transform extends Select {
                     Math.abs(prevBox.maxy - this.transformBox.maxy) > 0.1;
                 this.resetTransformState();
                 if (selectionChanged) {
-                    this.totalSkewX = 0;
-                    this.totalSkewY = 0;
-                    this.totalRotation = 0;
+                    this.recoverTotalsFromHistory();
                 }
                 this.refreshPropertiesPanel();
             } else if (!this.hasSelectedPaths() && this.transformBox) {
@@ -488,16 +513,56 @@ class Transform extends Select {
                 }
             }
 
-            // Accumulate before resetting
-            this.totalRotation += this.rotation;
-            this.totalSkewX += this.skewX;
-            this.totalSkewY += this.skewY;
+            // Store transform history for editable object regeneration
+            if (wasTransforming) {
+                const isIdentity = this.deltaX === 0 && this.deltaY === 0 &&
+                    this.scaleX === 1 && this.scaleY === 1 &&
+                    this.rotation === 0 && this.skewX === 0 && this.skewY === 0;
+                if (!isIdentity) {
+                    const cx = this.initialTransformBox.centerX;
+                    const cy = this.initialTransformBox.centerY;
+                    selectMgr.selectedPaths().forEach(path => {
+                        if (path.creationProperties) {
+                            if (!path.transformHistory) path.transformHistory = [];
+                            path.transformHistory.push({
+                                centerX: cx,
+                                centerY: cy,
+                                scaleX: this.scaleX,
+                                scaleY: this.scaleY,
+                                rotation: this.rotation,
+                                skewX: this.skewX,
+                                skewY: this.skewY,
+                                deltaX: this.deltaX,
+                                deltaY: this.deltaY,
+                                pivotCenterX: this.pivotCenter ? this.pivotCenter.x : cx,
+                                pivotCenterY: this.pivotCenter ? this.pivotCenter.y : cy
+                            });
+                        }
+                    });
+                }
+            }
+
+            if (wasTransforming) {
+                // Accumulate the just-completed transform into totals
+                this.totalRotation += this.rotation;
+                this.totalSkewX += this.skewX;
+                this.totalSkewY += this.skewY;
+            } else {
+                // Selection click — recover totals from the newly selected path's history
+                this.recoverTotalsFromHistory();
+            }
+
+            // Regenerate any toolpaths linked to transformed paths
+            if (wasTransforming && typeof regenerateToolpathsForPaths === 'function') {
+                const changedIds = selectMgr.selectedPaths().map(p => p.id);
+                regenerateToolpathsForPaths(changedIds);
+            }
 
             // Always reset accumulators after operation completes
             this.resetTransformState();
 
-            // If we just finished a selection via drag, refresh properties
-            if (hadSelectBox) {
+            // Refresh properties panel when selection changed or after box selection
+            if (hadSelectBox || !wasTransforming) {
                 this.refreshPropertiesPanel();
             }
 
@@ -655,7 +720,7 @@ class Transform extends Select {
      * Mirror selected paths horizontally (flip left-right)
      */
     mirrorX() {
-        const { centerX } = this.transformBox;
+        const { centerX, centerY } = this.transformBox;
         const cx = 2 * centerX;
         let selected = selectMgr.selectedPaths();
         selected.forEach(svgpath => {
@@ -669,16 +734,32 @@ class Transform extends Select {
 
             svgpath.bbox = boundingBox(path);
 
+            // Store mirror as scaleX=-1 in transform history
+            if (svgpath.creationProperties) {
+                if (!svgpath.transformHistory) svgpath.transformHistory = [];
+                svgpath.transformHistory.push({
+                    centerX: centerX, centerY: centerY,
+                    scaleX: -1, scaleY: 1, rotation: 0,
+                    skewX: 0, skewY: 0, deltaX: 0, deltaY: 0,
+                    pivotCenterX: centerX, pivotCenterY: centerY
+                });
+            }
+
             // Transform tabs to match the mirrored path
             this.transformTabsMirrorX(svgpath, centerX);
         });
+
+        // Regenerate any toolpaths linked to mirrored paths
+        if (typeof regenerateToolpathsForPaths === 'function') {
+            regenerateToolpathsForPaths(selected.map(p => p.id));
+        }
     }
 
     /**
      * Mirror selected paths vertically (flip top-bottom)
      */
     mirrorY() {
-        const { centerY } = this.transformBox;
+        const { centerX, centerY } = this.transformBox;
         const cy = 2 * centerY;
         let selected = selectMgr.selectedPaths();
         selected.forEach(svgpath => {
@@ -691,9 +772,25 @@ class Transform extends Select {
             }
             svgpath.bbox = boundingBox(path);
 
+            // Store mirror as scaleY=-1 in transform history
+            if (svgpath.creationProperties) {
+                if (!svgpath.transformHistory) svgpath.transformHistory = [];
+                svgpath.transformHistory.push({
+                    centerX: centerX, centerY: centerY,
+                    scaleX: 1, scaleY: -1, rotation: 0,
+                    skewX: 0, skewY: 0, deltaX: 0, deltaY: 0,
+                    pivotCenterX: centerX, pivotCenterY: centerY
+                });
+            }
+
             // Transform tabs to match the mirrored path
             this.transformTabsMirrorY(svgpath, centerY);
         });
+
+        // Regenerate any toolpaths linked to mirrored paths
+        if (typeof regenerateToolpathsForPaths === 'function') {
+            regenerateToolpathsForPaths(selected.map(p => p.id));
+        }
     }
 
     draw(ctx) {
@@ -1363,8 +1460,27 @@ class Transform extends Select {
 
         });
 
-        // Update creation properties to reflect new positions
-        this.updateCreationProperties();
+        // Store transform history on each selected path (for editable object regeneration)
+        const centerX = this.initialTransformBox.centerX;
+        const centerY = this.initialTransformBox.centerY;
+        selected.forEach(path => {
+            if (path.creationProperties) {
+                if (!path.transformHistory) path.transformHistory = [];
+                path.transformHistory.push({
+                    centerX: centerX,
+                    centerY: centerY,
+                    scaleX: this.scaleX,
+                    scaleY: this.scaleY,
+                    rotation: this.rotation,
+                    skewX: this.skewX,
+                    skewY: this.skewY,
+                    deltaX: this.deltaX,
+                    deltaY: this.deltaY,
+                    pivotCenterX: this.pivotCenter ? this.pivotCenter.x : centerX,
+                    pivotCenterY: this.pivotCenter ? this.pivotCenter.y : centerY
+                });
+            }
+        });
 
         this.transformBox = this.createTransformBox(svgpaths);
         this.initialTransformBox = { ...this.transformBox };
@@ -1383,32 +1499,18 @@ class Transform extends Select {
             this.pivotCenter.y += this.deltaY;
         }
 
+        // Regenerate any toolpaths linked to transformed paths
+        if (typeof regenerateToolpathsForPaths === 'function') {
+            const changedIds = selected.map(p => p.id);
+            regenerateToolpathsForPaths(changedIds);
+        }
+
         redraw();
     }
 
     updateCreationProperties() {
-        // Update creation properties for all selected paths to reflect their new positions
-        svgpaths.forEach(path => {
-            if (selectMgr.isSelected(path) && path.creationProperties) {
-                if (path.creationTool === 'Text' && path.creationProperties.position) {
-                    // For text, calculate the new position based on the transformation
-                    const bbox = path.bbox;
-                    if (bbox) {
-                        // Use the current bounding box center as the new position
-                        path.creationProperties.position.x = bbox.minx + (bbox.maxx - bbox.minx) / 2;
-                        path.creationProperties.position.y = bbox.miny + (bbox.maxy - bbox.miny) / 2;
-                    }
-                } else if (path.creationTool === 'Polygon' && path.creationProperties.center) {
-                    // For polygons, calculate the new center based on the transformation
-                    const bbox = path.bbox;
-                    if (bbox) {
-                        // Use the current bounding box center as the new center
-                        path.creationProperties.center.x = bbox.minx + (bbox.maxx - bbox.minx) / 2;
-                        path.creationProperties.center.y = bbox.miny + (bbox.maxy - bbox.miny) / 2;
-                    }
-                }
-            }
-        });
+        // No longer overwrite creationProperties position/center with bbox values.
+        // Transform history is stored separately and replayed after regeneration.
     }
 
     /**
