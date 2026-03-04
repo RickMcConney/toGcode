@@ -126,7 +126,10 @@ class Gemini extends Operation {
 
 
         return `
-
+            <div class="alert alert-info mb-3">
+                <strong>Gemini AI</strong><br>
+                Generate SVG paths from text prompt using Gemini AI
+            </div>
             <div class="mb-3">
                 <label for="gemini-key" class="form-label">Gemini API Key: <span id="gemini-prompt-value">Key</label>
                 <input type="text"

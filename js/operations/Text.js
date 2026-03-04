@@ -101,6 +101,10 @@ class Text extends Operation {
         }
 
         return `
+            <div class="alert alert-info mb-3">
+                <strong>Text Tool</strong><br>
+                Create text paths using TTF fonts
+            </div>
             <div class="mb-3">
                 <label for="text-input" class="form-label">Text</label>
                 <input type="text" class="form-control"

@@ -364,6 +364,10 @@ class Shape extends Operation {
 
         let type = this.getCurrentShape();
         return `
+            <div class="alert alert-info mb-3">
+                <strong>Shape Tool</strong><br>
+                Create basic shapes (circle, rectangle, polygon, star, etc.)
+            </div>
             <div class="mb-3">
                 <label for="shape-select" class="form-label small"><strong>Shape:</strong></label>
                 <select class="form-select form-select-sm" id="shape-select" name="shape">

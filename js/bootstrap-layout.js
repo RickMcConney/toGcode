@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-01";
+var APP_VERSION = "Ver 2026-03-04";
 
 var mode = "Select";
 var options = [];
@@ -4117,6 +4117,7 @@ function getPathIcon(name) {
     if (name.includes('Star')) return 'star';
     if (name.includes('Belt')) return 'egg';
     if (name.includes('Heart')) return 'heart';
+    if (name.includes('Sign')) return 'signpost';
     if (name.includes('Union')) return 'squares-unite';
     if (name.includes('Intersect')) return 'squares-intersect';
     if (name.includes('Subtract')) return 'squares-subtract';

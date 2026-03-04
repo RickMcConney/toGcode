@@ -9,6 +9,7 @@ class Transform extends Select {
     static DRAGGING = 5;
     static SELECTING = 6;
     static MIRRORING = 7;
+    static SKEWING = 8;
 
     static state = Transform.IDLE;
 
@@ -38,6 +39,11 @@ class Transform extends Select {
         this.deltaY = 0;
         this.scaleX = 1;
         this.scaleY = 1;
+        this.skewX = 0;
+        this.skewY = 0;
+        this.totalSkewX = 0;
+        this.totalSkewY = 0;
+        this.totalRotation = 0;
 
         this.initialTransformBox = null;
         this.pivotCenter = null;
@@ -52,6 +58,9 @@ class Transform extends Select {
 
         // Reset transform tracking values
         this.resetTransformState();
+        this.totalSkewX = 0;
+        this.totalSkewY = 0;
+        this.totalRotation = 0;
 
         // Initialize based on selection
         if (this.hasSelectedPaths()) {
@@ -76,6 +85,8 @@ class Transform extends Select {
         this.deltaY = 0;
         this.scaleX = 1;
         this.scaleY = 1;
+        this.skewX = 0;
+        this.skewY = 0;
         this.rotation = 0;
         // Note: Don't reset pivotCenter or initialTransformBox here - they're needed for transforms
     }
@@ -179,6 +190,9 @@ class Transform extends Select {
             } else if (this.activeHandle.type === 'rotate') {
                 this.resetTransformState(); // Reset accumulators for clean rotation
                 Transform.state = Transform.ROTATING;
+            } else if (this.activeHandle.type === 'skewX' || this.activeHandle.type === 'skewY') {
+                this.resetTransformState();
+                Transform.state = Transform.SKEWING;
             }
 
         } else {
@@ -189,8 +203,20 @@ class Transform extends Select {
             if (this.hasSelectedPaths()) {
                 // We have selected paths - need to update transform box
                 // This handles both new selections and adding to existing selections
+                const prevBox = this.transformBox;
                 this.setupTransformBox();
+                // Only reset totals if selection actually changed (different bounding box)
+                const selectionChanged = !prevBox ||
+                    Math.abs(prevBox.minx - this.transformBox.minx) > 0.1 ||
+                    Math.abs(prevBox.miny - this.transformBox.miny) > 0.1 ||
+                    Math.abs(prevBox.maxx - this.transformBox.maxx) > 0.1 ||
+                    Math.abs(prevBox.maxy - this.transformBox.maxy) > 0.1;
                 this.resetTransformState();
+                if (selectionChanged) {
+                    this.totalSkewX = 0;
+                    this.totalSkewY = 0;
+                    this.totalRotation = 0;
+                }
                 this.refreshPropertiesPanel();
             } else if (!this.hasSelectedPaths() && this.transformBox) {
                 // Selection was lost, clear transform state
@@ -236,8 +262,32 @@ class Transform extends Select {
             else if (Transform.state == Transform.ROTATING) {
                 this.handleRotation(mouse);
             }
+            else if (Transform.state == Transform.SKEWING) {
+                this.handleSkewing(mouse, evt);
+            }
             else {
                 super.onMouseMove(canvas, evt);
+                // Sync state from parent Select class
+                if (Select.state == Select.DRAGGING) {
+                    Transform.state = Transform.DRAGGING;
+                }
+                if (Transform.state == Transform.DRAGGING && this.hasSelectedPaths()) {
+                    const prevCenter = this.transformBox ?
+                        { x: this.transformBox.centerX, y: this.transformBox.centerY } : null;
+                    svgpaths.forEach(p => {
+                        if (selectMgr.isSelected(p)) p.bbox = boundingBox(p.path);
+                    });
+                    this.transformBox = this.createTransformBox(svgpaths);
+                    // Move pivot and originalPivot to follow the shape
+                    if (prevCenter && this.pivotCenter) {
+                        const dx = this.transformBox.centerX - prevCenter.x;
+                        const dy = this.transformBox.centerY - prevCenter.y;
+                        this.pivotCenter.x += dx;
+                        this.pivotCenter.y += dy;
+                        this.originalPivot.x += dx;
+                        this.originalPivot.y += dy;
+                    }
+                }
                 this.updateCenterDisplay();
             }
         }
@@ -339,6 +389,41 @@ class Transform extends Select {
         this.transformBox = this.createTransformBox(svgpaths);
         this.updateCenterDisplay();
     }
+
+    /**
+     * Handle skewing transformation
+     * @param {Object} mouse - Mouse position {x, y}
+     * @param {MouseEvent} evt - The mouse event
+     */
+    handleSkewing(mouse, evt) {
+        this.deltaX = 0;
+        this.deltaY = 0;
+
+        if (this.initialTransformBox == null) return;
+
+        const cx = this.initialTransformBox.centerX;
+        const cy = this.initialTransformBox.centerY;
+        const boxWidth = this.initialTransformBox.width;
+        const boxHeight = this.initialTransformBox.height;
+
+        if (this.activeHandle.type === 'skewX') {
+            // Horizontal skew: mouse horizontal delta relative to box height
+            const deltaX = mouse.x - this.initialMousePos.x;
+            this.skewX = Math.atan2(deltaX, boxHeight) * 180 / Math.PI;
+            this.skewY = 0;
+        } else {
+            // Vertical skew: mouse vertical delta relative to box width
+            const deltaY = mouse.y - this.initialMousePos.y;
+            this.skewX = 0;
+            this.skewY = Math.atan2(deltaY, boxWidth) * 180 / Math.PI;
+        }
+
+        this.skew(this.skewX, this.skewY);
+        this.updateCreationProperties();
+        this.transformBox = this.createTransformBox(svgpaths);
+        this.updateCenterDisplay();
+    }
+
     onMouseUp(canvas, evt) {
         const hadSelectBox = this.selectBox; // Check if we were doing drag selection
         const wasTransforming =
@@ -346,8 +431,8 @@ class Transform extends Select {
                 Transform.state == Transform.SCALING ||
                 Transform.state == Transform.ROTATING ||
                 Transform.state == Transform.DRAGGING ||
-                Transform.state == Transform.MIRRORING
-
+                Transform.state == Transform.MIRRORING ||
+                Transform.state == Transform.SKEWING
             );
 
         const wasDraggingPath = Transform.state == Transform.DRAGGING;
@@ -402,6 +487,11 @@ class Transform extends Select {
                     this.originalPivot = { ...newCenter };
                 }
             }
+
+            // Accumulate before resetting
+            this.totalRotation += this.rotation;
+            this.totalSkewX += this.skewX;
+            this.totalSkewY += this.skewY;
 
             // Always reset accumulators after operation completes
             this.resetTransformState();
@@ -461,7 +551,7 @@ class Transform extends Select {
                         svgpath.path[i].y = newY;
                     }
                 }
-                svgpath.bbox = boundingBox(path);
+                svgpath.bbox = boundingBox(svgpath.path);
 
                 // Transform tabs from original positions to match the scaled path
                 if (svgpath.originalTabs && svgpath.creationProperties) {
@@ -472,6 +562,45 @@ class Transform extends Select {
                     }));
                     // Apply scale transformation
                     this.transformTabsScale(svgpath, cx, cy, scaleX, scaleY);
+                }
+            }
+        });
+    }
+
+    /**
+     * Apply skew transformation to selected paths
+     * Skews around the transform box center
+     * @param {Number} skewXDeg - Horizontal skew angle in degrees
+     * @param {Number} skewYDeg - Vertical skew angle in degrees
+     */
+    skew(skewXDeg, skewYDeg) {
+        const cx = this.initialTransformBox.centerX;
+        const cy = this.initialTransformBox.centerY;
+        const tanX = Math.tan(-skewXDeg * Math.PI / 180);
+        const tanY = Math.tan(skewYDeg * Math.PI / 180);
+
+        let selected = selectMgr.selectedPaths();
+        selected.forEach(svgpath => {
+            const path = svgpath.originalPath;
+            if (path) {
+                for (let i = 0; i < path.length; i++) {
+                    let pt = path[i];
+                    if (i != path.length - 1 || pt !== path[0]) {
+                        const dx = pt.x - cx;
+                        const dy = pt.y - cy;
+                        svgpath.path[i].x = cx + dx + dy * tanX;
+                        svgpath.path[i].y = cy + dy + dx * tanY;
+                    }
+                }
+                svgpath.bbox = boundingBox(svgpath.path);
+
+                // Transform tabs from original positions to match the skewed path
+                if (svgpath.originalTabs && svgpath.creationProperties) {
+                    svgpath.creationProperties.tabs = svgpath.originalTabs.map(tab => ({...tab,
+                        edgeP1: tab.edgeP1 ? {...tab.edgeP1} : null,
+                        edgeP2: tab.edgeP2 ? {...tab.edgeP2} : null
+                    }));
+                    this.transformTabsSkew(svgpath, cx, cy, tanX, tanY);
                 }
             }
         });
@@ -611,11 +740,15 @@ class Transform extends Select {
     drawText(ctx) {
         // Only draw info text when actively transforming
         if (!this.transformBox) return;
-        if (!(Transform.state == Transform.SCALING || Transform.state == Transform.ROTATING)) return;
+        if (!(Transform.state == Transform.SCALING || Transform.state == Transform.ROTATING || Transform.state == Transform.SKEWING)) return;
 
         let text = '0'
         if (Transform.state == Transform.ROTATING) {
-            text = this.rotation.toFixed(1) + '°';
+            text = (this.totalRotation + this.rotation).toFixed(1) + '°';
+        }
+        else if (Transform.state == Transform.SKEWING) {
+            const angle = (this.activeHandle && this.activeHandle.type === 'skewX') ? (this.totalSkewX + this.skewX) : (this.totalSkewY + this.skewY);
+            text = 'Skew ' + angle.toFixed(1) + '°';
         }
         else if (Transform.state == Transform.SCALING) {
             // Show current dimensions instead of scale factors
@@ -642,55 +775,140 @@ class Transform extends Select {
         let isHovered = this.hoverHandle?.id == handle.id;
         let type = handle.type;
 
-        ctx.beginPath();
-        if (type == 'mirrorX') {
-            ctx.moveTo(x, y);
-            ctx.lineTo(x, y + size);
-            ctx.lineTo(x + size, y);
-            ctx.lineTo(x, y - size);
-            ctx.lineTo(x, y);
-
-            ctx.moveTo(x, y);
-            ctx.lineTo(x, y - size);
-            ctx.lineTo(x - size, y);
-            ctx.lineTo(x, y + size);
-            ctx.lineTo(x, y);
-        }
-        else if (type == 'mirrorY') {
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + size, y);
-            ctx.lineTo(x, y + size);
-            ctx.lineTo(x - size, y);
-            ctx.lineTo(x, y);
-
-            ctx.moveTo(x, y);
-            ctx.lineTo(x - size, y);
-            ctx.lineTo(x, y - size);
-            ctx.lineTo(x + size, y);
-            ctx.lineTo(x, y);
-        }
-        else
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.closePath();
-
         // Color based on state
         if (isActive) {
-            // Red for actively dragging
             ctx.fillStyle = handleActiveColor;
             ctx.strokeStyle = handleActiveStroke;
         } else if (isHovered) {
-            // Yellow highlight for hovered (deletable)
             ctx.fillStyle = handleHoverColor;
             ctx.strokeStyle = handleHoverStroke;
         } else {
-            // Blue for normal
             ctx.fillStyle = handleNormalColor;
             ctx.strokeStyle = handleNormalStroke;
         }
-
         ctx.lineWidth = 2;
-        ctx.fill();
-        ctx.stroke();
+
+        if (type == 'mirrorX') {
+            // Horizontal flip - positioned above center, triangles separated across vertical axis
+            const gap = 2;
+            // Left triangle (points left)
+            ctx.beginPath();
+            ctx.moveTo(x - gap, y - size);
+            ctx.lineTo(x - gap - size, y);
+            ctx.lineTo(x - gap, y + size);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Right triangle (points right)
+            ctx.beginPath();
+            ctx.moveTo(x + gap, y - size);
+            ctx.lineTo(x + gap + size, y);
+            ctx.lineTo(x + gap, y + size);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+        else if (type == 'mirrorY') {
+            // Vertical flip - positioned to right of center, triangles separated across horizontal axis
+            const gap = 2;
+            // Top triangle (points up)
+            ctx.beginPath();
+            ctx.moveTo(x - size, y - gap);
+            ctx.lineTo(x, y - gap - size);
+            ctx.lineTo(x + size, y - gap);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Bottom triangle (points down)
+            ctx.beginPath();
+            ctx.moveTo(x - size, y + gap);
+            ctx.lineTo(x, y + gap + size);
+            ctx.lineTo(x + size, y + gap);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+        else if (type == 'skewX' || type == 'skewY') {
+            // Rhombus (parallelogram) handle for skew
+            const w = size + 2;  // half width
+            const h = size - 2;  // half height (shorter to make it flat)
+            const lean = 4;      // horizontal offset for the lean
+            ctx.beginPath();
+            if (type == 'skewX') {
+                // Horizontal rhombus (leaning right) for top edge skew
+                ctx.moveTo(x - w + lean, y - h);
+                ctx.lineTo(x + w + lean, y - h);
+                ctx.lineTo(x + w - lean, y + h);
+                ctx.lineTo(x - w - lean, y + h);
+            } else {
+                // Vertical rhombus (leaning down) for right edge skew
+                ctx.moveTo(x - h, y - w - lean);
+                ctx.lineTo(x + h, y - w + lean);
+                ctx.lineTo(x + h, y + w + lean);
+                ctx.lineTo(x - h, y + w - lean);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+        else if (type == 'scale') {
+            // Square handle for scale
+            ctx.beginPath();
+            ctx.rect(x - size, y - size, size * 2, size * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+        else if (type == 'rotate') {
+            // Filled circle background like other handles
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+         
+
+            // Arc from 9 o'clock counter-clockwise to 10 o'clock
+            const arrowRadius = size + 2;
+            const nineOClock = Math.PI;          // 9 o'clock
+            const tenOClock = Math.PI * 1.17;    // 10 o'clock (~210 degrees)
+
+            ctx.beginPath();
+            ctx.arc(x, y, arrowRadius, nineOClock, tenOClock, true); // counter-clockwise
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Arrowhead at 10 o'clock: one leg vertical, one horizontal
+            const ax = x + arrowRadius * Math.cos(tenOClock);
+            const ay = y + arrowRadius * Math.sin(tenOClock);
+            const legLen = 6;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay - legLen);   // vertical leg (up)
+            ctx.lineTo(ax, ay);
+            ctx.lineTo(ax + legLen, ay);   // horizontal leg (right)
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+        }
+        else if (type == 'center') {
+            // Crosshair for pivot center
+            const crossSize = size + 3;
+            ctx.beginPath();
+            ctx.moveTo(x - crossSize, y);
+            ctx.lineTo(x + crossSize, y);
+            ctx.moveTo(x, y - crossSize);
+            ctx.lineTo(x, y + crossSize);
+            ctx.stroke();
+
+            // Small circle at center
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+        else {
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
     }
 
 
@@ -741,6 +959,7 @@ class Transform extends Select {
 
         // Only draw box outline when not actively transforming
         if (!this.mouseDown || Transform.state == Transform.ADJUSTING_PIVOT) {
+            ctx.setLineDash([4, 4]);
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
@@ -748,6 +967,7 @@ class Transform extends Select {
             ctx.lineTo(p4.x, p4.y);
             ctx.closePath();
             ctx.stroke();
+            ctx.setLineDash([]);
         }
 
         // Draw handles (convert handle positions to screen coordinates)
@@ -761,6 +981,23 @@ class Transform extends Select {
         // Show center handle during pivot adjustment
         if (Transform.state == Transform.ADJUSTING_PIVOT) {
             this.drawHandle(ctx, handles[5]);
+        }
+
+        // Draw dashed line between rotation handle and center point
+        if (!this.mouseDown || Transform.state == Transform.ADJUSTING_PIVOT) {
+            const rotateHandle = handles[4]; // rotate
+            const centerHandle = handles[5]; // center/pivot
+            const screenRotate = worldToScreen(rotateHandle.x, rotateHandle.y);
+            const screenPivot = worldToScreen(centerHandle.x, centerHandle.y);
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = selectionBoxColor;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(screenPivot.x, screenPivot.y);
+            ctx.lineTo(screenRotate.x, screenRotate.y);
+            ctx.stroke();
+            ctx.restore();
         }
 
         // Show all handles when not actively dragging/transforming
@@ -797,8 +1034,10 @@ class Transform extends Select {
             { id: 4, x: minx, y: maxy, type: 'scale', corner: 'bl' },
             { id: 5, x: pivotX + rx, y: pivotY + ry, type: 'rotate' },
             { id: 6, x: pivotX, y: pivotY, type: 'center' },
-            { id: 7, x: centerX, y: centerY + Transform.MIRROR_BUTTON_OFFSET, type: 'mirrorY' },
-            { id: 8, x: centerX + Transform.MIRROR_BUTTON_OFFSET, y: centerY, type: 'mirrorX' }
+            { id: 7, x: centerX + Transform.MIRROR_BUTTON_OFFSET, y: centerY, type: 'mirrorY' },
+            { id: 8, x: centerX, y: centerY - Transform.MIRROR_BUTTON_OFFSET, type: 'mirrorX' },
+            { id: 9, x: (centerX + maxx) / 2, y: miny, type: 'skewX' },
+            { id: 10, x: maxx, y: (centerY + miny) / 2, type: 'skewY' }
         ];
     }
 
@@ -886,7 +1125,23 @@ class Transform extends Select {
             <div class="mb-3">
                 <label for="move-rotation" class="form-label"><strong>Rotation (degrees)</strong></label>
                 <input type="number" class="form-control" id="move-rotation" name="rotation"
-                       value="${this.rotation.toFixed(1)}" step="1" ${disabled}>
+                       value="${(this.totalRotation + this.rotation).toFixed(1)}" step="1" ${disabled}>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label"><strong>Skew (degrees)</strong></label>
+                <div class="row">
+                    <div class="col-6">
+                        <label for="move-skew-x" class="form-label">Skew X</label>
+                        <input type="number" class="form-control" id="move-skew-x" name="skewX"
+                               value="${(this.totalSkewX + this.skewX).toFixed(1)}" step="1" ${disabled}>
+                    </div>
+                    <div class="col-6">
+                        <label for="move-skew-y" class="form-label">Skew Y</label>
+                        <input type="number" class="form-control" id="move-skew-y" name="skewY"
+                               value="${(this.totalSkewY + this.skewY).toFixed(1)}" step="1" ${disabled}>
+                    </div>
+                </div>
             </div>
 
             <div class="alert alert-secondary">
@@ -938,7 +1193,9 @@ class Transform extends Select {
             this.scaleY = this.scaleY.toFixed(2);
         }
 
-        if (data.rotation !== undefined) this.rotation = parseFloat(data.rotation) || 0;
+        if (data.rotation !== undefined) this.rotation = (parseFloat(data.rotation) || 0) - this.totalRotation;
+        if (data.skewX !== undefined) this.skewX = (parseFloat(data.skewX) || 0) - this.totalSkewX;
+        if (data.skewY !== undefined) this.skewY = (parseFloat(data.skewY) || 0) - this.totalSkewY;
 
         // Apply transformation to paths based on current property values
         if (this.hasSelectedPaths()) {
@@ -958,7 +1215,7 @@ class Transform extends Select {
             centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
             currentWidth = this.transformBox.width / viewScale;
             currentHeight = this.transformBox.height / viewScale;
-            rotation = this.rotation;
+            rotation = this.totalRotation + this.rotation;
         }
 
         // Convert center coordinates from pixels to mm
@@ -975,6 +1232,8 @@ class Transform extends Select {
         const widthElement = document.getElementById('move-width');
         const heightElement = document.getElementById('move-height');
         const rotationElement = document.getElementById('move-rotation');
+        const skewXElement = document.getElementById('move-skew-x');
+        const skewYElement = document.getElementById('move-skew-y');
 
         if (centerXElement) {
             centerXElement.textContent = formatDimension(centerMM.x, true);
@@ -1013,7 +1272,12 @@ class Transform extends Select {
         }
         if (rotationElement && rotationElement !== activeElement) {
             rotationElement.value = rotation.toFixed(1);
-
+        }
+        if (skewXElement && skewXElement !== activeElement) {
+            skewXElement.value = (this.totalSkewX + this.skewX).toFixed(1);
+        }
+        if (skewYElement && skewYElement !== activeElement) {
+            skewYElement.value = (this.totalSkewY + this.skewY).toFixed(1);
         }
     }
 
@@ -1029,12 +1293,22 @@ class Transform extends Select {
                 // Apply translation, scale, and rotation from properties
                 const centerX = this.initialTransformBox.centerX;
                 const centerY = this.initialTransformBox.centerY;
-                const rotationRad = this.rotation * Math.PI / 180;
+                const rotationRad = -this.rotation * Math.PI / 180;
 
                 path.path = originalPath.map(pt => {
                     // Scale around center
                     let newX = centerX + (pt.x - centerX) * this.scaleX;
                     let newY = centerY + (pt.y - centerY) * this.scaleY;
+
+                    // Skew around center
+                    if (this.skewX !== 0 || this.skewY !== 0) {
+                        const dx = newX - centerX;
+                        const dy = newY - centerY;
+                        const tanX = Math.tan(-this.skewX * Math.PI / 180);
+                        const tanY = Math.tan(this.skewY * Math.PI / 180);
+                        newX = centerX + dx + dy * tanX;
+                        newY = centerY + dy + dx * tanY;
+                    }
 
                     // Rotate around center
                     if (rotationRad !== 0) {
@@ -1070,6 +1344,12 @@ class Transform extends Select {
                     if (this.scaleX !== 1 || this.scaleY !== 1) {
                         this.transformTabsScale(path, centerX, centerY, this.scaleX, this.scaleY);
                     }
+                    // 1.5. Skew
+                    if (this.skewX !== 0 || this.skewY !== 0) {
+                        const tanX = Math.tan(-this.skewX * Math.PI / 180);
+                        const tanY = Math.tan(this.skewY * Math.PI / 180);
+                        this.transformTabsSkew(path, centerX, centerY, tanX, tanY);
+                    }
                     // 2. Rotate
                     if (rotationRad !== 0) {
                         this.transformTabsRotate(path, this.pivotCenter.x, this.pivotCenter.y, rotationRad);
@@ -1089,6 +1369,14 @@ class Transform extends Select {
         this.transformBox = this.createTransformBox(svgpaths);
         this.initialTransformBox = { ...this.transformBox };
         this.storeOriginalPaths();
+
+        // Accumulate into totals after baking
+        this.totalRotation += this.rotation;
+        this.rotation = 0;
+        this.totalSkewX += this.skewX;
+        this.totalSkewY += this.skewY;
+        this.skewX = 0;
+        this.skewY = 0;
 
         if (this.pivotCenter) {
             this.pivotCenter.x += this.deltaX;
@@ -1181,6 +1469,44 @@ class Transform extends Select {
                 const dx = tab.edgeP2.x - tab.edgeP1.x;
                 const dy = tab.edgeP2.y - tab.edgeP1.y;
                 tab.angle = Math.atan2(dy, dx);
+            }
+        });
+    }
+
+    /**
+     * Transform tabs during skew operation
+     * @param {Object} svgpath - Path object containing tabs
+     * @param {Number} cx - Center X for skew
+     * @param {Number} cy - Center Y for skew
+     * @param {Number} tanX - Tangent of horizontal skew angle
+     * @param {Number} tanY - Tangent of vertical skew angle
+     */
+    transformTabsSkew(svgpath, cx, cy, tanX, tanY) {
+        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
+
+        svgpath.creationProperties.tabs.forEach(tab => {
+            const dx = tab.x - cx;
+            const dy = tab.y - cy;
+            tab.x = cx + dx + dy * tanX;
+            tab.y = cy + dy + dx * tanY;
+
+            if (tab.edgeP1) {
+                const dx1 = tab.edgeP1.x - cx;
+                const dy1 = tab.edgeP1.y - cy;
+                tab.edgeP1.x = cx + dx1 + dy1 * tanX;
+                tab.edgeP1.y = cy + dy1 + dx1 * tanY;
+            }
+            if (tab.edgeP2) {
+                const dx2 = tab.edgeP2.x - cx;
+                const dy2 = tab.edgeP2.y - cy;
+                tab.edgeP2.x = cx + dx2 + dy2 * tanX;
+                tab.edgeP2.y = cy + dy2 + dx2 * tanY;
+            }
+
+            if (tab.edgeP1 && tab.edgeP2) {
+                const edx = tab.edgeP2.x - tab.edgeP1.x;
+                const edy = tab.edgeP2.y - tab.edgeP1.y;
+                tab.angle = Math.atan2(edy, edx);
             }
         });
     }

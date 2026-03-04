@@ -105,7 +105,10 @@ class BooleanOpp extends Select {
 
 
         return `
-
+            <div class="alert alert-info mb-3">
+                <strong>Boolean Tool</strong><br>
+                Perform boolean operations on selected paths
+            </div>
             <div class="mb-3">
                 <label for="boolean-select" class="form-label small"><strong>Operation:</strong></label>
                 <select class="form-select form-select-sm" id="boolean-select" name="boolean-select">

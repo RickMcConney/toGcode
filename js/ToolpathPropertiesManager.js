@@ -325,6 +325,12 @@ class ToolpathPropertiesManager {
 
         let html = '';
 
+        // Info box header
+        html += `<div class="alert alert-info mb-3">`;
+        html += `<strong>${operationName}</strong><br>`;
+        html += config.description;
+        html += `</div>`;
+
         // Tool selection dropdown
         if (config.fields.includes('tool')) {
             const toolId = existingProperties?.toolId || null;

@@ -227,4 +227,12 @@ class Pen extends Operation {
 
     }
 
+    getPropertiesHTML() {
+        return `
+            <div class="alert alert-info mb-3">
+                <strong>Pen Tool</strong><br>
+                Click to add points. Click near the first point to close, or press Escape to finish.
+            </div>
+        `;
+    }
 }

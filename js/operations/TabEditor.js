@@ -103,8 +103,10 @@ class TabEditor extends Select {
             selectMgr.selectPath(clickedPath);
             this.selectedPath = clickedPath;
 
-            // Auto-generate tabs when a new shape is selected
-            this.generateTabs();
+            // Auto-generate tabs only if shape doesn't already have them
+            if (!clickedPath.creationProperties || !clickedPath.creationProperties.tabs || clickedPath.creationProperties.tabs.length === 0) {
+                this.generateTabs();
+            }
 
             redraw();
         } else {
@@ -187,6 +189,13 @@ class TabEditor extends Select {
             tabs[tabIndex].y = closestPt.y;
             tabs[tabIndex].pathDistance = closestPt.pathDistance;
             tabs[tabIndex].angle = closestPt.angle;
+
+            // Recalculate convexity at the new segment
+            const i = closestPt.segmentIndex;
+            if (i > 0 && i < path.length - 1) {
+                const pathIsClockwise = isClockwise(path);
+                tabs[tabIndex].isConvex = this.isConvex(path[i - 1], path[i], path[(i + 1) % path.length], pathIsClockwise);
+            }
         }
     }
 
@@ -227,7 +236,8 @@ class TabEditor extends Select {
                     x: closestPt.x,
                     y: closestPt.y,
                     angle: segmentAngle,
-                    pathDistance: cumulativeDistance + segmentLength * Math.max(0, Math.min(1, t))
+                    pathDistance: cumulativeDistance + segmentLength * Math.max(0, Math.min(1, t)),
+                    segmentIndex: i
                 };
             }
 
@@ -273,7 +283,7 @@ class TabEditor extends Select {
         return perimeter;
     }
 
-    isConvex(point1, point2, point3) {
+    isConvex(point1, point2, point3, pathIsClockwise) {
         // Calculate cross product to determine convexity
         const v1x = point2.x - point1.x;
         const v1y = point2.y - point1.y;
@@ -281,7 +291,9 @@ class TabEditor extends Select {
         const v2y = point3.y - point2.y;
 
         const crossProduct = v1x * v2y - v1y * v2x;
-        return crossProduct > 0; // Positive = convex (left turn)
+        // For clockwise paths, negative cross product = convex (right turn)
+        // For counter-clockwise paths, positive cross product = convex (left turn)
+        return pathIsClockwise ? crossProduct < 0 : crossProduct > 0;
     }
 
     generateTabs() {
@@ -292,6 +304,9 @@ class TabEditor extends Select {
         const tabLength = this.properties.tabLength;
 
         if (path.length < 2) return;
+
+        // Determine path winding order once for correct convexity detection
+        const pathIsClockwise = isClockwise(path);
 
         // Build list of edges with their properties
         const edges = [];
@@ -307,7 +322,7 @@ class TabEditor extends Select {
                 let isConvex = true;
                 if (i > 0 && i < path.length - 1) {
                     const p0 = path[i - 1];
-                    isConvex = this.isConvex(p0, p1, p2);
+                    isConvex = this.isConvex(p0, p1, p2, pathIsClockwise);
                 }
 
                 edges.push({
@@ -616,8 +631,8 @@ class TabEditor extends Select {
 
         let html = `
             <div class="alert alert-info mb-3">
-                <i data-lucide="rectangle-ellipsis"></i>
-                <strong>Tab Editor</strong>
+                <strong>Tab Editor</strong><br>
+                Add and position tabs for holding material during cutting
         `;
 
         if (this.selectedPath) {
@@ -634,7 +649,7 @@ class TabEditor extends Select {
                 <input type="number" class="form-control" id="tabLength" name="tabLength" min="0.5" step="0.5" value="${this.properties.tabLength}">
             </div>
             <div class="mb-3">
-                <label class="form-label"><i data-lucide="maximize-2"></i> Tab Height (MM)</label>
+                <label class="form-label"><i data-lucide="move-vertical"></i> Tab Height (MM)</label>
                 <input type="number" class="form-control" id="tabHeight" name="tabHeight" min="0.5" step="0.5" value="${this.properties.tabHeight}">
             </div>
             <div class="mb-3">

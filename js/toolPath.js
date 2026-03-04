@@ -750,7 +750,7 @@ function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 				if (distToEnd < distToStart) {
 					// End point is closer - reverse for continuity
 					addedSegment = reversePath(segment.path);
-					newEndpoint = addedSegment[0];
+					newEndpoint = addedSegment[addedSegment.length - 1];
 				} else {
 					// Start point is closer - use as-is
 					newEndpoint = segment.path[segment.path.length - 1];
@@ -811,7 +811,7 @@ function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 					if (shouldReverse) {
 						// Reverse the segment for continuity
 						addedSegment = reversePath(segment.path);
-						newEndpoint = addedSegment[0];  // First point of reversed segment
+						newEndpoint = addedSegment[addedSegment.length - 1];  // Last point of reversed segment
 					} else {
 						// Use segment as-is
 						newEndpoint = segment.path[segment.path.length - 1];  // Last point
