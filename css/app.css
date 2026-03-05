@@ -59,6 +59,7 @@ html, body {
 #layout {
     height: 100vh;
     height: 100dvh;
+    overflow: hidden;
 }
 
 
@@ -189,8 +190,12 @@ html, body {
 .toolbar-section {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 8px;
+    gap: 4px;
+    padding: 0 4px;
+    flex-wrap: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .toolbar-separator {
@@ -206,6 +211,23 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+    .btn-toolbar {
+        padding: 6px 8px;
+        font-size: 0;
+        gap: 0;
+    }
+    .toolbar-section {
+        gap: 2px;
+        padding: 0 2px;
+    }
+    .toolbar-separator {
+        margin: 0 4px;
+    }
 }
 
 .lucide {
