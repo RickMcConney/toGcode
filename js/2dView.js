@@ -809,13 +809,24 @@ function drawSvgPaths() {
 	}
 }
 
+function depthToBlue(depth) {
+	var maxDepth = (typeof getOption === 'function' ? getOption('workpieceThickness') : 19) || 19;
+	var t = Math.min(Math.max(depth / maxDepth, 0), 1);
+	// Light blue (160,200,255) at shallow → dark blue (0,40,160) at full depth
+	var r = Math.round(160 * (1 - t));
+	var g = Math.round(200 - 160 * t);
+	var b = Math.round(255 - 95 * t);
+	return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
 function drawToolPaths() {
 	for (var i = 0; i < toolpaths.length; i++) {
 		if (toolpaths[i].visible) {
 			var paths = toolpaths[i].paths;
-			// Determine color: active > selected > normal
+			// Determine color: active > selected > depth-based blue
 			var isActive = toolpaths[i].active;
-			var color = isActive ? activeToolpathColor : ('#' + toolpaths[i].tool.color);
+			var depth = toolpaths[i].tool.depth || 0;
+			var color = isActive ? activeToolpathColor : depthToBlue(depth);
 			var lineWidth = isActive ? 4 : (toolpaths[i].selected ? 3 : 2);
 
 			for (var p = 0; p < paths.length; p++) {
@@ -828,10 +839,7 @@ function drawToolPaths() {
 				var isMultiSegment = paths[p].isMultiSegment || false;
 
 				if (operation == "Drill")
-					if (toolpaths[i].selected || isActive)
-						fillCircles(path, color);
-					else
-						drawCircles(path, color);
+					fillCircles(path, color);
 
 				// Check if this is a plunge point
 				if (paths[p].isPlunge && paths[p].plungePoint) {

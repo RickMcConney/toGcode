@@ -315,6 +315,16 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Build a default name from depth + operation name, e.g. "2.0 mm Pocket"
+     */
+    getDefaultName(operationName, existingProperties) {
+        if (existingProperties?.toolpathName) return existingProperties.toolpathName;
+        const depth = existingProperties?.depth ?? this.getDefaults(operationName).depth;
+        const depthStr = formatDimension(depth, false);
+        return `${depthStr} ${operationName}`;
+    }
+
+    /**
      * Generate complete properties form HTML for an operation
      */
     generatePropertiesHTML(operationName, existingProperties = null) {
@@ -329,6 +339,13 @@ class ToolpathPropertiesManager {
         html += `<div class="alert alert-info mb-3">`;
         html += `<strong>${operationName}</strong><br>`;
         html += config.description;
+        html += `</div>`;
+
+        // Name field
+        const defaultName = this.getDefaultName(operationName, existingProperties);
+        html += `<div class="mb-3">`;
+        html += `<label for="toolpath-name-input" class="form-label small"><strong>Name:</strong></label>`;
+        html += `<input type="text" class="form-control form-control-sm" id="toolpath-name-input" name="toolpathName" value="${defaultName.replace(/"/g, '&quot;')}">`;
         html += `</div>`;
 
         // Tool selection dropdown
@@ -400,6 +417,11 @@ class ToolpathPropertiesManager {
      */
     collectFormData() {
         const data = {};
+
+        const nameInput = document.getElementById('toolpath-name-input');
+        if (nameInput) {
+            data.toolpathName = nameInput.value.trim();
+        }
 
         const toolSelect = document.getElementById('tool-select');
         const depthInput = document.getElementById('depth-input');

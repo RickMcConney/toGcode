@@ -434,6 +434,9 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 		existing.svgIds = svgIds;
 		if (window.currentToolpathProperties) {
 			existing.toolpathProperties = { ...window.currentToolpathProperties };
+			if (window.currentToolpathProperties.toolpathName) {
+				existing.label = window.currentToolpathProperties.toolpathName;
+			}
 		}
 		redraw();
 		return;
@@ -454,10 +457,14 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 	// If toolpath properties were set (from the new properties panel), store them
 	if (window.currentToolpathProperties) {
 		toolpathData.toolpathProperties = { ...window.currentToolpathProperties };
+		if (window.currentToolpathProperties.toolpathName) {
+			toolpathData.label = window.currentToolpathProperties.toolpathName;
+		}
 	}
 
 	toolpaths.push(toolpathData);
-	addToolPath('T' + toolpathId, name + ' ' + toolpathId, name, currentTool.name);
+	const displayName = toolpathData.label || (name + ' ' + toolpathId);
+	addToolPath('T' + toolpathId, displayName, name, currentTool.name);
 	toolpathId++;
 
 	redraw();

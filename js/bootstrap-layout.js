@@ -1070,11 +1070,13 @@ function createSidebar() {
         }
     });
 
-    // Double-click to rename toolpath
+    // Double-click on toolpath opens properties editor
     sidebar.addEventListener('dblclick', function (e) {
         const item = e.target.closest('#tool-paths-section .sidebar-item[data-path-id]');
         if (!item) return;
-        startRenameToolpath(item.dataset.pathId);
+        const pathId = item.dataset.pathId;
+        const toolpath = toolpaths.find(tp => tp.id === pathId);
+        if (toolpath) showToolpathPropertiesEditor(toolpath);
     });
 
     // Add tab change event listeners to control bottom panel visibility
@@ -1717,6 +1719,29 @@ function generateToolpathForSelection() {
     return null;
 }
 
+/**
+ * Wire depth input to auto-update the name field when name still matches the default pattern.
+ */
+function wireDepthToNameAutoUpdate(operationName) {
+    const depthInput = document.getElementById('depth-input');
+    const nameInput = document.getElementById('toolpath-name-input');
+    if (!depthInput || !nameInput) return;
+
+    // Remember the current default so we know if the user has customized the name
+    let lastAutoName = nameInput.value;
+
+    depthInput.addEventListener('input', function () {
+        // Only auto-update if the name still matches the last auto-generated value
+        if (nameInput.value !== lastAutoName) return;
+        const depth = parseDimension(depthInput.value);
+        if (depth > 0) {
+            const newName = formatDimension(depth, false) + ' ' + operationName;
+            nameInput.value = newName;
+            lastAutoName = newName;
+        }
+    });
+}
+
 function showOperationPropertiesEditor(operationName) {
     const operationsList = document.getElementById('operations-list');
     const propertiesEditor = document.getElementById('operation-properties-editor');
@@ -1749,9 +1774,11 @@ function showOperationPropertiesEditor(operationName) {
         // Store the active operation name for path selection handler
         window.activeToolpathOperation = operationName;
 
-
         // Set up the "Update Toolpath" button using the shared handler
         setupToolpathUpdateButton(operationName);
+
+        // Auto-update name when depth changes
+        wireDepthToNameAutoUpdate(operationName);
     } else {
         // Use the old behavior for drawing tool operations
         const operation = window.cncController?.operationManager?.getOperation(operationName);
@@ -1846,6 +1873,9 @@ function setupToolpathUpdateButton(operationName) {
             // Update toolpath properties and tool data in place without regenerating
             for (const toolpath of activeToolpaths) {
                 toolpath.toolpathProperties = { ...data };
+                if (data.toolpathName) {
+                    toolpath.label = data.toolpathName;
+                }
                 toolpath.tool = {
                     ...selectedTool,
                     depth: data.depth,
@@ -2058,16 +2088,22 @@ function showToolpathPropertiesEditor(toolpath) {
 
     // Generate properties HTML with existing values
     if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation(toolpath.operation)) {
-        // Make sure we have toolpathProperties, if not create from tool object
-        let properties = toolpath.toolpathProperties;
-        if (!properties) {
-            // Fallback: create properties from the tool object
-            properties = {
-                toolId: toolpath.tool.recid,
-                depth: toolpath.tool.depth,
-                step: toolpath.tool.step,
-                stepover: toolpath.tool.stepover
-            };
+        // Build properties from the toolpath's own stored data
+        let properties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : {
+            toolId: toolpath.tool.recid,
+            depth: toolpath.tool.depth,
+            step: toolpath.tool.step,
+            stepover: toolpath.tool.stepover
+        };
+        // Fill in any missing fields from the tool object
+        if (properties.inside === undefined && toolpath.tool.inside) properties.inside = toolpath.tool.inside;
+        if (properties.direction === undefined && toolpath.tool.direction) properties.direction = toolpath.tool.direction;
+        if (properties.numLoops === undefined && toolpath.tool.numLoops) properties.numLoops = toolpath.tool.numLoops;
+        if (properties.overCut === undefined && toolpath.tool.overCut !== undefined) properties.overCut = toolpath.tool.overCut;
+        if (properties.angle === undefined && toolpath.tool.angle !== undefined) properties.angle = toolpath.tool.angle;
+        // Pass existing label so the name field is pre-filled
+        if (toolpath.label) {
+            properties.toolpathName = toolpath.label;
         }
 
         form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(
@@ -2077,6 +2113,9 @@ function showToolpathPropertiesEditor(toolpath) {
 
         // Set up the "Update Toolpath" button using the shared handler
         setupToolpathUpdateButton(toolpath.operation);
+
+        // Auto-update name when depth changes
+        wireDepthToNameAutoUpdate(toolpath.operation);
 
         // Update help content
         if (window.stepWiseHelp) {
@@ -3670,8 +3709,6 @@ function showContextMenu(event, pathId) {
     const isToolpath = toolpaths.some(tp => tp.id === pathId);
     const items = [];
     if (isToolpath) {
-        items.push({ label: 'Rename', icon: 'pencil', action: 'rename' });
-        items.push({ divider: true });
         items.push({ label: 'Move Up', icon: 'arrow-up', action: 'move-up' });
         items.push({ label: 'Move Down', icon: 'arrow-down', action: 'move-down' });
         items.push({ divider: true });
