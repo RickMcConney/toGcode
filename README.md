@@ -1,7 +1,7 @@
 # toGcode
 
 <p align="center">
-  <img src="icons/svgtogcode.jpeg" alt="toGcode Logo" width="200">
+  <img src="icons/logo.svg" alt="toGcode Logo" width="200">
 </p>
 
 **🌐 [Launch toGcode](https://rickmcconney.github.io/toGcode/)**
