@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from './three.module.js';
 import { VoxelGrid } from './voxels/VoxelGrid.js';
 import { VoxelMaterialRemover } from './voxels/VoxelMaterialRemover.js';
 

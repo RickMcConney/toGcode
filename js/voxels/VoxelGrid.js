@@ -5,7 +5,7 @@
  * Material color on top face, yellow on exposed surfaces when cut
  */
 
-import * as THREE from 'three';
+import * as THREE from '../three.module.js';
 
 class VoxelGrid {
   /**
