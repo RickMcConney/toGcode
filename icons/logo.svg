@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- Wood grain gradient -->
+    <linearGradient id="woodGrad" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="#F5DEB3"/>
+      <stop offset="25%" stop-color="#E8D09A"/>
+      <stop offset="50%" stop-color="#F5DEB3"/>
+      <stop offset="75%" stop-color="#E0C88E"/>
+      <stop offset="100%" stop-color="#F5DEB3"/>
+    </linearGradient>
+    <!-- Darker wood for grain lines -->
+    <pattern id="woodGrain" x="0" y="0" width="200" height="200" patternUnits="userSpaceOnUse">
+      <rect width="200" height="200" fill="url(#woodGrad)"/>
+      <!-- Grain lines -->
+      <path d="M0,15 Q50,12 100,16 Q150,20 200,14" fill="none" stroke="#D4B896" stroke-width="0.8" opacity="0.5"/>
+      <path d="M0,35 Q60,31 120,37 Q170,41 200,33" fill="none" stroke="#D4B896" stroke-width="0.6" opacity="0.4"/>
+      <path d="M0,58 Q40,54 90,60 Q140,64 200,56" fill="none" stroke="#D4B896" stroke-width="0.7" opacity="0.45"/>
+      <path d="M0,78 Q70,73 130,80 Q160,83 200,76" fill="none" stroke="#D4B896" stroke-width="0.5" opacity="0.35"/>
+      <path d="M0,100 Q50,96 100,102 Q150,106 200,98" fill="none" stroke="#D4B896" stroke-width="0.8" opacity="0.5"/>
+      <path d="M0,118 Q60,114 110,120 Q160,124 200,116" fill="none" stroke="#D4B896" stroke-width="0.6" opacity="0.4"/>
+      <path d="M0,140 Q45,136 95,142 Q145,146 200,138" fill="none" stroke="#D4B896" stroke-width="0.7" opacity="0.45"/>
+      <path d="M0,160 Q55,156 105,162 Q155,166 200,158" fill="none" stroke="#D4B896" stroke-width="0.5" opacity="0.35"/>
+      <path d="M0,180 Q65,176 115,182 Q165,186 200,178" fill="none" stroke="#D4B896" stroke-width="0.6" opacity="0.4"/>
+    </pattern>
+    <!-- V-carve groove gradient (dark carved channel) -->
+    <linearGradient id="grooveGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8B6914"/>
+      <stop offset="50%" stop-color="#5C4410"/>
+      <stop offset="100%" stop-color="#8B6914"/>
+    </linearGradient>
+    <!-- Tool shank gradient -->
+    <linearGradient id="shankGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#999"/>
+      <stop offset="50%" stop-color="#ccc"/>
+      <stop offset="100%" stop-color="#999"/>
+    </linearGradient>
+    <!-- Tool flute gradient -->
+    <linearGradient id="fluteGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3a8ac0"/>
+      <stop offset="50%" stop-color="#5aade0"/>
+      <stop offset="100%" stop-color="#3a8ac0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hexagon background (flat bottom) with wood fill -->
+  <polygon points="100,4 183,52 183,148 100,196 17,148 17,52"
+           fill="url(#woodGrain)" stroke="#C4A060" stroke-width="3"/>
+
+  <!-- Darker edge bevel for depth -->
+  <polygon points="100,4 183,52 183,148 100,196 17,148 17,52"
+           fill="none" stroke="#A08040" stroke-width="1" opacity="0.5"/>
+
+  <!-- V-carved "SVG" text toolpath -->
+  <g stroke="url(#grooveGrad)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- S - upright, symmetrical curves -->
+    <path d="M68,76 L48,76 C38,76 34,82 34,88 C34,94 38,100 48,100 L58,100 C68,100 72,106 72,112 C72,118 68,124 58,124 L38,124" stroke-width="6" opacity="0.3"/>
+    <path d="M68,76 L48,76 C38,76 34,82 34,88 C34,94 38,100 48,100 L58,100 C68,100 72,106 72,112 C72,118 68,124 58,124 L38,124" stroke-width="3.5" opacity="0.5"/>
+    <path d="M68,76 L48,76 C38,76 34,82 34,88 C34,94 38,100 48,100 L58,100 C68,100 72,106 72,112 C72,118 68,124 58,124 L38,124" stroke="#3D2800" stroke-width="1.2" opacity="0.9"/>
+
+    <!-- V -->
+    <path d="M86,76 L100,124 L114,76" stroke-width="6" opacity="0.3"/>
+    <path d="M86,76 L100,124 L114,76" stroke-width="3.5" opacity="0.5"/>
+    <path d="M86,76 L100,124 L114,76" stroke="#3D2800" stroke-width="1.2" opacity="0.9"/>
+
+    <!-- G -->
+    <path d="M156,76 C142,76 128,84 128,100 C128,116 142,124 156,124 L156,104 L146,104" stroke-width="6" opacity="0.3"/>
+    <path d="M156,76 C142,76 128,84 128,100 C128,116 142,124 156,124 L156,104 L146,104" stroke-width="3.5" opacity="0.5"/>
+    <path d="M156,76 C142,76 128,84 128,100 C128,116 142,124 156,124 L156,104 L146,104" stroke="#3D2800" stroke-width="1.2" opacity="0.9"/>
+  </g>
+
+  <!-- Light highlight along carved edges to give 3D carved feel -->
+  <g stroke="#F8E8C8" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
+    <path d="M68,75 L48,75 C37,75 33,81 33,87 C33,93 37,99 47,99 L57,99 C67,99 71,105 71,111 C71,117 67,123 57,123 L38,123" stroke-width="0.8"/>
+    <path d="M85,75 L99,123 L113,75" stroke-width="0.8"/>
+    <path d="M156,75 C141,75 127,83 127,99 C127,115 141,123 155,123 L155,103 L145,103" stroke-width="0.8"/>
+  </g>
+
+  <!-- V-bit tool (vertical, raised up from the V) -->
+  <g transform="translate(100,108)">
+    <!-- Tool shank (longer) -->
+    <rect x="-5" y="-58" width="10" height="28" rx="1.5" fill="url(#shankGrad)" stroke="#777" stroke-width="0.7"/>
+    <!-- V-bit flared arrowhead body - wider than shank -->
+    <polygon points="-5,-30 5,-30 10,-36 0,0 -10,-36" fill="url(#fluteGrad)" stroke="#2a6ea0" stroke-width="0.7"/>
+    <!-- Flute detail lines -->
+    <line x1="-6" y1="-30" x2="2" y2="-8" stroke="#2a6ea0" stroke-width="0.5"/>
+    <line x1="6" y1="-30" x2="-2" y2="-8" stroke="#2a6ea0" stroke-width="0.5"/>
+    <line x1="-3" y1="-28" x2="3" y2="-14" stroke="#2a6ea0" stroke-width="0.4" opacity="0.6"/>
+    <line x1="3" y1="-28" x2="-3" y2="-14" stroke="#2a6ea0" stroke-width="0.4" opacity="0.6"/>
+  </g>
+
+  <!-- "toGcode" text at bottom -->
+  <text x="100" y="162" font-family="Arial, sans-serif" font-weight="bold" font-size="16"
+        fill="#6B4410" text-anchor="middle" opacity="0.7">toGcode</text>
+</svg>

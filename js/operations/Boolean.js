@@ -61,7 +61,8 @@ function applyBooleanOperation() {
     }
 
     solutionPaths[0].push(solutionPaths[0][0]);
-    addUndo(false, true, false);
+    let selectedIds = selectMgr.selectedPaths().map(p => p.id);
+    addUndo(false, true, false, selectedIds);
     let svgPath = {
         id: operation + svgpathId,
         type: 'path',
@@ -75,6 +76,13 @@ function applyBooleanOperation() {
             operation: operation,
         }
     };
+    // Hide the original input paths
+    for (var i = 0; i < svgpaths.length; i++) {
+        if (selectMgr.isSelected(svgpaths[i])) {
+            setVisibility(svgpaths[i].id, false);
+        }
+    }
+
     svgpaths.push(svgPath);
     addSvgPath(svgPath.id, svgPath.name);
 

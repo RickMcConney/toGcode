@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-04";
+var APP_VERSION = "Ver 2026-03-05";
 
 var mode = "Select";
 var options = [];
@@ -697,7 +697,7 @@ function createToolbar() {
                 <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import-png" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import PNG file">
                     <i data-lucide="image"></i>Import PNG
                 </button>
-                <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Generate G-code">
+                <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Save G-code">
                     <i data-lucide="file-cog"></i>G-code
                 </button>
             </div>
@@ -782,7 +782,7 @@ function createSidebar() {
     sidebar.innerHTML = `
         <!-- Logo -->
         <div class="text-center py-3 border-bottom">
-            <img src="icons/svgtogcode.jpeg" alt="toGcode Logo" style="width: 200px; max-width: 100%;">
+            <img src="icons/logo.svg" alt="toGcode Logo" style="width: 200px; max-width: 100%;">
         </div>
 
         <!-- Tab Navigation -->
@@ -791,7 +791,7 @@ function createSidebar() {
                 <i data-lucide="drafting-compass"></i> Draw Tools
             </button>
             <button class="nav-link" id="operations-tab" data-bs-toggle="tab" data-bs-target="#operations" type="button" role="tab">
-                <i data-lucide="settings"></i> Operations
+                <i data-lucide="cog"></i> Operations
             </button>
         </nav>
 
@@ -828,11 +828,11 @@ function createSidebar() {
 
                 <!-- SVG Paths Section -->
                     <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section" aria-expanded="false">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#svg-paths-section" aria-expanded="true">
                             <span>SVG Paths</span>
                             <i data-lucide="chevron-down" class="collapse-chevron"></i>
                         </div>
-                        <div class="collapse" id="svg-paths-section">
+                        <div class="collapse show" id="svg-paths-section">
                             <!-- SVG paths will be added dynamically -->
                         </div>
                     </div>
@@ -878,11 +878,11 @@ function createSidebar() {
                 </div>
                     <!-- Tool Paths Section -->
                     <div class="sidebar-section mt-4">
-                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section" aria-expanded="false">
+                        <div class="sidebar-section-header" data-bs-toggle="collapse" data-bs-target="#tool-paths-section" aria-expanded="true">
                             <span>Tool Paths</span>
                             <i data-lucide="chevron-down" class="collapse-chevron"></i>
                         </div>
-                        <div class="collapse" id="tool-paths-section">
+                        <div class="collapse show" id="tool-paths-section">
                             <!-- Tool paths will be added dynamically -->
                         </div>
                     </div>
@@ -2499,7 +2499,7 @@ function createToolPanel() {
             <table class="table table-sm tool-table" id="tool-table">
                 <thead>
                     <tr>
-                        <th><i data-lucide="palette" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Set tool color"></i> Color</th>
+                        <th><i data-lucide="wrench" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool type"></i> Type</th>
                         <th><i data-lucide="tag" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool name"></i> Name</th>
                         <th><i data-lucide="wrench" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tool"></i> Tool</th>
                         <th><i data-lucide="diameter" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Diameter"></i>Diameter (<span id="tool-table-unit">${getUnitLabel()}</span>)</th>
@@ -2570,8 +2570,7 @@ function createToolRow(tool, index) {
 
     row.innerHTML = `
         <td>
-            <div class="color-cell" style="background-color: #${tool.color};"
-                 data-field="color" data-bs-toggle="tooltip" title="Click to change color"></div>
+            <img src="icons/${getToolIcon(tool.bit)}" alt="${tool.bit}" width="80" height="32" data-bs-toggle="tooltip" title="${tool.bit}">
         </td>
         <td><input type="text" value="${tool.name}" data-field="name" class="form-control-plaintext"></td>
         <td>
@@ -2599,9 +2598,15 @@ function createToolRow(tool, index) {
         input.addEventListener('change', (e) => updateTool(index, e.target.dataset.field, e.target.value));
     });
 
-    // Color picker handler
-    const colorCell = row.querySelector('.color-cell');
-    colorCell.addEventListener('click', () => openColorPicker(index));
+    // Update tool icon when bit type changes
+    row.querySelector('[data-field="bit"]').addEventListener('change', (e) => {
+        const img = row.querySelector('img');
+        if (img) {
+            img.src = 'icons/' + getToolIcon(e.target.value);
+            img.alt = e.target.value;
+            img.title = e.target.value;
+        }
+    });
 
     return row;
 }
@@ -3984,7 +3989,7 @@ function addTextGroup(groupId, text, paths) {
         item.className = 'sidebar-item ms-4';
         item.dataset.pathId = path.id;
         item.innerHTML = `
-            <i data-lucide="type"></i>${path.name}
+            <i data-lucide="type-outline"></i>${path.name}
         `;
         collapseContainer.appendChild(item);
     });
@@ -4215,13 +4220,23 @@ function addOperation(name, icon, tooltip) {
 
 
 // Helper functions
+function getToolIcon(bit) {
+    switch (bit) {
+        case 'End Mill': return 'endmill.svg';
+        case 'Ball Nose': return 'ballnose.svg';
+        case 'VBit': return 'vbit.svg';
+        case 'Drill': return 'drill.svg';
+        default: return 'endmill.svg';
+    }
+}
+
 function getPathIcon(name) {
     if (name.includes('Circle')) return 'circle';
     if (name.includes('Ellipse')) return 'egg';
     if (name.includes('RoundRect')) return 'square';
     if (name.includes('Rect')) return 'rectangle-horizontal';
     if (name.includes('Line')) return 'minus';
-    if (name.includes('Text')) return 'type';
+    if (name.includes('Text')) return 'type-outline';
     if (name.includes('Poly')) return 'pentagon';
     if (name.includes('Star')) return 'star';
     if (name.includes('Belt')) return 'egg';
@@ -4231,6 +4246,7 @@ function getPathIcon(name) {
     if (name.includes('Intersect')) return 'squares-intersect';
     if (name.includes('Subtract')) return 'squares-subtract';
     if (name.includes('Gemini')) return 'brain';
+    if (name.includes('Closed')) return 'vector-square';
     return 'route';
 }
 
@@ -4262,6 +4278,7 @@ function getOperationIcon(operation) {
         case 'Pocket': return 'target';
         case 'VCarve In': return 'star';
         case 'VCarve Out': return 'star';
+        case 'VCarve': return 'star';
         case 'Drill': return 'circle-plus';
         default: return 'circle';
     }
@@ -4305,7 +4322,7 @@ function freeToolId() {
 function setMode(m) {
     if (m != null) mode = m;
     const statusEl = document.getElementById('status');
-    statusEl.innerHTML = `<span>Tool: ${currentTool ? currentTool.name : 'None'} [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
+    statusEl.innerHTML = `<span>Mode [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
 }
 
 // Compatibility object for grid operations
@@ -4313,7 +4330,7 @@ window.grid = {
     status: function (text) {
         // Update status bar with tool information
         const statusEl = document.getElementById('status');
-        statusEl.innerHTML = `<span>Tool: ${text} [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
+        statusEl.innerHTML = `<span>Mode [${mode}]</span><span class="small version">${APP_VERSION}</span>`;
     },
     get records() {
         return tools;

@@ -1,6 +1,6 @@
 class Workpiece extends Operation {
     constructor() {
-        super('Workpiece', 'package', 'Configure your workpiece dimensions and material properties');
+        super('Workpiece', 'box', 'Configure your workpiece dimensions and material properties');
     }
 
     // Origin position calculation function
@@ -231,7 +231,7 @@ class Workpiece extends Operation {
                         </div>
                     </div>
                 </div>
-                <div class="form-text">Select where to place the origin (0,0) on your workpiece</div>
+                <div class="form-text">Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece</div>
             </div>
 
             <div class="alert alert-light">
@@ -403,7 +403,7 @@ class Workpiece extends Operation {
     // Help system integration
     getHelpSteps() {
         return [
-            'Configure your workpiece dimensions: width, length, and thickness in millimeters.',
+            'Configure your workpiece dimensions: width, length, and thickness.',
             'Select your wood species from the dropdown to optimize cutting parameters.',
             'Set the grid size and toggle display options (grid, origin, workpiece outline).',
             'Choose the origin position by clicking on the 3x3 grid - this sets where (0,0) will be located.',

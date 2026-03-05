@@ -1,7 +1,7 @@
 
 class Text extends Operation {
     constructor() {
-        super('Text', 'type', 'Create text paths using TTF fonts');
+        super('Text', 'type-outline', 'Create text paths using TTF fonts');
 
         this.currentPath = null;
     }

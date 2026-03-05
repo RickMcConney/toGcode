@@ -282,6 +282,32 @@ class PathEdit extends Select {
                 }
 
                 this.updatePropertiesPanel();
+            } else if (this.selectedPath && !this.selectedPath.closed) {
+                // Check if dragging the last point onto the first point to close the path
+                const path = this.selectedPath.path;
+                const n = path.length;
+                if (n >= 3 && (this.activeHandle === n - 1 || this.activeHandle === 0)) {
+                    const first = this.activeHandle === 0 ? path[n - 1] : path[0];
+                    const last = path[this.activeHandle];
+                    const dx = last.x - first.x;
+                    const dy = last.y - first.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < this.handleSize * 2) {
+                        // Snap last point to first and close the path
+                        last.x = first.x;
+                        last.y = first.y;
+                        this.selectedPath.closed = true;
+                        this.selectedPath.name = 'Closed ' + this.selectedPath.name;
+                        this.selectedPath.bbox = boundingBox(path);
+                        // Update sidebar name
+                        const sidebarItem = document.querySelector(`[data-path-id="${this.selectedPath.id}"]`);
+                        if (sidebarItem) {
+                            sidebarItem.innerHTML = `<i data-lucide="${getPathIcon(this.selectedPath.name)}"></i>${this.selectedPath.name}`;
+                            lucide.createIcons();
+                        }
+                        this.updatePropertiesPanel();
+                    }
+                }
             }
 
             // Finished with handle
@@ -384,11 +410,17 @@ class PathEdit extends Select {
         if (!selectedPath) return null;
 
         const path = selectedPath.path;
+        const n = path.length;
+        // Skip duplicate last point on closed paths
+        const skipLastPoint = n > 1 &&
+            path[0].x === path[n - 1].x &&
+            path[0].y === path[n - 1].y;
+        const checkCount = skipLastPoint ? n - 1 : n;
         let closestHandle = null;
         let closestDistance = this.handleSize * 2;
 
         // Find the closest handle within the threshold distance
-        for (let i = 0; i < path.length; i++) {
+        for (let i = 0; i < checkCount; i++) {
             const pt = path[i];
             const dx = pt.x - point.x;
             const dy = pt.y - point.y;
@@ -682,9 +714,10 @@ class PathEdit extends Select {
                 continue; // Will be filled in after the loop
             }
 
-            // Get neighbors
-            const prevIndex = (i - 1 + path.length) % path.length;
-            const nextIndex = (i + 1) % path.length;
+            // Get neighbors - for closed paths with duplicate endpoint, wrap around n-1
+            const wrapLen = hasDuplicateEndpoint ? path.length - 1 : path.length;
+            const prevIndex = (i - 1 + wrapLen) % wrapLen;
+            const nextIndex = (i + 1) % wrapLen;
 
             // For open paths, skip if we're at the edges
             if (!closed && (prevIndex >= path.length || nextIndex >= path.length)) {
@@ -709,6 +742,28 @@ class PathEdit extends Select {
         // For closed paths with duplicate endpoint, copy the smoothed first point to the end
         if (hasDuplicateEndpoint) {
             smoothed.push({ x: smoothed[0].x, y: smoothed[0].y });
+        }
+
+        // Rescale smoothed path to match original size (counteract Laplacian shrinkage)
+        if (closed && smoothed.length >= 3) {
+            const origBbox = boundingBox(path);
+            const smoothBbox = boundingBox(smoothed);
+            const origW = origBbox.maxx - origBbox.minx;
+            const origH = origBbox.maxy - origBbox.miny;
+            const smoothW = smoothBbox.maxx - smoothBbox.minx;
+            const smoothH = smoothBbox.maxy - smoothBbox.miny;
+            if (smoothW > 0 && smoothH > 0) {
+                const scaleX = origW / smoothW;
+                const scaleY = origH / smoothH;
+                const cx = (smoothBbox.minx + smoothBbox.maxx) / 2;
+                const cy = (smoothBbox.miny + smoothBbox.maxy) / 2;
+                const origCx = (origBbox.minx + origBbox.maxx) / 2;
+                const origCy = (origBbox.miny + origBbox.maxy) / 2;
+                for (let i = 0; i < smoothed.length; i++) {
+                    smoothed[i].x = origCx + (smoothed[i].x - cx) * scaleX;
+                    smoothed[i].y = origCy + (smoothed[i].y - cy) * scaleY;
+                }
+            }
         }
 
         return smoothed;
@@ -841,6 +896,13 @@ class PathEdit extends Select {
 
         // Clear selection
         this.selectedHandlesForRadius = [];
+
+        // Update the saved original to the current state so subsequent radius
+        // operations use correct point indices
+        this.originalPathBeforeRadius = {
+            path: selectedPath.path.map(pt => ({ x: pt.x, y: pt.y })),
+            closed: selectedPath.closed
+        };
 
         this.updatePropertiesPanel();
 

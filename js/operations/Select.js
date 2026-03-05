@@ -422,27 +422,20 @@ class Select extends Operation {
     showSelection() {
         const operationsTab = document.getElementById('operations-tab');
         const isOnOperationsTab = operationsTab && operationsTab.classList.contains('active');
-        const changePanel = !isOnOperationsTab && window.cncController.operationManager.currentOperation.name !== 'Move' &&
-            window.cncController.operationManager.currentOperation.name !== 'Boolean' &&
-            window.cncController.operationManager.currentOperation.name !== 'Tabs';
-
+        const drawToolsTab = document.getElementById('draw-tools-tab');
+        const isOnDrawTab = drawToolsTab && drawToolsTab.classList.contains('active');
 
         let pathToShow = this.lastSelected();
 
-        if (changePanel) {
-
-            if (pathToShow) {
-                if (pathToShow.creationTool == "Shape" || pathToShow.creationTool == "Text")
-                    showPathPropertiesEditor(pathToShow);
-            }
-            else {
-                showToolsList();
-            }
-        }
-
         if (pathToShow) {
-            if (isOnOperationsTab)
+            const currentOp = window.cncController.operationManager.currentOperation.name;
+            if (isOnDrawTab && currentOp !== 'Move' && currentOp !== 'Boolean') {
+                doMove();
+            } else if (isOnOperationsTab) {
                 this.doOperation();
+            }
+        } else if (isOnDrawTab) {
+            showToolsList();
         }
         redraw();
 

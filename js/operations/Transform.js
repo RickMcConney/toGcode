@@ -175,6 +175,7 @@ class Transform extends Select {
     stop() {
         super.stop();
         this.transformBox = null;
+        this.pivotCenter = null;
     }
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
@@ -575,6 +576,13 @@ class Transform extends Select {
             this.activeHandle = null;
             // Transition to IDLE (without selection)
             Transform.state = Transform.IDLE;
+
+            // If on the Operations tab, return to Select mode
+            const operationsTab = document.getElementById('operations-tab');
+            if (operationsTab && operationsTab.classList.contains('active')) {
+                cncController.setMode('Select');
+                return;
+            }
         }
 
         this.updateCenterDisplay();

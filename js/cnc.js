@@ -119,9 +119,10 @@ function doPaste() {
 			newPath.id = 'S' + svgpathId;
 			if(newPath.name.indexOf(' copy') == -1)
 				newPath.name = newPath.name + ' copy';
+			let gridOffset = (getOption("gridSize") || 10) * viewScale;
 			newPath.path = newPath.path.map(pt => ({
-                x: pt.x + 0*viewScale,
-                y: pt.y + 0*viewScale
+                x: pt.x + gridOffset,
+                y: pt.y + gridOffset
             }));
             newPath.bbox = boundingBox(newPath.path);
 			svgpaths.push(newPath);
@@ -202,13 +203,14 @@ function deleteSelected() {
 	redraw();
 }
 
-function addUndo(toolPathschanged = false, svgPathsChanged = false, originChanged = false) {
+function addUndo(toolPathschanged = false, svgPathsChanged = false, originChanged = false, selectedIds = null) {
 
 	if (toolPathschanged || svgPathsChanged || originChanged) {
 		var project = {
 			toolpaths: toolPathschanged ? toolpaths : null,
 			svgpaths: svgPathsChanged ? svgpaths : null,
-			origin: originChanged ? origin : null
+			origin: originChanged ? origin : null,
+			selectedIds: selectedIds || null
 		};
 		if (undoList.length < MAX_UNDO) {
 			undoList.push(JSON.stringify(project));
@@ -269,6 +271,14 @@ function doUndo() {
 				addSvgPath(sp.id, sp.name);
 			}
 			svgpathId++;
+		}
+		// Re-select paths if the undo entry stored selected IDs
+		if (project.selectedIds) {
+			for (var i = 0; i < svgpaths.length; i++) {
+				if (project.selectedIds.indexOf(svgpaths[i].id) >= 0) {
+					selectMgr.selectPath(svgpaths[i]);
+				}
+			}
 		}
 	}
 	redraw();

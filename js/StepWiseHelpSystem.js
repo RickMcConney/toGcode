@@ -274,7 +274,7 @@ class StepWiseHelpSystem {
                 'V-carve toolpath generated'
             ],
             'Workpiece': [
-                'Configure your workpiece dimensions: width, length, and thickness in millimeters',
+                'Configure your workpiece dimensions: width, length, and thickness',
                 'Select your wood species from the dropdown to optimize cutting parameters',
                 'Set the grid size and toggle display options (grid, origin, snap, workpiece outline)',
                 'Choose the origin position by clicking on the 3x3 grid - this sets where (0,0) will be located',
