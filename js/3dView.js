@@ -271,30 +271,20 @@ function initThree() {
 
   // Setup renderer
   renderer = new THREE.WebGLRenderer({ antialias: CONFIG.ANTIALIAS, alpha: false });
-  renderer.setSize(width, height);
+  renderer.setSize(width, height, false);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setClearColor(CONFIG.RENDERER_CLEAR_COLOR, 1.0);
   renderer.shadowMap.enabled = true;
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
   container.appendChild(renderer.domElement);
 
-  // Setup ResizeObserver to watch actual container size changes
-  // This is more reliable than window resize events because it fires when the element actually changes size
-  let resizeObserverTimeoutId = null;
+  // Setup ResizeObserver to update WebGL buffer when container size changes
+  // Debounce to avoid flicker from rapid resize events
+  let resizeTimeoutId = null;
   const resizeObserver = new ResizeObserver(() => {
-    // Debounce the resize callback to avoid multiple calls during a single resize operation
-    if (resizeObserverTimeoutId) {
-      clearTimeout(resizeObserverTimeoutId);
-    }
-
-    resizeObserverTimeoutId = setTimeout(() => {
-      // Give the browser a moment to finish layout calculations
-      requestAnimationFrame(() => {
-        // Use 50px padding to account for timing issues during rapid window resize
-        // During window resize events, container dimensions can be reported incorrectly
-        // before layout has fully settled. This padding provides a safety buffer.
-        doResize(50);
-      });
-    }, 50);  // Wait 50ms after last resize event before calling doResize
+    if (resizeTimeoutId) clearTimeout(resizeTimeoutId);
+    resizeTimeoutId = setTimeout(doResize, 100);
   });
   resizeObserver.observe(container);
 
@@ -1179,22 +1169,18 @@ function onWindowResize() {
 
 }
 
-  function doResize(padding = 0)
-  {
+  function doResize() {
       const container = document.getElementById('3d-canvas-container');
       if (!container || !renderer || !camera) return;
 
-
-      let newWidth = container.getBoundingClientRect().width - padding;
-      let newHeight = container.clientHeight;
+      const newWidth = container.clientWidth;
+      const newHeight = container.clientHeight;
 
       if (newWidth > 0 && newHeight > 0) {
           camera.aspect = newWidth / newHeight;
           camera.updateProjectionMatrix();
-          renderer.setSize(newWidth, newHeight);
+          renderer.setSize(newWidth, newHeight, false);
       }
-
-
   }
 
 // ============ CLEANUP FUNCTION (CRITICAL FIX 1.2) ============

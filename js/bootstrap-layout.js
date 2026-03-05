@@ -1156,8 +1156,11 @@ function createSidebar() {
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.add('d-none');
 
-            // Redraw the 2D canvas to ensure content is current
-            redraw();
+            // Update canvas buffer size and redraw after layout settles
+            requestAnimationFrame(() => {
+                centerWorkpiece();
+                redraw();
+            });
         });
     }
 
