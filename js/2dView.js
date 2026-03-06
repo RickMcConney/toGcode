@@ -71,8 +71,8 @@ var showDebugMarkers = false;
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
 
-// New mousewheel event for newZoom
-canvas.addEventListener('mousewheel', function (evt) {
+// Mousewheel zoom (standard 'wheel' event works across all browsers including Safari)
+canvas.addEventListener('wheel', function (evt) {
 	var rect = canvas.getBoundingClientRect();
 	var zoomX = evt.clientX - rect.left;
 	var zoomY = evt.clientY - rect.top;

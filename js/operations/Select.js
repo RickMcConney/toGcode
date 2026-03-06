@@ -383,7 +383,6 @@ class Select extends Operation {
 
         // Handle selection box (from SELECTING state)
         if (this.selectBox) {
-            //this.selectPathsInRect(this.selectBox, evt.shiftKey);
             this.selectHighlighted(evt.shiftKey);
             this.selectBox = null;
         }

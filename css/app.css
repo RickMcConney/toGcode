@@ -106,6 +106,29 @@ html, body {
     border-left: 3px solid transparent;
     display: flex;
     align-items: center;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    position: relative;
+}
+
+/* Touch "more" button - only shown on touch devices */
+@media (pointer: coarse) {
+    .sidebar-item[data-path-id]::after,
+    .sidebar-item[data-svg-group-header]::after,
+    .sidebar-item[data-text-group-header]::after,
+    .sidebar-item.fw-bold::after {
+        content: '⋮';
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 18px;
+        font-weight: bold;
+        color: var(--color-gray-500);
+        padding: 4px 8px;
+        line-height: 1;
+    }
 }
 
 .sidebar-item:hover {

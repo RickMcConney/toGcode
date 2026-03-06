@@ -561,13 +561,16 @@ function createContextMenu(event, config) {
         menu.remove();
     });
 
-    // Remove menu when clicking elsewhere
+    // Remove menu when clicking/touching elsewhere (delay to avoid the triggering event)
     setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
+        function closeMenu() {
             menu.remove();
             document.removeEventListener('click', closeMenu);
-        });
-    }, 0);
+            document.removeEventListener('touchstart', closeMenu);
+        }
+        document.addEventListener('click', closeMenu);
+        document.addEventListener('touchstart', closeMenu);
+    }, 300);
 
     lucide.createIcons();
 }
@@ -1007,6 +1010,18 @@ function createSidebar() {
 
         if (!item) return;
 
+        // Touch devices: tap on ⋮ area (right 40px) triggers context menu
+        if ('ontouchstart' in window) {
+            const rect = item.getBoundingClientRect();
+            if (e.clientX >= rect.right - 40) {
+                const pathId = item.dataset.pathId;
+                if (pathId) {
+                    showContextMenu({ clientX: rect.right - 20, clientY: rect.top + rect.height / 2, preventDefault() {} }, pathId);
+                    return;
+                }
+            }
+        }
+
         const operation = item.dataset.operation;
         const pathId = item.dataset.pathId;
 
@@ -1033,6 +1048,7 @@ function createSidebar() {
         //selectMgr.unselectAll();
         //if (item) item.classList.add('selected');
     });
+
 
     // Context menu for paths and tool folders
     sidebar.addEventListener('contextmenu', function (e) {
