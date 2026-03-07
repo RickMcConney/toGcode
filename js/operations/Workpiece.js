@@ -349,6 +349,25 @@ class Workpiece extends Operation {
         if (dimensionChanged && typeof centerWorkpiece === 'function') {
             centerWorkpiece();
         }
+
+        // Regenerate surfacing toolpaths when anything that affects their geometry changes.
+        // This runs after all setOption calls so getOption returns the new values.
+        if ((dimensionChanged || originChanged || 'woodSpecies' in data) &&
+                typeof toolpaths !== 'undefined' && typeof doSurfacing === 'function') {
+            const surfacingPaths = toolpaths.filter(tp => tp.operation === 'Surfacing');
+            if (surfacingPaths.length > 0) {
+                const originalTool = window.currentTool;
+                for (const tp of surfacingPaths) {
+                    window.currentTool = { ...tp.tool };
+                    window.currentToolpathProperties = tp.toolpathProperties ? { ...tp.toolpathProperties } : {};
+                    window.toolpathUpdateTargets = [tp];
+                    doSurfacing();
+                }
+                window.currentTool = originalTool;
+                window.currentToolpathProperties = null;
+                window.toolpathUpdateTargets = null;
+            }
+        }
     }
 
     onPropertiesChanged(data) {

@@ -266,6 +266,14 @@ class StepWiseHelpSystem {
                 'You can change infill angle to match the grain direction for better results',
                 'Pocket toolpath generated with multiple passes'
             ],
+            'Surfacing': [
+                'No path selection needed — surfacing covers the entire workpiece automatically',
+                'Select an End Mill tool from the dropdown',
+                'Set the cutting depth (typically 0.5–1mm per pass)',
+                'Adjust stepover percentage — higher values are faster, lower values give a smoother finish',
+                'Set the infill angle to match the grain direction for a smoother cut (0° = along X axis, 90° = along Y axis)',
+                'Click Apply Surfacing to generate the toolpath'
+            ],
             'VCarve': [
                 'Select paths for V-carving',
                 'Use center for engraving text or decorative details',

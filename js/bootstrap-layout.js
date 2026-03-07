@@ -858,6 +858,9 @@ function createSidebar() {
                     <div class="sidebar-item" data-operation="VCarve" data-bs-toggle="tooltip" data-bs-placement="right" title="V-carve inside or outside the path">
                         <i data-lucide="star"></i>V-Carve
                     </div>
+                    <div class="sidebar-item" data-operation="Surfacing" data-bs-toggle="tooltip" data-bs-placement="right" title="Surface the entire workpiece with parallel passes">
+                        <i data-lucide="align-justify"></i>Surfacing
+                    </div>
                 </div>
                 <!-- Operation Properties Editor (hidden by default) -->
                 <div id="operation-properties-editor" class="p-3" style="display: none;">
@@ -1884,6 +1887,31 @@ function setupToolpathUpdateButton(operationName) {
         const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
         if (!selectedTool) {
             notify('Selected tool not found', 'error');
+            return;
+        }
+
+        // For Surfacing, regenerate the toolpath from scratch (no source SVG paths)
+        if (operationName === 'Surfacing') {
+            const originalTool = window.currentTool;
+            window.currentTool = {
+                ...selectedTool,
+                depth: data.depth,
+                stepover: data.stepover
+            };
+            window.currentToolpathProperties = { ...data };
+            window.toolpathUpdateTargets = [...activeToolpaths];
+
+            try {
+                doSurfacing();
+            } finally {
+                window.currentTool = originalTool;
+                window.currentToolpathProperties = null;
+                window.toolpathUpdateTargets = null;
+            }
+
+            refreshToolPathsDisplay();
+            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+            redraw();
             return;
         }
 
@@ -3570,6 +3598,10 @@ function handleOperationClick(operation) {
             selectMgr.unselectAll();
             setMode("Select");
             break;
+        case 'Surfacing':
+            doSurfacing();
+            setMode("Select");
+            break;
         default:
             doSelect(operation);
             break;
@@ -4106,6 +4138,7 @@ function addSvgGroup(groupId, groupName, paths) {
 
 // Get operation priority for sorting (same as cnc.js)
 function getOperationPriority(operation) {
+    if (operation === 'Surfacing') return 0;
     if (operation === 'Drill') return 1;
     if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
     if (operation === 'Pocket') return 3;
@@ -4299,6 +4332,7 @@ function getOperationIcon(operation) {
         case 'VCarve Out': return 'star';
         case 'VCarve': return 'star';
         case 'Drill': return 'circle-plus';
+        case 'Surfacing': return 'align-justify';
         default: return 'circle';
     }
 }

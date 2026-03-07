@@ -26,6 +26,15 @@ class ToolpathPropertiesManager {
                 compatibleBits: ['VBit'],
                 fields: ['tool', 'depth', 'inside', 'overCut'],
                 description: 'V-carve inside the path with tapered cuts'
+            },
+            'Surfacing': {
+                compatibleBits: ['End Mill'],
+                fields: ['tool', 'depth', 'stepover', 'angle'],
+                description: 'Surface the entire workpiece with parallel passes',
+                defaultDepth: 1,
+                defaultStepover: 75,
+                applyButtonLabel: 'Apply Surfacing',
+                applyButtonDescription: 'Generates a surfacing toolpath over the entire workpiece.'
             }
 
         };
@@ -69,11 +78,12 @@ class ToolpathPropertiesManager {
         if (!this.defaults[operationName]) {
             // Initialize with sensible defaults
             const workpieceThickness = getOption ? getOption('workpieceThickness') : 10;
+            const config = this.operationConfigs[operationName];
             this.defaults[operationName] = {
                 toolId: null, // Will be set to first compatible tool
-                depth: workpieceThickness,
+                depth: config && config.defaultDepth !== undefined ? config.defaultDepth : workpieceThickness,
                 step: workpieceThickness * 0.25,
-                stepover: 25,
+                stepover: config && config.defaultStepover !== undefined ? config.defaultStepover : 25,
                 angle: 0, // Default to horizontal (0°) for infill lines
                 inside: 'inside', // Default to 'inside' for inside/outside option
                 direction: 'climb', // Default to 'climb' for direction option
@@ -401,12 +411,14 @@ class ToolpathPropertiesManager {
             html += this.generateAngleInputHTML(operationName, angle);
         }
 
-        // Update button (only shown when there's an active toolpath to update)
+        // Update/Apply button
+        const buttonLabel = config.applyButtonLabel || 'Update Toolpath';
+        const buttonDesc = config.applyButtonDescription || 'Select paths to generate toolpaths. Click Update to apply changes to the last toolpath.';
         html += '<div class="mb-3">';
         html += '<button type="button" class="btn btn-primary btn-sm w-100" id="update-toolpath-button">';
-        html += '<i data-lucide="refresh-cw"></i> Update Toolpath';
+        html += `<i data-lucide="refresh-cw"></i> ${buttonLabel}`;
         html += '</button>';
-        html += '<div class="form-text small">Select paths to generate toolpaths. Click Update to apply changes to the last toolpath.</div>';
+        html += `<div class="form-text small">${buttonDesc}</div>`;
         html += '</div>';
 
         return html;

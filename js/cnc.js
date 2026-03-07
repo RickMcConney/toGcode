@@ -727,6 +727,110 @@ function doTabEditor() {
 	cncController.setMode("Tabs");
 }
 
+// Liang-Barsky line clipping: clips segment p1-p2 to the axis-aligned rectangle.
+// Returns [clippedP1, clippedP2] or null if the segment is entirely outside.
+function clipLineToRect(p1, p2, xMin, yMin, xMax, yMax) {
+	const dx = p2.x - p1.x;
+	const dy = p2.y - p1.y;
+	const p = [-dx, dx, -dy, dy];
+	const q = [p1.x - xMin, xMax - p1.x, p1.y - yMin, yMax - p1.y];
+	let t0 = 0, t1 = 1;
+	for (let i = 0; i < 4; i++) {
+		if (Math.abs(p[i]) < 1e-10) {
+			if (q[i] < 0) return null;
+		} else {
+			const t = q[i] / p[i];
+			if (p[i] < 0) { t0 = Math.max(t0, t); }
+			else { t1 = Math.min(t1, t); }
+		}
+	}
+	if (t0 > t1) return null;
+	return [
+		{ x: p1.x + t0 * dx, y: p1.y + t0 * dy },
+		{ x: p1.x + t1 * dx, y: p1.y + t1 * dy }
+	];
+}
+
+function doSurfacing() {
+	setMode("Surfacing");
+
+	const wpWidth = getOption("workpieceWidth") * viewScale;
+	const wpLength = getOption("workpieceLength") * viewScale;
+
+	if (!wpWidth || !wpLength) {
+		notify('Set up workpiece dimensions first');
+		return;
+	}
+
+	const radius = toolRadius();
+	const stepover = 2 * radius * currentTool.stepover / 100;
+	const angle = window.currentToolpathProperties?.angle || 0;
+
+	if (stepover <= 0) {
+		notify('Invalid tool or stepover value');
+		return;
+	}
+
+	const cx = wpWidth / 2;
+	const cy = wpLength / 2;
+
+	// Clip bounds: workpiece expanded by one tool radius so the cutter edge
+	// reaches exactly to the workpiece boundary on all sides.
+	const xMin = -radius, xMax = wpWidth + radius;
+	const yMin = -radius, yMax = wpLength + radius;
+
+	// Rotate the clip-region corners by -angle to get the bounding box in which
+	// horizontal lines are generated, then rotate each line back by +angle.
+	const clipCorners = [
+		{ x: xMin, y: yMin }, { x: xMax, y: yMin },
+		{ x: xMax, y: yMax }, { x: xMin, y: yMax }
+	];
+	const rotated = angle !== 0
+		? clipCorners.map(p => rotatePoint(p, cx, cy, -angle * Math.PI / 180))
+		: clipCorners;
+
+	const minX = Math.min(...rotated.map(p => p.x));
+	const maxX = Math.max(...rotated.map(p => p.x));
+	const minY = Math.min(...rotated.map(p => p.y));
+	const maxY = Math.max(...rotated.map(p => p.y));
+
+	const paths = [];
+	let lineIndex = 0;
+
+	for (let y = minY; ; y += stepover) {
+		const ly = Math.min(y, maxY);
+
+		// Full-width line in the rotated frame
+		let p1 = { x: minX, y: ly };
+		let p2 = { x: maxX, y: ly };
+
+		// Rotate back to world orientation
+		if (angle !== 0) {
+			const rad = angle * Math.PI / 180;
+			p1 = rotatePoint(p1, cx, cy, rad);
+			p2 = rotatePoint(p2, cx, cy, rad);
+		}
+
+		// Clip to workpiece + radius bounds so lines never extend past the stock
+		const clipped = clipLineToRect(p1, p2, xMin, yMin, xMax, yMax);
+		if (clipped) {
+			// Zigzag: alternate direction each pass
+			const tpath = lineIndex % 2 === 0 ? clipped : [clipped[1], clipped[0]];
+			paths.push({ tpath: tpath });
+			lineIndex++;
+		}
+
+		if (ly >= maxY) break;
+	}
+
+	if (paths.length === 0) {
+		notify('Unable to generate surfacing paths');
+		return;
+	}
+
+	pushToolPath(paths, 'Surfacing', 'Surfacing', null, null);
+}
+
 function doPocket() {
 	setMode("Pocket");
 	if (selectMgr.noSelection()) {

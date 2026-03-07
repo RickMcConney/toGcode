@@ -63,8 +63,8 @@ function calculateFeedRate(tool, woodSpecies, operation) {
 	// Profile cuts (Inside, Outside, Center): 100% engagement (full side of bit cutting)
 	// Pocket operations: engagement = stepover percentage (partial engagement)
 	let radialEngagement;
-	if (operation === 'Pocket') {
-		// Pocket: only stepover% of bit is engaged with fresh material
+	if (operation === 'Pocket' || operation === 'Surfacing') {
+		// Pocket/Surfacing: only stepover% of bit is engaged with fresh material
 		radialEngagement = tool.stepover / 100;
 	} else {
 		// Profile cuts: entire side of bit is cutting = 100% engagement
@@ -303,8 +303,9 @@ function formatComment(text, profile) {
 }
 
 // Get operation priority for sorting (lower number = earlier in sequence)
-// Order: Drill (1), VCarve (2), Pocket (3), Profiles (4)
+// Order: Surfacing (0), Drill (1), VCarve (2), Pocket (3), Profiles (4)
 function getOperationPriority(operation) {
+	if (operation === 'Surfacing') return 0;
 	if (operation === 'Drill') return 1;
 	if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
 	if (operation === 'Pocket') return 3;
@@ -655,6 +656,49 @@ function _generateVcarveOperationGcode(toolpath, profile, useInches, settings) {
 			}
 
 			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: cz, f: feedZ }) + '\n';
+		}
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process surfacing operations
+// Unlike pocket, surfacing stays at cut depth between passes — no safe-height retracts.
+function _generateSurfacingOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, depth, safeHeight } = settings;
+	var paths = toolpath.paths;
+
+	var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+	if (comment) output += comment + '\n';
+
+	var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+	var feedZ  = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+	var zCoord = toGcodeUnitsZ(-depth, useInches);
+
+	var firstLine = true;
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].tpath;
+		if (!path || path.length === 0) continue;
+
+		var start = toGcodeUnits(path[0].x, path[0].y, useInches);
+
+		if (firstLine) {
+			// Initial retract, rapid to start XY, then plunge once
+			output += applyGcodeTemplate(profile.rapidTemplate, { z: safeHeight, f: feedZ }) + '\n';
+			output += applyGcodeTemplate(profile.rapidTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
+			output += applyGcodeTemplate(profile.cutTemplate, { z: zCoord, f: feedZ }) + '\n';
+			firstLine = false;
+		} else {
+			// Stay at cut depth — feed move to start of next pass (not rapid, as the
+			// workpiece may not be perfectly sized and the transition crosses the stock)
+			output += applyGcodeTemplate(profile.cutTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
+		}
+
+		// Cut across the pass
+		for (var j = 1; j < path.length; j++) {
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
 		}
 	}
 
@@ -1020,6 +1064,8 @@ function toGcode() {
 		// 4. DISPATCH TO OPERATION-SPECIFIC G-CODE GENERATOR
 		if (toolpath.operation === 'Pocket') {
 			output += _generatePocketOperationGcode(toolpath, profile, useInches, settings);
+		} else if (toolpath.operation === 'Surfacing') {
+			output += _generateSurfacingOperationGcode(toolpath, profile, useInches, settings);
 		}
 		else if (toolpath.operation === 'Drill') {
 			output += _generateDrillOperationGcode(toolpath, profile, useInches, settings);
