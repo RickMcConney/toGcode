@@ -553,10 +553,10 @@ class Transform extends Select {
                 this.recoverTotalsFromHistory();
             }
 
-            // Regenerate any toolpaths linked to transformed paths
-            if (wasTransforming && typeof regenerateToolpathsForPaths === 'function') {
+            // Notify that paths changed (handles toolpath regeneration, STL sync, etc.)
+            if (wasTransforming && typeof onPathsChanged === 'function') {
                 const changedIds = selectMgr.selectedPaths().map(p => p.id);
-                regenerateToolpathsForPaths(changedIds);
+                onPathsChanged(changedIds);
             }
 
             // Always reset accumulators after operation completes

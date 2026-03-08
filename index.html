@@ -32,7 +32,9 @@
 
         #sidebar {
             height: 100%;
-            overflow-y: auto;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .right-panel {
@@ -260,12 +262,14 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "./js/three.module.js"
+    "three": "./js/three.module.js",
+    "three/addons/loaders/STLLoader": "./js/STLLoader.js"
   }
 }
 </script>
 
 <script src="js/imagetracer_v1.2.6.js"></script>
 <script type="module" src="./js/3dView.js"></script>
+<script type="module" src="./js/stl.js?v=5"></script>
 
 </html>

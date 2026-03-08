@@ -648,8 +648,9 @@ function redrawCore() {
 		drawGrid();
 	if (getOption("showOrigin"))
 		drawOrigin();
-	drawSvgPaths();
 	drawToolPaths();
+	drawSvgPaths();
+	if (typeof window.drawSTLHeightMap === 'function') window.drawSTLHeightMap(ctx);
 
 	// DEBUG: Draw tab bounding boxes for visualization
 	//drawTabBoundingBoxes();

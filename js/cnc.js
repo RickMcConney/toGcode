@@ -4,6 +4,7 @@ var panX = 0; // will be calculated dynamically by centerWorkpiece()
 var panY = 0; // will be calculated dynamically by centerWorkpiece()
 var origin = { x: 0, y: 0 }; // origin in virtual coordinates
 const selectMgr = Select.getInstance();
+window.selectMgr = selectMgr;
 
 var viewScale = 10;
 var pixelsPerInch = 72; // 72 for illustrator 96 for inkscape
@@ -149,6 +150,15 @@ function setVisibility(id, visible) {
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (svgpaths[i].id == id) {
 			svgpaths[i].visible = visible;
+			// Sync STL model visibility
+			if (svgpaths[i].creationProperties && svgpaths[i].creationProperties.stlModelId) {
+				var stlId = svgpaths[i].creationProperties.stlModelId;
+				if (typeof window.updateSTLMeshVisibility3D === 'function') {
+					window.updateSTLMeshVisibility3D(stlId, visible);
+				}
+				var stlModel = window.stlModels && window.stlModels.find(function(m) { return m.id === stlId; });
+				if (stlModel) stlModel.visible = visible;
+			}
 		}
 	}
 	for (var i = 0; i < toolpaths.length; i++) {
@@ -165,6 +175,14 @@ function setVisibility(id, visible) {
 function doRemoveToolPath(id) {
 	for (var i = 0; i < svgpaths.length; i++) {
 		if (svgpaths[i].id == id) {
+			// If this svgpath references an STL model, clean it up
+			if (svgpaths[i].creationProperties && svgpaths[i].creationProperties.stlModelId) {
+				var stlId = svgpaths[i].creationProperties.stlModelId;
+				if (typeof window.removeSTLMesh3D === 'function') window.removeSTLMesh3D(stlId);
+				if (window.stlModels) {
+					window.stlModels = window.stlModels.filter(function(m) { return m.id !== stlId; });
+				}
+			}
 			svgpaths.splice(i, 1);
 			removeSvgPath(id);
 			break;
@@ -206,11 +224,13 @@ function deleteSelected() {
 function addUndo(toolPathschanged = false, svgPathsChanged = false, originChanged = false, selectedIds = null) {
 
 	if (toolPathschanged || svgPathsChanged || originChanged) {
+		// Always capture current selection so undo/redo restores it
+		var currentSelectedIds = selectedIds || selectMgr.selectedPaths().map(p => p.id);
 		var project = {
 			toolpaths: toolPathschanged ? toolpaths : null,
 			svgpaths: svgPathsChanged ? svgpaths : null,
 			origin: originChanged ? origin : null,
-			selectedIds: selectedIds || null
+			selectedIds: currentSelectedIds.length > 0 ? currentSelectedIds : null
 		};
 		if (undoList.length < MAX_UNDO) {
 			undoList.push(JSON.stringify(project));
@@ -232,7 +252,8 @@ function doUndo() {
 	var currentProject = {
 		toolpaths: toolpaths,
 		svgpaths: svgpaths,
-		origin: origin
+		origin: origin,
+		selectedIds: selectMgr.selectedPaths().map(p => p.id)
 	};
 	if (redoList.length < MAX_UNDO) {
 		redoList.push(JSON.stringify(currentProject));
@@ -281,7 +302,7 @@ function doUndo() {
 			}
 		}
 	}
-	redraw();
+	onPathsChanged(null);
 }
 
 function doRedo() {
@@ -291,7 +312,8 @@ function doRedo() {
 	var currentProject = {
 		toolpaths: toolpaths,
 		svgpaths: svgpaths,
-		origin: origin
+		origin: origin,
+		selectedIds: selectMgr.selectedPaths().map(p => p.id)
 	};
 	if (undoList.length < MAX_UNDO) {
 		undoList.push(JSON.stringify(currentProject));
@@ -331,6 +353,41 @@ function doRedo() {
 			}
 			svgpathId++;
 		}
+		// Re-select paths if the redo entry stored selected IDs
+		if (project.selectedIds) {
+			for (var i = 0; i < svgpaths.length; i++) {
+				if (project.selectedIds.indexOf(svgpaths[i].id) >= 0) {
+					selectMgr.selectPath(svgpaths[i]);
+				}
+			}
+		}
+	}
+	onPathsChanged(null);
+}
+
+/**
+ * Central function called after svgpaths have been modified (drag, transform, undo, redo, load).
+ * Handles all side effects: STL sync, toolpath regeneration, transform handle refresh, redraw.
+ * @param {string[]} [changedPathIds] - IDs of paths that changed. If null, skips toolpath regeneration.
+ */
+function onPathsChanged(changedPathIds) {
+	// Regenerate toolpaths linked to changed paths
+	if (changedPathIds && changedPathIds.length > 0 && typeof regenerateToolpathsForPaths === 'function') {
+		regenerateToolpathsForPaths(changedPathIds);
+	}
+	// Sync STL models to match current svgpath positions
+	if (typeof window.syncSTLModels === 'function') window.syncSTLModels();
+	// Refresh transform handles if Move tool is active
+	var currentOp = cncController.operationManager.getCurrentOperation();
+	if (currentOp && currentOp.name === 'Move') {
+		if (currentOp.hasSelectedPaths()) {
+			currentOp.pivotCenter = null;
+			currentOp.setupTransformBox();
+			currentOp.recoverTotalsFromHistory();
+		} else {
+			currentOp.transformBox = null;
+			currentOp.pivotCenter = null;
+		}
 	}
 	redraw();
 }
@@ -343,7 +400,8 @@ async function saveProject() {
 		origin: origin,
 		tools: tools,
 		options: options,
-		gcodeProfile: currentGcodeProfile  // Save the full post-processor profile
+		gcodeProfile: currentGcodeProfile,  // Save the full post-processor profile
+		stlModels: typeof window.saveSTLModels === 'function' ? window.saveSTLModels() : null
 	};
 
 	var json = JSON.stringify(project);
@@ -468,6 +526,11 @@ function loadProject(json) {
 		toolpathId++;
 	}
 
+	// Restore STL models from saved data
+	if (project.stlModels && typeof window.loadSTLModels === 'function') {
+		window.loadSTLModels(project.stlModels);
+	}
+
 	cncController.setMode("Select");
 	redraw();
 }
@@ -492,6 +555,7 @@ function newProject() {
 	undoList = [];
 	clearToolPaths();
 	clearSvgPaths();
+	if (typeof window.clearSTLModels === 'function') window.clearSTLModels();
 	selectMgr.unselectAll();
 
 	// Center the workpiece in the canvas viewport

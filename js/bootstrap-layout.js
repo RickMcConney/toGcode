@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-07";
+var APP_VERSION = "Ver 2026-03-08";
 
 var mode = "Select";
 var options = [];
@@ -292,13 +292,50 @@ function loadTools() {
 // File input handlers
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
-fileInput.accept = '.svg';
+fileInput.accept = '.svg,.stl,.png,.jpg,.jpeg';
 fileInput.id = 'fileInput';
 fileInput.addEventListener('change', function (e) {
-    autoCloseToolProperties('SVG import');
+    autoCloseToolProperties('file import');
 
     var file = fileInput.files[0];
     currentFileName = file.name.split('.').shift();
+
+    var ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'stl') {
+        if (typeof window.importSTLFile === 'function') {
+            window.importSTLFile(file);
+        } else {
+            alert('STL import module not loaded yet. Please try again.');
+        }
+        fileInput.value = "";
+        return;
+    }
+
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+        var reader = new FileReader();
+        reader.onload = function (event) {
+            ImageTracer.imageToSVG(event.target.result, function(svgString) {
+                var cleanedSvg = removeBoundaryPaths(svgString);
+                parseSvgContent(cleanedSvg, file.name);
+                center();
+                redraw();
+            }, {
+                numberofcolors: 4,
+                colorsampling: 0,
+                pathomit: 40,
+                blurradius: 3,
+                blurdelta: 20,
+                ltres: 1,
+                qtres: 1,
+                strokewidth: 1,
+                linefilter: true,
+                rightangleenhance: true
+            });
+        };
+        reader.readAsDataURL(file);
+        fileInput.value = "";
+        return;
+    }
 
     var reader = new FileReader();
     reader.onload = function (event) {
@@ -550,6 +587,18 @@ function createContextMenu(event, config) {
 
     menu.innerHTML = itemsHtml;
     document.body.appendChild(menu);
+    lucide.createIcons();
+
+    // Adjust position after icons render so menu height is accurate
+    requestAnimationFrame(() => {
+        const menuRect = menu.getBoundingClientRect();
+        if (menuRect.bottom > window.innerHeight) {
+            menu.style.top = Math.max(0, window.innerHeight - menuRect.height - 4) + 'px';
+        }
+        if (menuRect.right > window.innerWidth) {
+            menu.style.left = Math.max(0, window.innerWidth - menuRect.width - 4) + 'px';
+        }
+    });
 
     // Add event handlers
     menu.addEventListener('click', function (e) {
@@ -571,8 +620,6 @@ function createContextMenu(event, config) {
         document.addEventListener('click', closeMenu);
         document.addEventListener('touchstart', closeMenu);
     }, 300);
-
-    lucide.createIcons();
 }
 
 /**
@@ -694,11 +741,8 @@ function createToolbar() {
                 <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="save" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Save Project">
                     <i data-lucide="save"></i>Save
                 </button>
-                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import SVG file">
-                    <i data-lucide="import"></i>Import SVG
-                </button>
-                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import-png" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import PNG file">
-                    <i data-lucide="image"></i>Import PNG
+                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import SVG, STL, or image files">
+                    <i data-lucide="import"></i>Import
                 </button>
                 <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Save G-code">
                     <i data-lucide="file-cog"></i>G-code
@@ -757,9 +801,6 @@ function createToolbar() {
             case 'import':
                 fileInput.click();
                 break;
-            case 'import-png':
-                pngFileInput.click();
-                break;
             case 'gcode':
                 doGcode();
                 break;
@@ -783,13 +824,8 @@ function createToolbar() {
 function createSidebar() {
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
-        <!-- Logo -->
-        <div class="text-center py-3 border-bottom">
-            <img src="icons/logo.svg" alt="toGcode Logo" style="width: 200px; max-width: 100%;">
-        </div>
-
-        <!-- Tab Navigation -->
-        <nav class="nav nav-tabs border-bottom" id="sidebar-tabs" role="tablist">
+        <!-- Tab Navigation (fixed at top) -->
+        <nav class="nav nav-tabs border-bottom flex-shrink-0" id="sidebar-tabs" role="tablist">
             <button class="nav-link active" id="draw-tools-tab" data-bs-toggle="tab" data-bs-target="#draw-tools" type="button" role="tab">
                 <i data-lucide="drafting-compass"></i> Draw Tools
             </button>
@@ -798,8 +834,8 @@ function createSidebar() {
             </button>
         </nav>
 
-        <!-- Tab Content -->
-        <div class="sidebar-tab-content h-100" id="sidebar-content">
+        <!-- Tab Content (scrollable) -->
+        <div class="sidebar-tab-content" id="sidebar-content" style="flex: 1; min-height: 0; overflow-y: auto;">
             <!-- Draw Tools Tab -->
             <div class="tab-pane fade show active h-100" id="draw-tools" role="tabpanel">
                 <div id="draw-tools-list" class="p-3">
@@ -840,6 +876,7 @@ function createSidebar() {
                         </div>
                     </div>
 
+
             </div>
 
             <!-- Operations Tab -->
@@ -860,6 +897,9 @@ function createSidebar() {
                     </div>
                     <div class="sidebar-item" data-operation="Surfacing" data-bs-toggle="tooltip" data-bs-placement="right" title="Surface the entire workpiece with parallel passes">
                         <i data-lucide="align-justify"></i>Surfacing
+                    </div>
+                    <div class="sidebar-item" data-operation="3dProfile" data-bs-toggle="tooltip" data-bs-placement="right" title="3D raster toolpath following STL surface with ball nose bit">
+                        <i data-lucide="mountain"></i>3D Profile
                     </div>
                 </div>
                 <!-- Operation Properties Editor (hidden by default) -->
@@ -1890,8 +1930,8 @@ function setupToolpathUpdateButton(operationName) {
             return;
         }
 
-        // For Surfacing, regenerate the toolpath from scratch (no source SVG paths)
-        if (operationName === 'Surfacing') {
+        // For Surfacing and 3dProfile, regenerate the toolpath from scratch (no source SVG paths)
+        if (operationName === 'Surfacing' || operationName === '3dProfile') {
             const originalTool = window.currentTool;
             window.currentTool = {
                 ...selectedTool,
@@ -1902,7 +1942,11 @@ function setupToolpathUpdateButton(operationName) {
             window.toolpathUpdateTargets = [...activeToolpaths];
 
             try {
-                doSurfacing();
+                if (operationName === '3dProfile' && typeof window.do3dProfile === 'function') {
+                    window.do3dProfile();
+                } else {
+                    doSurfacing();
+                }
             } finally {
                 window.currentTool = originalTool;
                 window.currentToolpathProperties = null;
@@ -2045,7 +2089,15 @@ function regenerateToolpathsForPaths(changedPathIds) {
         if (tp.svgIds && Array.isArray(tp.svgIds)) {
             return tp.svgIds.some(id => changedPathIds.includes(id));
         }
-        return tp.svgId && changedPathIds.includes(tp.svgId);
+        if (tp.svgId && changedPathIds.includes(tp.svgId)) return true;
+        // For 3dProfile toolpaths without svgId links, check if any changed path is an STL bounding box
+        if (tp.operation === '3dProfile' && !tp.svgId) {
+            return changedPathIds.some(id => {
+                const sp = svgpaths.find(p => p.id === id);
+                return sp && sp.creationProperties && sp.creationProperties.stlModelId;
+            });
+        }
+        return false;
     });
 
     if (affectedToolpaths.length === 0) return;
@@ -2066,8 +2118,14 @@ function regenerateToolpathsForPaths(changedPathIds) {
         if (toolpath.operation === 'Drill') continue;
 
         // Find source svgpaths
-        const sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
-        const sourcePaths = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean);
+        let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
+        let sourcePaths = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean);
+        // For unlinked 3dProfile, use the changed STL bounding box path
+        if (sourcePaths.length === 0 && toolpath.operation === '3dProfile') {
+            sourcePaths = changedPathIds
+                .map(id => svgpaths.find(p => p.id === id))
+                .filter(p => p && p.creationProperties && p.creationProperties.stlModelId);
+        }
         if (sourcePaths.length === 0) continue;
 
         // Select source paths
@@ -2109,6 +2167,17 @@ function regenerateToolpathsForPaths(changedPathIds) {
 function showToolpathPropertiesEditor(toolpath) {
     // Use centralized helper to set active state
     setActiveToolpaths([toolpath]);
+
+    // Auto-select the source svgpaths linked to this toolpath
+    const sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
+    if (sourceIds.length > 0) {
+        selectMgr.unselectAll();
+        sourceIds.forEach(id => {
+            const sp = svgpaths.find(p => p.id === id);
+            if (sp) selectMgr.selectPath(sp);
+        });
+        redraw();
+    }
 
     // Switch to operations tab
     const operationsTab = document.getElementById('operations-tab');
@@ -3602,6 +3671,13 @@ function handleOperationClick(operation) {
             doSurfacing();
             setMode("Select");
             break;
+        case '3dProfile':
+            if (typeof window.do3dProfile === 'function') {
+                window.do3dProfile();
+            }
+            selectMgr.unselectAll();
+            setMode("Select");
+            break;
         default:
             doSelect(operation);
             break;
@@ -3610,6 +3686,19 @@ function handleOperationClick(operation) {
 }
 
 function handlePathClick(pathId) {
+    // If a machining operation panel is open, replace selection and regenerate
+    if (currentOperationName && window.toolpathPropertiesManager &&
+        window.toolpathPropertiesManager.hasOperation(currentOperationName)) {
+        const path = svgpaths.find(p => p.id === pathId);
+        if (path) {
+            selectMgr.unselectAll();
+            selectMgr.selectPath(path);
+            generateToolpathForSelection();
+            redraw();
+            return;
+        }
+    }
+
     doSelect(pathId);
 
     // Check if this is a toolpath (starts with 'T')
@@ -3941,14 +4030,128 @@ function addOrReplaceSvgPath(oldId, id, name) {
 
     lucide.createIcons();
 }
+// STL sidebar management
+function addSTLToSidebar(model) {
+    const section = document.getElementById('stl-models-section');
+    if (!section) return;
+
+    // Remove existing entry for this model
+    const existing = section.querySelector(`[data-stl-id="${model.id}"]`);
+    if (existing) existing.remove();
+
+    const bb = model.bbox3d;
+    const w = (bb.max.x - bb.min.x).toFixed(1);
+    const h = (bb.max.y - bb.min.y).toFixed(1);
+    const d = (bb.max.z - bb.min.z).toFixed(1);
+
+    const item = document.createElement('div');
+    item.className = 'sidebar-item';
+    item.dataset.stlId = model.id;
+    item.innerHTML = `
+        <i data-lucide="mountain"></i>
+        <span class="flex-grow-1">${model.name}</span>
+        <small class="text-muted ms-1">${w}×${h}×${d}</small>
+    `;
+    item.style.display = 'flex';
+    item.style.alignItems = 'center';
+
+    // Right-click context menu
+    item.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        showSTLContextMenu(e, model.id);
+    });
+
+    section.appendChild(item);
+    lucide.createIcons();
+}
+
+function removeSTLFromSidebar(modelId) {
+    const section = document.getElementById('stl-models-section');
+    if (!section) return;
+    const item = section.querySelector(`[data-stl-id="${modelId}"]`);
+    if (item) item.remove();
+}
+
+function refreshSTLSidebar() {
+    const section = document.getElementById('stl-models-section');
+    if (!section) return;
+    section.innerHTML = '';
+    if (window.stlModels) {
+        for (const model of window.stlModels) {
+            addSTLToSidebar(model);
+        }
+    }
+}
+
+function showSTLContextMenu(event, stlId) {
+    const model = window.stlModels ? window.stlModels.find(m => m.id === stlId) : null;
+    if (!model) return;
+
+    const items = [];
+    if (model.visible) {
+        items.push({ label: 'Hide', icon: 'eye-off', action: 'hide' });
+    } else {
+        items.push({ label: 'Show', icon: 'eye', action: 'show' });
+    }
+    items.push({ divider: true });
+    items.push({ label: 'Delete', icon: 'trash-2', action: 'delete', danger: true });
+
+    createContextMenu(event, {
+        items,
+        data: stlId,
+        onAction: function(action, stlId) {
+            switch (action) {
+                case 'show':
+                    setSTLVisibility(stlId, true);
+                    break;
+                case 'hide':
+                    setSTLVisibility(stlId, false);
+                    break;
+                case 'delete':
+                    deleteSTLModel(stlId);
+                    break;
+            }
+        }
+    });
+}
+
+function setSTLVisibility(stlId, visible) {
+    if (typeof window.updateSTLMeshVisibility3D === 'function') {
+        window.updateSTLMeshVisibility3D(stlId, visible);
+    }
+    const model = window.stlModels ? window.stlModels.find(m => m.id === stlId) : null;
+    if (model) model.visible = visible;
+
+    // Update sidebar item opacity
+    const section = document.getElementById('stl-models-section');
+    if (section) {
+        const item = section.querySelector(`[data-stl-id="${stlId}"]`);
+        if (item) item.style.opacity = visible ? '1' : '0.4';
+    }
+    redraw();
+}
+
+function deleteSTLModel(stlId) {
+    if (typeof window.removeSTLMesh3D === 'function') {
+        window.removeSTLMesh3D(stlId);
+    }
+    if (window.stlModels) {
+        window.stlModels = window.stlModels.filter(m => m.id !== stlId);
+    }
+    removeSTLFromSidebar(stlId);
+    redraw();
+}
+
 // Sidebar management functions (maintaining compatibility with existing code)
 function addSvgPath(id, name) {
     const section = document.getElementById('svg-paths-section');
     const item = document.createElement('div');
     item.className = 'sidebar-item';
     item.dataset.pathId = id;
+    const sp = svgpaths.find(p => p.id === id);
+    const icon = (sp && sp.creationTool === 'STL') ? 'file-box' : getPathIcon(name);
     item.innerHTML = `
-        <i data-lucide="${getPathIcon(name)}"></i>${name}
+        <i data-lucide="${icon}"></i>${name}
     `;
     section.appendChild(item);
     lucide.createIcons();
@@ -4139,6 +4342,7 @@ function addSvgGroup(groupId, groupName, paths) {
 // Get operation priority for sorting (same as cnc.js)
 function getOperationPriority(operation) {
     if (operation === 'Surfacing') return 0;
+    if (operation === '3dProfile') return 0;
     if (operation === 'Drill') return 1;
     if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
     if (operation === 'Pocket') return 3;
@@ -4333,6 +4537,7 @@ function getOperationIcon(operation) {
         case 'VCarve': return 'star';
         case 'Drill': return 'circle-plus';
         case 'Surfacing': return 'align-justify';
+        case '3dProfile': return 'mountain';
         default: return 'circle';
     }
 }

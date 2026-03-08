@@ -253,6 +253,7 @@ function initThree() {
   // Setup scene with brighter background
   scene = new THREE.Scene();
   scene.background = new THREE.Color(CONFIG.SCENE_BACKGROUND_COLOR);
+  window.threeScene = scene;
 
   // Setup camera - perspective view from above and negative Y
   camera = new THREE.PerspectiveCamera(CONFIG.CAMERA_FOV, width / height, CONFIG.CAMERA_NEAR, CONFIG.CAMERA_FAR);
@@ -832,6 +833,7 @@ function updateGridSize3D(gridSizeMM) {
 }
 
 // Export functions for external access
+window.threeScene = null; // Will be set after init
 window.updateGridSize3D = updateGridSize3D;
 
 function updateWorkpiece3D(width, length, thickness, originPosition, woodSpecies) {

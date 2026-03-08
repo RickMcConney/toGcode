@@ -387,13 +387,13 @@ class Select extends Operation {
             this.selectBox = null;
         }
 
-        // Regenerate toolpaths linked to dragged paths
-        if (wasDragging && typeof regenerateToolpathsForPaths === 'function') {
+        // Notify that paths changed (handles toolpath regeneration, STL sync, etc.)
+        if (wasDragging && typeof onPathsChanged === 'function') {
             const draggedIds = this.selectedPaths().map(p => p.id);
             if (this.dragPath && draggedIds.length === 0) {
                 draggedIds.push(this.dragPath.id);
             }
-            regenerateToolpathsForPaths(draggedIds);
+            onPathsChanged(draggedIds);
         }
 
         // Clear drag path references

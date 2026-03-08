@@ -35,6 +35,14 @@ class ToolpathPropertiesManager {
                 defaultStepover: 75,
                 applyButtonLabel: 'Apply Surfacing',
                 applyButtonDescription: 'Generates a surfacing toolpath over the entire workpiece.'
+            },
+            '3dProfile': {
+                compatibleBits: ['Ball Nose'],
+                fields: ['tool', 'depth', 'step', 'stepover', 'angle'],
+                description: 'Raster toolpath following STL surface with ball nose bit',
+                defaultStepover: 15,
+                applyButtonLabel: 'Generate 3D Profile',
+                applyButtonDescription: 'Generates raster toolpaths that follow the STL surface.'
             }
 
         };

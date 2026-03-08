@@ -705,6 +705,76 @@ function _generateSurfacingOperationGcode(toolpath, profile, useInches, settings
 	return output;
 }
 
+// HELPER FUNCTION: Process 3D profile operations
+// Each raster line has per-point Z values (in mm) for surface-following cuts.
+function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, safeHeight } = settings;
+	var paths = toolpath.paths;
+
+	var comment = formatComment(toolpath.operation + ' ' + toolpath.id, profile);
+	if (comment) output += comment + '\n';
+
+	var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+	var feedZ  = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+	var zCoordSafe = toGcodeUnitsZ(safeHeight, useInches);
+
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].tpath;
+		if (!path || path.length === 0) continue;
+
+		var start = toGcodeUnits(path[0].x, path[0].y, useInches);
+		var startZ = toGcodeUnitsZ(path[0].z, useInches);
+
+		// Retract to safe height
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ }) + '\n';
+		// Rapid to start XY
+		output += applyGcodeTemplate(profile.rapidTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
+		// Plunge to first point Z
+		output += applyGcodeTemplate(profile.cutTemplate, { z: startZ, f: feedZ }) + '\n';
+
+		// Feed along raster line with varying Z.
+		// Simplify: skip intermediate points where Z isn't changing (flat sections).
+		// We buffer the previous point and only emit it when the Z slope changes.
+		var prevP = start;
+		var prevZ = startZ;
+		var pendingP = null;
+		var pendingZ = null;
+
+		for (var j = 1; j < path.length; j++) {
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			var pz = toGcodeUnitsZ(path[j].z, useInches);
+
+			if (pendingP !== null) {
+				// Check if prev→pending→current are colinear in Z
+				// (all three have the same Z, or the Z slope is consistent)
+				var dz1 = pendingZ - prevZ;
+				var dz2 = pz - pendingZ;
+				if (Math.abs(dz1 - dz2) < 0.005) {
+					// Colinear — skip the pending point, extend the segment
+					pendingP = p;
+					pendingZ = pz;
+					continue;
+				}
+				// Slope changed — emit the pending point
+				output += applyGcodeTemplate(profile.cutTemplate, { x: pendingP.x, y: pendingP.y, z: pendingZ, f: feedXY }) + '\n';
+				prevP = pendingP;
+				prevZ = pendingZ;
+			}
+
+			pendingP = p;
+			pendingZ = pz;
+		}
+
+		// Emit the last pending point
+		if (pendingP !== null) {
+			output += applyGcodeTemplate(profile.cutTemplate, { x: pendingP.x, y: pendingP.y, z: pendingZ, f: feedXY }) + '\n';
+		}
+	}
+
+	return output;
+}
+
 // HELPER FUNCTION: Process pocket operations
 function _generatePocketOperationGcode(toolpath, profile, useInches, settings) {
 	var output = "";
@@ -1072,6 +1142,9 @@ function toGcode() {
 		}
 		else if (toolpath.operation === 'VCarve' || toolpath.operation === 'VCarve In' || toolpath.operation === 'VCarve Out') {
 			output += _generateVcarveOperationGcode(toolpath, profile, useInches, settings);
+		}
+		else if (toolpath.operation === '3dProfile') {
+			output += _generate3dProfileOperationGcode(toolpath, profile, useInches, settings);
 		}
 		else {
 			// Profile operations (Inside, Outside, Center, etc.)

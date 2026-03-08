@@ -441,6 +441,8 @@ html, body {
 /* Sidebar tab content styling */
 .sidebar-tab-content {
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
 }
 
 /* Canvas tab panes only - sidebar tab panes should NOT have flex layout */
