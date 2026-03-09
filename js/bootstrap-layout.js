@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-08";
+var APP_VERSION = "Ver 2026-03-09";
 
 var mode = "Select";
 var options = [];
@@ -2517,6 +2517,13 @@ function create3DSimulationControls() {
             </div>
 
             <div class="col-auto d-flex align-items-center gap-2">
+                <label class="form-check-label small" style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" class="form-check-input" id="3d-show-stl" checked style="margin: 0; cursor: pointer;">
+                    <span>STL Model</span>
+                </label>
+            </div>
+
+            <div class="col-auto d-flex align-items-center gap-2">
             <hspacer style="width: 1px; height: 20px; margin: 0 8px; background-color: var(--bs-secondary);"></hspacer>
                 <span class="small">Progress:</span>
                 <input type="range" class="form-range form-range-sm" id="3d-simulation-progress" min="0" max="1" step="1" value="0" style="width: 150px;">
@@ -2593,6 +2600,12 @@ function create3DSimulationControls() {
     document.getElementById('3d-show-workpiece').addEventListener('change', function (e) {
         if (typeof setWorkpieceVisibility3D === 'function') {
             setWorkpieceVisibility3D(e.target.checked);
+        }
+    });
+
+    document.getElementById('3d-show-stl').addEventListener('change', function (e) {
+        if (typeof setSTLVisibility3D === 'function') {
+            setSTLVisibility3D(e.target.checked);
         }
     });
 }

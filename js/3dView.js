@@ -2139,8 +2139,10 @@ class ToolpathAnimation {
       });
     }
 
-    // Add all parsed movements
-    movements.push(...parsedMovements);
+    // Add all parsed movements (avoid spread to prevent stack overflow with large arrays)
+    for (let i = 0; i < parsedMovements.length; i++) {
+      movements.push(parsedMovements[i]);
+    }
 
     // Build flattened path for cutting movements only (CUT=1 means cutting)
     for (let i = 0; i < parsedMovements.length; i++) {

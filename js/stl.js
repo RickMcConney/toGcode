@@ -114,23 +114,26 @@ function positionSTLModel(model) {
     const wpCenterY = wpHeight / 2;
 
     // Offset to center the scaled STL on the workpiece
+    // Y is flipped (negated) because STL Y-up → canvas/world Y-down
     const offsetX = wpCenterX - stlCenterX * scale;
-    const offsetY = wpCenterY - stlCenterY * scale;
+    const offsetY = wpCenterY - (-stlCenterY) * scale; // flip Y
     // Place top of STL at Z=0
     const offsetZ = -bb.max.z * scale;
 
-    model.transform = { offsetX, offsetY, offsetZ, scale };
+    model.transform = { offsetX, offsetY, offsetZ, scale, scaleY: -scale, scaleZ: scale };
 
-    // Update bounding box to reflect positioned model
+    // Update bounding box to reflect positioned model (with Y flipped)
+    const y1 = -bb.max.y * scale + offsetY; // flipped: STL max.y → min in world
+    const y2 = -bb.min.y * scale + offsetY; // flipped: STL min.y → max in world
     model.bbox3d = {
         min: {
             x: bb.min.x * scale + offsetX,
-            y: bb.min.y * scale + offsetY,
+            y: Math.min(y1, y2),
             z: bb.min.z * scale + offsetZ
         },
         max: {
             x: bb.max.x * scale + offsetX,
-            y: bb.max.y * scale + offsetY,
+            y: Math.max(y1, y2),
             z: bb.max.z * scale + offsetZ
         }
     };
@@ -220,26 +223,30 @@ function syncSTLFromSvgPath(model) {
 
     // Derive scale (uniform — use average of X and Y)
     const scaleX = curW / origW;
-    const scaleY = curH / origH;
-    const scale = (scaleX + scaleY) / 2;
+    const scaleYabs = curH / origH;
+    const scale = (scaleX + scaleYabs) / 2;
 
     // Derive offset: position the STL so its scaled bbox matches the svgpath bbox
+    // Y is flipped: STL max.y maps to world min.y (curMinY)
     const offsetX = curMinX - origBB.min.x * scale;
-    const offsetY = curMinY - origBB.min.y * scale;
+    const offsetY = curMinY - (-origBB.max.y) * scale; // flip: -max.y * scale + offsetY = curMinY
 
     // Get workpiece thickness for Z positioning
     const getOpt = window.getOption || (() => undefined);
     const wpDepth = getOpt("workpieceThickness") || 20;
 
+    // Cap Z depth to workpiece thickness
     const origDepth = origBB.max.z - origBB.min.z;
-    const zScale = Math.min(wpDepth / (origDepth * scale), 1);
-    const offsetZ = -origBB.max.z * scale;
+    const scaledDepth = origDepth * scale;
+    const zScale = scaledDepth > wpDepth ? wpDepth / scaledDepth : 1;
+    const effectiveZScale = scale * zScale;
+    const offsetZ = -origBB.max.z * effectiveZScale;
 
-    // Update model transform
-    model.transform = { offsetX, offsetY, offsetZ, scale };
+    // Update model transform (scaleY is negative to flip Y axis, scaleZ may differ)
+    model.transform = { offsetX, offsetY, offsetZ, scale, scaleY: -scale, scaleZ: effectiveZScale };
     model.bbox3d = {
-        min: { x: curMinX, y: curMinY, z: origBB.min.z * scale + offsetZ },
-        max: { x: curMaxX, y: curMaxY, z: origBB.max.z * scale + offsetZ }
+        min: { x: curMinX, y: curMinY, z: origBB.min.z * effectiveZScale + offsetZ },
+        max: { x: curMaxX, y: curMaxY, z: origBB.max.z * effectiveZScale + offsetZ }
     };
 }
 
@@ -289,11 +296,13 @@ function addSTLMesh3D(model) {
         flatShading: false
     });
 
-    // Clone geometry and bake in the CNC positioning transform
+    // Clone geometry and bake in the CNC positioning transform (Y flipped, Z may be capped)
     const geom = model.geometry.clone();
     const t = model.transform;
+    const sy = t.scaleY !== undefined ? t.scaleY : t.scale;
+    const sz = t.scaleZ !== undefined ? t.scaleZ : t.scale;
     const matrix = new THREE.Matrix4();
-    matrix.makeScale(t.scale, t.scale, t.scale);
+    matrix.makeScale(t.scale, sy, sz);
     matrix.setPosition(t.offsetX, t.offsetY, t.offsetZ);
     geom.applyMatrix4(matrix);
 
@@ -316,8 +325,10 @@ function addSTLMesh3D(model) {
     if (originPos.includes('bottom')) originY = wpL;
     else if (originPos.includes('middle')) originY = wpL / 2;
 
-    // Shift STL from workpiece-absolute to origin-relative coords
-    mesh.position.set(-originX, -originY, 0);
+    // The geometry has Y flipped (scaleY = -scale) for the 2D canvas.
+    // The 3D view uses G-code coords where Y is not flipped, so mirror Y back.
+    mesh.scale.set(1, -1, 1);
+    mesh.position.set(-originX, originY, 0);
 
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -331,6 +342,20 @@ function addSTLMesh3D(model) {
         window.requestThreeRender();
     }
 }
+
+/**
+ * Show/hide all STL model meshes in the 3D view.
+ */
+window.setSTLVisibility3D = function(visible) {
+    for (const model of window.stlModels) {
+        if (model.mesh) {
+            model.mesh.visible = visible;
+        }
+    }
+    if (typeof window.requestThreeRender === 'function') {
+        window.requestThreeRender();
+    }
+};
 
 /**
  * Add any STL models that were imported before the 3D scene was ready.
@@ -509,20 +534,22 @@ function generateHeightMap(model, resolutionMM) {
     const geom = model.geometry;
     const pos = geom.attributes.position.array;
     const t = model.transform;
+    const sy = t.scaleY !== undefined ? t.scaleY : t.scale; // Y flip support
+    const sz = t.scaleZ !== undefined ? t.scaleZ : t.scale; // Z may differ if capped to workpiece
     const triCount = pos.length / 9; // 3 vertices * 3 components, non-indexed
 
     for (let tri = 0; tri < triCount; tri++) {
         const base = tri * 9;
-        // Transform vertices to CNC mm coordinates
+        // Transform vertices to CNC mm coordinates (Y flipped)
         const v0x = pos[base]     * t.scale + t.offsetX;
-        const v0y = pos[base + 1] * t.scale + t.offsetY;
-        const v0z = pos[base + 2] * t.scale + t.offsetZ;
+        const v0y = pos[base + 1] * sy + t.offsetY;
+        const v0z = pos[base + 2] * sz + t.offsetZ;
         const v1x = pos[base + 3] * t.scale + t.offsetX;
-        const v1y = pos[base + 4] * t.scale + t.offsetY;
-        const v1z = pos[base + 5] * t.scale + t.offsetZ;
+        const v1y = pos[base + 4] * sy + t.offsetY;
+        const v1z = pos[base + 5] * sz + t.offsetZ;
         const v2x = pos[base + 6] * t.scale + t.offsetX;
-        const v2y = pos[base + 7] * t.scale + t.offsetY;
-        const v2z = pos[base + 8] * t.scale + t.offsetZ;
+        const v2y = pos[base + 7] * sy + t.offsetY;
+        const v2z = pos[base + 8] * sz + t.offsetZ;
 
         // Bounding box of triangle in grid coordinates
         const minIx = Math.max(0, Math.floor((Math.min(v0x, v1x, v2x) - bb.min.x) / cellSize));
@@ -741,6 +768,248 @@ function dropCutter(hm, xMM, yMM, radiusMM) {
     return maxZc === -Infinity ? NaN : maxZc;
 }
 
+// ============================================================
+// Contour (Waterline) Toolpath Generation
+// ============================================================
+
+/**
+ * Slice the STL triangle mesh at a given Z level to find contour loops.
+ * Works directly on the 3D triangles (not the height map) so it correctly
+ * finds cross-sections at any depth — same approach as 3D printing slicers.
+ *
+ * Returns an array of closed loops, each loop is an array of {x, y} points in mm.
+ */
+function extractContourLoops(model, zLevel) {
+    const pos = model.geometry.attributes.position.array;
+    const t = model.transform;
+    const sy = t.scaleY !== undefined ? t.scaleY : t.scale; // Y flip support
+    const sz = t.scaleZ !== undefined ? t.scaleZ : t.scale; // Z may differ if capped to workpiece
+    const triCount = pos.length / 9;
+
+    // Slightly perturb Z to avoid exact vertex-on-plane degeneracies
+    const eps = 1e-6;
+    const z = zLevel + eps;
+
+    // Step 1: Find all line segments where triangles intersect the Z plane
+    const segments = [];
+
+    for (let tri = 0; tri < triCount; tri++) {
+        const base = tri * 9;
+        // Transform vertices to CNC mm coordinates (Y flipped)
+        const ax = pos[base]     * t.scale + t.offsetX;
+        const ay = pos[base + 1] * sy + t.offsetY;
+        const az = pos[base + 2] * sz + t.offsetZ;
+        const bx = pos[base + 3] * t.scale + t.offsetX;
+        const by = pos[base + 4] * sy + t.offsetY;
+        const bz = pos[base + 5] * sz + t.offsetZ;
+        const cx = pos[base + 6] * t.scale + t.offsetX;
+        const cy = pos[base + 7] * sy + t.offsetY;
+        const cz = pos[base + 8] * sz + t.offsetZ;
+
+        // Classify vertices relative to the Z plane
+        const aAbove = az >= z, bAbove = bz >= z, cAbove = cz >= z;
+
+        // Skip if all on same side
+        if (aAbove === bAbove && bAbove === cAbove) continue;
+
+        // Find intersection points on edges that cross the Z plane
+        const pts = [];
+        const edges = [[ax,ay,az, bx,by,bz], [bx,by,bz, cx,cy,cz], [cx,cy,cz, ax,ay,az]];
+        const aboves = [[aAbove, bAbove], [bAbove, cAbove], [cAbove, aAbove]];
+
+        for (let e = 0; e < 3; e++) {
+            if (aboves[e][0] !== aboves[e][1]) {
+                const [x1,y1,z1, x2,y2,z2] = edges[e];
+                const tVal = (z - z1) / (z2 - z1);
+                pts.push({
+                    x: x1 + tVal * (x2 - x1),
+                    y: y1 + tVal * (y2 - y1)
+                });
+            }
+        }
+
+        if (pts.length >= 2) {
+            segments.push([pts[0], pts[1]]);
+        }
+    }
+
+    if (segments.length === 0) {
+        console.log('Slice at Z=' + zLevel.toFixed(2) + 'mm: 0 segments');
+        return [];
+    }
+
+    // Step 2: Chain segments into closed loops by matching endpoints.
+    // STL files have non-indexed geometry (duplicated vertices per triangle),
+    // so shared edge intersections may not be bitwise identical.
+    // Use a coarse spatial grid (~0.01mm) and check neighboring cells.
+    const gridSize = 0.01; // mm — coarse enough to absorb STL float imprecision
+
+    function hashKey(x, y) {
+        return (Math.round(x / gridSize)) + ',' + (Math.round(y / gridSize));
+    }
+
+    // Build adjacency map: gridKey -> [{segIdx, endIdx(0 or 1), x, y}]
+    const endpointMap = {};
+    for (let i = 0; i < segments.length; i++) {
+        for (let e = 0; e < 2; e++) {
+            const p = segments[i][e];
+            const key = hashKey(p.x, p.y);
+            if (!endpointMap[key]) endpointMap[key] = [];
+            endpointMap[key].push({ segIdx: i, endIdx: e, x: p.x, y: p.y });
+        }
+    }
+
+    // Find the closest unvisited matching endpoint, checking neighboring grid cells
+    const used = new Uint8Array(segments.length);
+    const tolSq = (gridSize * 2) * (gridSize * 2);
+
+    function findNearest(px, py, excludeIdx) {
+        const gx = Math.round(px / gridSize);
+        const gy = Math.round(py / gridSize);
+        let bestDist = tolSq;
+        let bestEntry = null;
+
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const key = (gx + dx) + ',' + (gy + dy);
+                const bucket = endpointMap[key];
+                if (!bucket) continue;
+                for (const entry of bucket) {
+                    if (entry.segIdx === excludeIdx || used[entry.segIdx]) continue;
+                    const ex = entry.x - px, ey = entry.y - py;
+                    const d = ex * ex + ey * ey;
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestEntry = entry;
+                    }
+                }
+            }
+        }
+        return bestEntry;
+    }
+
+    // Trace loops
+    const loops = [];
+
+    for (let startIdx = 0; startIdx < segments.length; startIdx++) {
+        if (used[startIdx]) continue;
+
+        const loop = [];
+        let curIdx = startIdx;
+        // Track which end we exit from (always traverse [0] → [1])
+        // On first segment, just use it as-is
+        let exitPt = null;
+
+        while (true) {
+            used[curIdx] = 1;
+            const seg = segments[curIdx];
+
+            // Determine traversal direction: the entry point should be close to exitPt
+            let p0, p1;
+            if (exitPt !== null) {
+                const d0x = seg[0].x - exitPt.x, d0y = seg[0].y - exitPt.y;
+                const d1x = seg[1].x - exitPt.x, d1y = seg[1].y - exitPt.y;
+                if (d0x * d0x + d0y * d0y <= d1x * d1x + d1y * d1y) {
+                    p0 = seg[0]; p1 = seg[1]; // enter at [0], exit at [1]
+                } else {
+                    p0 = seg[1]; p1 = seg[0]; // enter at [1], exit at [0]
+                }
+            } else {
+                p0 = seg[0]; p1 = seg[1];
+            }
+
+            loop.push(p1);
+            exitPt = p1;
+
+            // Find next segment connected at exitPt
+            const next = findNearest(exitPt.x, exitPt.y, curIdx);
+            if (!next) break;
+            curIdx = next.segIdx;
+        }
+
+        if (loop.length >= 3) {
+            loops.push(loop);
+        }
+    }
+
+    console.log('Slice at Z=' + zLevel.toFixed(2) + 'mm:', segments.length, 'segments →', loops.length, 'loops');
+    return loops;
+}
+
+/**
+ * Compute bounding box of a 2D loop in mm coordinates.
+ */
+function loopBBox(loop) {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const p of loop) {
+        if (p.x < minx) minx = p.x;
+        if (p.y < miny) miny = p.y;
+        if (p.x > maxx) maxx = p.x;
+        if (p.y > maxy) maxy = p.y;
+    }
+    return { minx, miny, maxx, maxy };
+}
+
+/**
+ * Point-in-polygon test (ray casting) for a 2D loop in mm coordinates.
+ */
+function pointInLoop(px, py, loop) {
+    let inside = false;
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+        const xi = loop[i].x, yi = loop[i].y;
+        const xj = loop[j].x, yj = loop[j].y;
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+/**
+ * Offset contour loops using ClipperLib (same library used by profile/pocket tools).
+ * Takes loops in mm coordinates, converts to world units for Clipper, offsets, converts back.
+ *
+ * Outer contours (CCW, positive area) are offset outward by +toolRadius so the tool
+ * stays outside the part boundary. Inner contours (CW, negative area — carved features)
+ * are offset inward by -toolRadius so the tool enters the carved area.
+ *
+ * Returns array of offset loops (each loop is array of {x, y} in mm).
+ */
+function offsetContourLoops(loops, offsetMM) {
+    const vs = window.viewScale || 10;
+    const allResults = [];
+
+    for (const loop of loops) {
+        if (loop.length < 3) continue;
+
+        // Convert mm to world coordinates for ClipperLib
+        const worldPath = loop.map(p => ({ x: Math.round(p.x * vs), y: Math.round(p.y * vs) }));
+
+        // Determine winding direction via signed area.
+        // Note: Y axis is flipped (scaleY < 0) which reverses winding, so:
+        //   Negative area = outer boundary → offset outward (+R)
+        //   Positive area = inner/carved feature → offset inward (-R)
+        const area = ClipperLib.Clipper.Area(worldPath);
+        const delta = area < 0 ? offsetMM * vs : -offsetMM * vs;
+
+        const co = new ClipperLib.ClipperOffset(20, 0.25);
+        co.AddPath(worldPath, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+        const sol = [];
+        co.Execute(sol, delta);
+
+        for (const sp of sol) {
+            if (sp.length < 3) continue;
+            // Convert back from world to mm
+            const mmPath = sp.map(p => ({ x: p.x / vs, y: p.y / vs }));
+            // Close the path
+            mmPath.push({ x: mmPath[0].x, y: mmPath[0].y });
+            allResults.push(mmPath);
+        }
+    }
+
+    return allResults;
+}
+
 /**
  * Generate 3D profile raster toolpaths over the STL surface.
  * Uses the selected svgpath(s) with STL references, or falls back to first visible model.
@@ -781,6 +1050,7 @@ window.do3dProfile = function() {
     }
 
     const props = window.currentToolpathProperties || {};
+    const strategy = props.strategy || 'raster';
     const toolDiameter = tool.diameter; // mm
     const toolRadius = toolDiameter / 2;
     const stepoverPct = tool.stepover || props.stepover || 15;
@@ -788,118 +1058,233 @@ window.do3dProfile = function() {
     const angle = props.angle || 0; // degrees
     const maxDepth = props.depth || Math.abs(hm.minZ); // mm, total depth
     const stepDown = props.step || maxDepth; // mm per pass
-    // Sample interval along raster lines: use height map resolution
-    // or half the tool diameter, whichever is larger (avoids excessive points)
-    const sampleInterval = Math.max(hm.cellSize, toolDiameter / 2); // mm
-
-    if (stepover <= 0 || sampleInterval <= 0) {
-        if (typeof window.notify === 'function') window.notify('Invalid stepover or tool diameter', 'error');
-        return;
-    }
+    // Rest machining: previous tool diameter (0 = no rest machining)
+    const restToolDiameter = props.restToolDiameter || 0;
+    const restToolRadius = restToolDiameter / 2;
+    const restTolerance = 0.1; // mm — skip points where finishing tool is within this of stock surface
 
     const bb = model.bbox3d;
-    const angleRad = angle * Math.PI / 180;
-    const cosA = Math.cos(angleRad);
-    const sinA = Math.sin(angleRad);
-
-    // Center of the STL bounding box in mm
-    const cx = (bb.min.x + bb.max.x) / 2;
-    const cy = (bb.min.y + bb.max.y) / 2;
-
-    // Expand bounding box by tool radius so the tool edge reaches the STL boundary
-    const expandedBB = {
-        minX: bb.min.x - toolRadius,
-        maxX: bb.max.x + toolRadius,
-        minY: bb.min.y - toolRadius,
-        maxY: bb.max.y + toolRadius
-    };
-
-    // Rotate the bounding box corners by -angle to find the extent in rotated frame
-    const corners = [
-        { x: expandedBB.minX, y: expandedBB.minY },
-        { x: expandedBB.maxX, y: expandedBB.minY },
-        { x: expandedBB.maxX, y: expandedBB.maxY },
-        { x: expandedBB.minX, y: expandedBB.maxY }
-    ];
-
-    const rotCorners = corners.map(p => ({
-        x: cosA * (p.x - cx) + sinA * (p.y - cy) + cx,
-        y: -sinA * (p.x - cx) + cosA * (p.y - cy) + cy
-    }));
-
-    const rMinX = Math.min(...rotCorners.map(p => p.x));
-    const rMaxX = Math.max(...rotCorners.map(p => p.x));
-    const rMinY = Math.min(...rotCorners.map(p => p.y));
-    const rMaxY = Math.max(...rotCorners.map(p => p.y));
-
-    // Determine number of depth passes
     const numPasses = Math.max(1, Math.ceil(maxDepth / stepDown));
-
     const allPaths = [];
-    let lineIndex = 0;
 
-    for (let pass = 0; pass < numPasses; pass++) {
-        // Z clamp for this pass: how deep we're allowed to go (negative value)
-        // Final pass has no clamp (follows actual surface)
-        const passMinZ = (pass < numPasses - 1) ? -(pass + 1) * stepDown : -maxDepth;
+    if (strategy === 'contour') {
+        // ---- Contour (Waterline) strategy ----
+        // At each Z level, extract contour loops. Each loop that is NEW at this
+        // Z (its outline extends beyond the previous Z's contours into uncut stock)
+        // needs step-down passes from Z=0 to this Z. Loops that existed at the
+        // previous Z only need one pass at this Z (the previous pass already
+        // cleared to the previous Z depth).
+        //
+        // All paths at the same cut-Z are grouped together before stepping deeper.
 
-        for (let y = rMinY; y <= rMaxY; y += stepover) {
-            const linePts = [];
+        // Phase 1: Extract contours at each Z, tag each loop with its start Z
+        const loopEntries = []; // { loop, startZ, targetZ }
+        let prevOffsetLoops = [];
 
-            for (let x = rMinX; x <= rMaxX; x += sampleInterval) {
-                // Rotate back to world coordinates
-                const worldX = cosA * (x - cx) - sinA * (y - cy) + cx;
-                const worldY = sinA * (x - cx) + cosA * (y - cy) + cy;
+        for (let pass = 0; pass < numPasses; pass++) {
+            const zLevel = Math.max(-(pass + 1) * stepDown, -maxDepth);
+            const rawLoops = extractContourLoops(model, zLevel);
+            if (rawLoops.length === 0) continue;
 
-                // Drop cutter to find tool center Z
-                let zc = dropCutter(hm, worldX, worldY, toolRadius);
+            const offsetLoops = offsetContourLoops(rawLoops, toolRadius);
+            const useLoops = (offsetLoops.length > 0 ? offsetLoops : rawLoops)
+                .filter(l => l.length >= 3);
+            if (useLoops.length === 0) continue;
 
-                if (isNaN(zc)) {
-                    // Outside STL surface — if we have points, end this segment
-                    if (linePts.length > 0) {
-                        // Convert to world units for the toolpath
-                        const tpath = linePts.map(p => ({
-                            x: p.x * vs,
-                            y: p.y * vs,
-                            z: p.z // z stays in mm
-                        }));
-                        allPaths.push({ tpath: tpath });
-                        linePts.length = 0;
-                    }
-                    continue;
+            console.log('Pass', pass + 1, 'Z=' + zLevel.toFixed(2) + 'mm:', useLoops.length, 'contour loops');
+
+            for (const loop of useLoops) {
+                // Check if this loop's outline is significantly larger than
+                // any previous loop. Compare bounding boxes — if a previous
+                // loop has a similar bbox, the shape hasn't grown and the
+                // previous pass already cleared stock along this path.
+                const lbb = loopBBox(loop);
+                let hasNewArea = prevOffsetLoops.length === 0;
+                if (!hasNewArea) {
+                    // Check if any previous loop has a matching bbox
+                    // Use tight tolerance so even small growth is detected as new area
+                    const tolerance = 0.5; // mm
+                    const matched = prevOffsetLoops.some(pl => {
+                        const pbb = loopBBox(pl);
+                        return Math.abs(lbb.minx - pbb.minx) < tolerance &&
+                               Math.abs(lbb.miny - pbb.miny) < tolerance &&
+                               Math.abs(lbb.maxx - pbb.maxx) < tolerance &&
+                               Math.abs(lbb.maxy - pbb.maxy) < tolerance;
+                    });
+                    hasNewArea = !matched;
                 }
 
-                // Tool tip Z = tool center Z - radius
-                let tipZ = zc - toolRadius;
-
-                // Clamp to pass depth
-                tipZ = Math.max(tipZ, passMinZ);
-
-                linePts.push({ x: worldX, y: worldY, z: tipZ });
+                // New/grown loops need step-downs from Z=0; same-shape loops from previous Z
+                const prevZ = pass > 0 ? Math.max(-pass * stepDown, -maxDepth) : 0;
+                const startZ = hasNewArea ? 0 : prevZ;
+                loopEntries.push({ loop, startZ, targetZ: zLevel });
             }
 
-            // Flush remaining points
-            if (linePts.length > 1) {
-                // Zigzag: alternate direction
-                if (lineIndex % 2 !== 0) linePts.reverse();
-
-                const tpath = linePts.map(p => ({
-                    x: p.x * vs,
-                    y: p.y * vs,
-                    z: p.z // z in mm
-                }));
-                allPaths.push({ tpath: tpath });
-            }
-            lineIndex++;
+            prevOffsetLoops = useLoops;
         }
+
+        // Phase 2: Generate (loop, cutZ) pairs and sort by cutZ shallowest first
+        const cutPairs = [];
+        for (const entry of loopEntries) {
+            const depth = entry.startZ - entry.targetZ;
+            const stepsNeeded = Math.max(1, Math.ceil(depth / stepDown));
+            for (let s = 1; s <= stepsNeeded; s++) {
+                const cutZ = Math.max(entry.startZ - s * stepDown, entry.targetZ);
+                cutPairs.push({ loop: entry.loop, cutZ });
+            }
+        }
+
+        cutPairs.sort((a, b) => b.cutZ - a.cutZ);
+
+        for (const cp of cutPairs) {
+            const tpath = cp.loop.map(p => ({
+                x: p.x * vs,
+                y: p.y * vs,
+                z: cp.cutZ
+            }));
+            const first = tpath[0], last = tpath[tpath.length - 1];
+            if (Math.abs(first.x - last.x) > 0.01 || Math.abs(first.y - last.y) > 0.01) {
+                tpath.push({ x: first.x, y: first.y, z: cp.cutZ });
+            }
+            allPaths.push({ tpath: tpath, passStart: true });
+        }
+
+        if (allPaths.length === 0) {
+            if (typeof window.notify === 'function') window.notify('No contour toolpath generated — check STL model and tool settings', 'error');
+            return;
+        }
+
+        console.log('3D Profile (contour): generated', allPaths.length, 'contour loops across', numPasses, 'passes');
+
+    } else {
+        // ---- Raster strategy ----
+        // Sample interval along raster lines: use height map resolution
+        // or half the tool diameter, whichever is larger (avoids excessive points)
+        const sampleInterval = Math.max(hm.cellSize, toolDiameter / 2); // mm
+
+        if (stepover <= 0 || sampleInterval <= 0) {
+            if (typeof window.notify === 'function') window.notify('Invalid stepover or tool diameter', 'error');
+            return;
+        }
+
+        const angleRad = angle * Math.PI / 180;
+        const cosA = Math.cos(angleRad);
+        const sinA = Math.sin(angleRad);
+
+        // Center of the STL bounding box in mm
+        const cx = (bb.min.x + bb.max.x) / 2;
+        const cy = (bb.min.y + bb.max.y) / 2;
+
+        // Expand bounding box by tool radius so the tool edge reaches the STL boundary
+        const expandedBB = {
+            minX: bb.min.x - toolRadius,
+            maxX: bb.max.x + toolRadius,
+            minY: bb.min.y - toolRadius,
+            maxY: bb.max.y + toolRadius
+        };
+
+        // Rotate the bounding box corners by -angle to find the extent in rotated frame
+        const corners = [
+            { x: expandedBB.minX, y: expandedBB.minY },
+            { x: expandedBB.maxX, y: expandedBB.minY },
+            { x: expandedBB.maxX, y: expandedBB.maxY },
+            { x: expandedBB.minX, y: expandedBB.maxY }
+        ];
+
+        const rotCorners = corners.map(p => ({
+            x: cosA * (p.x - cx) + sinA * (p.y - cy) + cx,
+            y: -sinA * (p.x - cx) + cosA * (p.y - cy) + cy
+        }));
+
+        const rMinX = Math.min(...rotCorners.map(p => p.x));
+        const rMaxX = Math.max(...rotCorners.map(p => p.x));
+        const rMinY = Math.min(...rotCorners.map(p => p.y));
+        const rMaxY = Math.max(...rotCorners.map(p => p.y));
+
+        let lineIndex = 0;
+
+        for (let pass = 0; pass < numPasses; pass++) {
+            // Z clamp for this pass: how deep we're allowed to go (negative value)
+            // Final pass has no clamp (follows actual surface)
+            const passMinZ = (pass < numPasses - 1) ? -(pass + 1) * stepDown : -maxDepth;
+            let firstLineInPass = true;
+
+            for (let y = rMinY; y <= rMaxY; y += stepover) {
+                // Collect all sample points for this raster line (with NaN markers)
+                const rawPts = [];
+
+                for (let x = rMinX; x <= rMaxX; x += sampleInterval) {
+                    const worldX = cosA * (x - cx) - sinA * (y - cy) + cx;
+                    const worldY = sinA * (x - cx) + cosA * (y - cy) + cy;
+
+                    let zc = dropCutter(hm, worldX, worldY, toolRadius);
+
+                    if (isNaN(zc)) {
+                        rawPts.push(null); // NaN marker
+                    } else {
+                        let tipZ = zc - toolRadius;
+                        tipZ = Math.max(tipZ, passMinZ);
+
+                        // Rest machining: skip points where the previous (larger) tool already cleared
+                        if (restToolRadius > 0) {
+                            const stockZc = dropCutter(hm, worldX, worldY, restToolRadius);
+                            if (!isNaN(stockZc)) {
+                                const stockTipZ = Math.max(stockZc - restToolRadius, passMinZ);
+                                if (tipZ >= stockTipZ - restTolerance) {
+                                    rawPts.push(null); // Air — skip this point
+                                    continue;
+                                }
+                            }
+                        }
+
+                        rawPts.push({ x: worldX, y: worldY, z: tipZ });
+                    }
+                }
+
+                // Zigzag: reverse odd lines
+                if (lineIndex % 2 !== 0) rawPts.reverse();
+
+                // Split into segments at NaN gaps and push
+                let segment = [];
+                for (let i = 0; i < rawPts.length; i++) {
+                    if (rawPts[i] === null) {
+                        if (segment.length > 1) {
+                            const tpath = segment.map(p => ({
+                                x: p.x * vs,
+                                y: p.y * vs,
+                                z: p.z
+                            }));
+                            allPaths.push({ tpath: tpath, passStart: firstLineInPass });
+                            firstLineInPass = false;
+                        }
+                        segment = [];
+                    } else {
+                        segment.push(rawPts[i]);
+                    }
+                }
+                // Flush last segment
+                if (segment.length > 1) {
+                    const tpath = segment.map(p => ({
+                        x: p.x * vs,
+                        y: p.y * vs,
+                        z: p.z
+                    }));
+                    allPaths.push({ tpath: tpath, passStart: firstLineInPass });
+                    firstLineInPass = false;
+                }
+                lineIndex++;
+            }
+        }
+
+        if (allPaths.length === 0) {
+            if (typeof window.notify === 'function') window.notify('No toolpath generated — check STL model and tool settings', 'error');
+            return;
+        }
+
+        console.log('3D Profile (raster): generated', allPaths.length, 'raster lines',
+            restToolDiameter > 0 ? '(rest machining, prev tool: ' + restToolDiameter + 'mm)' : '(full cut)');
     }
 
-    if (allPaths.length === 0) {
-        if (typeof window.notify === 'function') window.notify('No toolpath generated — check STL model and tool settings', 'error');
-        return;
-    }
-
-    console.log('3D Profile: generated', allPaths.length, 'raster lines');
     if (typeof window.pushToolPath === 'function') {
         const svgId = stlSvgPath ? stlSvgPath.id : null;
         window.pushToolPath(allPaths, '3dProfile', '3dProfile', svgId, svgId ? [svgId] : null);

@@ -38,7 +38,7 @@ class ToolpathPropertiesManager {
             },
             '3dProfile': {
                 compatibleBits: ['Ball Nose'],
-                fields: ['tool', 'depth', 'step', 'stepover', 'angle'],
+                fields: ['strategy', 'tool', 'depth', 'step', 'stepover', 'angle', 'restToolDiameter'],
                 description: 'Raster toolpath following STL surface with ball nose bit',
                 defaultStepover: 15,
                 applyButtonLabel: 'Generate 3D Profile',
@@ -96,7 +96,9 @@ class ToolpathPropertiesManager {
                 inside: 'inside', // Default to 'inside' for inside/outside option
                 direction: 'climb', // Default to 'climb' for direction option
                 numLoops: 1,
-                overCut: 0
+                overCut: 0,
+                restToolDiameter: 0,
+                strategy: 'raster'
             };
         }
         return this.defaults[operationName];
@@ -333,6 +335,65 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Generate HTML for strategy dropdown (Raster vs Contour).
+     */
+    generateStrategyDropdownHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).strategy || 'raster';
+        }
+
+        const options = [
+            { value: 'raster', label: 'Raster', desc: 'Parallel lines across surface' },
+            { value: 'contour', label: 'Contour (Waterline)', desc: 'Horizontal contour loops at each depth' }
+        ];
+
+        let html = '<div class="mb-3">';
+        html += '<label for="strategy-select" class="form-label small"><strong>Strategy:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="strategy-select" name="strategy">';
+
+        options.forEach(opt => {
+            const selected = value === opt.value ? 'selected' : '';
+            html += `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
+        });
+
+        html += '</select>';
+        html += '<div class="form-text">Raster for curved surfaces, Contour for vertical walls</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
+     * Generate HTML for rest machining previous tool dropdown.
+     * Lists all Ball Nose tool diameters so the user can specify what roughing tool was used.
+     */
+    generateRestToolDiameterHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).restToolDiameter || 0;
+        }
+
+        // Collect unique Ball Nose diameters from the tool library
+        const ballNoseTools = (window.tools || []).filter(t => t.bit === 'Ball Nose');
+        const diameters = [...new Set(ballNoseTools.map(t => t.diameter))].sort((a, b) => b - a);
+
+        let html = '<div class="mb-3">';
+        html += '<label for="rest-tool-select" class="form-label small"><strong>Previous Tool:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="rest-tool-select" name="restToolDiameter">';
+        html += `<option value="0" ${value == 0 ? 'selected' : ''}>None (full cut from stock)</option>`;
+
+        diameters.forEach(d => {
+            const selected = value == d ? 'selected' : '';
+            html += `<option value="${d}" ${selected}>${d}mm Ball Nose</option>`;
+        });
+
+        html += '</select>';
+        html += '<div class="form-text">Roughing tool used in a previous pass — skips air where that tool already cut</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
      * Build a default name from depth + operation name, e.g. "2.0 mm Pocket"
      */
     getDefaultName(operationName, existingProperties) {
@@ -365,6 +426,12 @@ class ToolpathPropertiesManager {
         html += `<label for="toolpath-name-input" class="form-label small"><strong>Name:</strong></label>`;
         html += `<input type="text" class="form-control form-control-sm" id="toolpath-name-input" name="toolpathName" value="${defaultName.replace(/"/g, '&quot;')}">`;
         html += `</div>`;
+
+        // Strategy dropdown (Raster / Contour)
+        if (config.fields.includes('strategy')) {
+            const strategy = existingProperties?.strategy || null;
+            html += this.generateStrategyDropdownHTML(operationName, strategy);
+        }
 
         // Tool selection dropdown
         if (config.fields.includes('tool')) {
@@ -417,6 +484,12 @@ class ToolpathPropertiesManager {
         if (config.fields.includes('angle')) {
             const angle = existingProperties?.angle || null;
             html += this.generateAngleInputHTML(operationName, angle);
+        }
+
+        // Rest machining previous tool dropdown
+        if (config.fields.includes('restToolDiameter')) {
+            const restToolDiameter = existingProperties?.restToolDiameter ?? null;
+            html += this.generateRestToolDiameterHTML(operationName, restToolDiameter);
         }
 
         // Update/Apply button
@@ -479,6 +552,16 @@ class ToolpathPropertiesManager {
         }
         if (overCutInput) {
             data.overCut = parseDimension(overCutInput.value) || 0;
+        }
+
+        const restToolSelect = document.getElementById('rest-tool-select');
+        if (restToolSelect) {
+            data.restToolDiameter = parseFloat(restToolSelect.value) || 0;
+        }
+
+        const strategySelect = document.getElementById('strategy-select');
+        if (strategySelect) {
+            data.strategy = strategySelect.value;
         }
 
         return data;

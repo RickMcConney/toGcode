@@ -718,6 +718,10 @@ function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings
 	var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
 	var feedZ  = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
 	var zCoordSafe = toGcodeUnitsZ(safeHeight, useInches);
+	var lastEndX = null, lastEndY = null, lastEndZ = null;
+	// Threshold for skipping retract: if next start is within this distance (mm)
+	// of the last end point, feed directly instead of retract-rapid-plunge
+	var nearThreshold = useInches ? 2.0 / MM_PER_INCH : 2.0; // 2mm
 
 	for (var k = 0; k < paths.length; k++) {
 		var path = paths[k].tpath;
@@ -725,13 +729,32 @@ function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings
 
 		var start = toGcodeUnits(path[0].x, path[0].y, useInches);
 		var startZ = toGcodeUnitsZ(path[0].z, useInches);
+		var isPassStart = paths[k].passStart || (lastEndX === null);
 
-		// Retract to safe height
-		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ }) + '\n';
-		// Rapid to start XY
-		output += applyGcodeTemplate(profile.rapidTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
-		// Plunge to first point Z
-		output += applyGcodeTemplate(profile.cutTemplate, { z: startZ, f: feedZ }) + '\n';
+		if (isPassStart) {
+			// Check if the next start point is near the last end point at same Z
+			var isNear = false;
+			if (lastEndX !== null) {
+				var dx = start.x - lastEndX;
+				var dy = start.y - lastEndY;
+				var dist = Math.sqrt(dx * dx + dy * dy);
+				var dz = Math.abs(startZ - lastEndZ);
+				isNear = dist < nearThreshold && dz < 0.01;
+			}
+
+			if (isNear) {
+				// Close enough — feed directly without retract
+				output += applyGcodeTemplate(profile.cutTemplate, { x: start.x, y: start.y, z: startZ, f: feedXY }) + '\n';
+			} else {
+				// Far away — retract to safe height and rapid to start
+				output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ }) + '\n';
+				output += applyGcodeTemplate(profile.rapidTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
+				output += applyGcodeTemplate(profile.cutTemplate, { z: startZ, f: feedZ }) + '\n';
+			}
+		} else {
+			// Continuous — feed directly to start of next segment
+			output += applyGcodeTemplate(profile.cutTemplate, { x: start.x, y: start.y, z: startZ, f: feedXY }) + '\n';
+		}
 
 		// Feed along raster line with varying Z.
 		// Simplify: skip intermediate points where Z isn't changing (flat sections).
@@ -746,17 +769,21 @@ function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings
 			var pz = toGcodeUnitsZ(path[j].z, useInches);
 
 			if (pendingP !== null) {
-				// Check if prev→pending→current are colinear in Z
-				// (all three have the same Z, or the Z slope is consistent)
+				// Check if prev→pending→current are colinear in both XY direction AND Z
+				// Only skip if all three points are on the same straight line in 3D
 				var dz1 = pendingZ - prevZ;
 				var dz2 = pz - pendingZ;
-				if (Math.abs(dz1 - dz2) < 0.005) {
-					// Colinear — skip the pending point, extend the segment
+				var dx1 = pendingP.x - prevP.x, dy1 = pendingP.y - prevP.y;
+				var dx2 = p.x - pendingP.x, dy2 = p.y - pendingP.y;
+				// Cross product magnitude: if ~0, points are colinear in XY
+				var cross = Math.abs(dx1 * dy2 - dy1 * dx2);
+				if (cross < 0.005 && Math.abs(dz1 - dz2) < 0.005) {
+					// Colinear in 3D — skip the pending point, extend the segment
 					pendingP = p;
 					pendingZ = pz;
 					continue;
 				}
-				// Slope changed — emit the pending point
+				// Direction changed — emit the pending point
 				output += applyGcodeTemplate(profile.cutTemplate, { x: pendingP.x, y: pendingP.y, z: pendingZ, f: feedXY }) + '\n';
 				prevP = pendingP;
 				prevZ = pendingZ;
@@ -769,6 +796,9 @@ function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings
 		// Emit the last pending point
 		if (pendingP !== null) {
 			output += applyGcodeTemplate(profile.cutTemplate, { x: pendingP.x, y: pendingP.y, z: pendingZ, f: feedXY }) + '\n';
+			lastEndX = pendingP.x;
+			lastEndY = pendingP.y;
+			lastEndZ = pendingZ;
 		}
 	}
 
