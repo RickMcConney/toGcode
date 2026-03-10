@@ -168,6 +168,16 @@ function setupTabListener() {
       if (animationFrameId === null) {
         animationFrameId = requestAnimationFrame(animate);
       }
+      // Sync visibility toggles with the freshly created scene
+      const wpCheckbox = document.getElementById('3d-show-workpiece');
+      if (wpCheckbox && !wpCheckbox.checked && typeof setWorkpieceVisibility3D === 'function') {
+        setWorkpieceVisibility3D(false);
+      }
+      const stlCheckbox = document.getElementById('3d-show-stl');
+      if (stlCheckbox && !stlCheckbox.checked && typeof setSTLVisibility3D === 'function') {
+        // Delay to let addPendingSTLMeshes() finish first
+        setTimeout(() => setSTLVisibility3D(false), 150);
+      }
     });
 
     tab3dElement.addEventListener('hidden.bs.tab', () => {
@@ -352,6 +362,10 @@ function initThree() {
     }
   } else {
     console.warn('No toolpaths found - create some in the 2D view first');
+    // Still create voxel grid so workpiece appearance is consistent (solid voxels vs bare mesh)
+    if (toolpathAnimation.enableVoxelRemoval && workpieceManager) {
+      toolpathAnimation.initializeVoxelGrid();
+    }
   }
 
   // Start animation loop
@@ -1301,6 +1315,14 @@ function cleanup3DView() {
     scene.clear();
     scene = null;
   }
+  window.threeScene = null;
+
+  // Clear STL mesh references so they get re-added when 3D tab reopens
+  if (window.stlModels) {
+    for (const model of window.stlModels) {
+      model.mesh = null;
+    }
+  }
 
   // Dispose renderer
   if (renderer) {
@@ -1499,9 +1521,7 @@ class WorkpieceManager {
     const material = new THREE.MeshPhongMaterial({
       color: this.woodColor,  // Use wood species color
       shininess: 30,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.6  // 60% opaque, 40% transparent
+      side: THREE.DoubleSide
     });
 
     this.mesh = new THREE.Mesh(geometry, material);
@@ -1763,6 +1783,13 @@ class ToolpathAnimation {
       let gridLength = length;
       let gridThickness = thickness;
       let gridOrigin = new THREE.Vector3(0, 0, 0);
+
+      // No toolpaths: use a small 10x10mm voxel grid at center.
+      // The outline box filler will cover the rest of the workpiece seamlessly.
+      if (!bounds) {
+        gridWidth = Math.min(10, width);
+        gridLength = Math.min(10, length);
+      }
 
       if (bounds) {
         // Calculate material bounds in world space (accounting for origin position)
@@ -2737,7 +2764,9 @@ class ToolpathAnimation {
    * Used for both forward and backward seeking
    */
   _replayFromLineToLine(startLine, endLine) {
-    const stepsPerSegment = 10;  // Number of interpolation steps per cutting move
+    // Use distance-based step size (half voxel size) so no voxels are missed,
+    // even on long movements like G1 X-65.6 Y-34 to Y26 (60mm travel).
+    const stepDist = this.voxelGrid ? this.voxelGrid.voxelSize * 0.5 : 0.5;
 
     for (let lineNum = startLine; lineNum <= endLine && lineNum <= this.totalGcodeLines; lineNum++) {
       const movement = this.getMovementForLine(lineNum);
@@ -2755,24 +2784,18 @@ class ToolpathAnimation {
           }
         }
 
-        // Interpolate along the movement path
-        for (let step = 1; step <= stepsPerSegment; step++) {
-          const t = step / stepsPerSegment;  // 0 to 1 along this segment
-
-          const toolX = prevPos.x + (movement.x - prevPos.x) * t;
-          const toolY = prevPos.y + (movement.y - prevPos.y) * t;
-          const toolZ = prevPos.z + (movement.z - prevPos.z) * t;
-
-          try {
-            const toolData = this.getToolForLine(lineNum) || this.toolInfo;
-            this.voxelMaterialRemover.removeAtToolPosition(
-              this.voxelGrid,
-              toolX, toolY, toolZ,
-              toolData || { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 }
-            );
-          } catch (e) {
-            console.error('Voxel replay error at line ' + lineNum + ':', e);
-          }
+        try {
+          const toolData = this.getToolForLine(lineNum) || this.toolInfo ||
+            { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
+          this.voxelMaterialRemover.removeAlongPath(
+            this.voxelGrid,
+            prevPos,
+            { x: movement.x, y: movement.y, z: movement.z },
+            toolData,
+            stepDist
+          );
+        } catch (e) {
+          console.error('Voxel replay error at line ' + lineNum + ':', e);
         }
       }
     }
@@ -2780,9 +2803,8 @@ class ToolpathAnimation {
 
   _replayFromMovementIndexToIndex(startIndex, endIndex) {
     // Replay material removal from one movement index to another
-    // Interpolates along each movement segment for smooth material removal
-
-    const stepsPerSegment = 10;  // Number of interpolation steps per movement segment
+    // Uses distance-based step size (half voxel size) so no voxels are missed
+    const stepDist = this.voxelGrid ? this.voxelGrid.voxelSize * 0.5 : 0.5;
 
     for (let i = startIndex; i <= endIndex && i < this.movementTiming.length; i++) {
       const move = this.movementTiming[i];
@@ -2793,24 +2815,18 @@ class ToolpathAnimation {
           ? this.movementTiming[i - 1]
           : { x: 0, y: 0, z: 5, isG1: false };
 
-        // Interpolate along the movement path
-        for (let step = 1; step <= stepsPerSegment; step++) {
-          const t = step / stepsPerSegment;  // 0 to 1 along this segment
-
-          const toolX = prevMove.x + (move.x - prevMove.x) * t;
-          const toolY = prevMove.y + (move.y - prevMove.y) * t;
-          const toolZ = prevMove.z + (move.z - prevMove.z) * t;
-
-          try {
-            const toolData = this.getToolForLine(move.gcodeLineNumber) || this.toolInfo;
-            this.voxelMaterialRemover.removeAtToolPosition(
-              this.voxelGrid,
-              toolX, toolY, toolZ,
-              toolData || { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 }
-            );
-          } catch (e) {
-            console.error('Voxel replay error:', e);
-          }
+        try {
+          const toolData = this.getToolForLine(move.gcodeLineNumber) || this.toolInfo ||
+            { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
+          this.voxelMaterialRemover.removeAlongPath(
+            this.voxelGrid,
+            prevMove,
+            { x: move.x, y: move.y, z: move.z },
+            toolData,
+            stepDist
+          );
+        } catch (e) {
+          console.error('Voxel replay error:', e);
         }
       }
     }
@@ -3108,6 +3124,36 @@ class ToolpathAnimation {
                            (currentMovement && this.elapsedTime >= movementDuration));  // Or when movement is complete
 
     if (shouldAdvance) {
+      // Ensure completing movement's voxels are fully removed along its path.
+      // At higher speeds, short movements (common at curves) complete within a
+      // single frame, causing their voxel removal to be skipped entirely.
+      if (currentMovement) {
+        if (currentMovement.isG1 && this.enableVoxelRemoval &&
+            this.voxelGrid && this.voxelMaterialRemover) {
+          const prevPos = prevMovement
+            ? { x: prevMovement.x, y: prevMovement.y, z: prevMovement.z }
+            : { x: 0, y: 0, z: 5 };
+          try {
+            const toolData = this.getToolForLine(this.currentGcodeLineNumber) || this.toolInfo ||
+              { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
+            this.voxelMaterialRemover.removeAlongPath(
+              this.voxelGrid,
+              prevPos,
+              { x: currentMovement.x, y: currentMovement.y, z: currentMovement.z },
+              toolData,
+              this.voxelGrid.voxelSize * 0.5
+            );
+          } catch (e) {
+            console.error('Voxel removal error during advance:', e);
+          }
+        }
+        // Update tool visual to movement endpoint (prevents tool lagging behind the cut)
+        this.updateToolPositionAtCoordinates(
+          currentMovement.x, currentMovement.y, currentMovement.z,
+          currentMovement.isG1, this.currentGcodeLineNumber
+        );
+      }
+
       // Movement is complete (or non-movement line), advance to next line
       this.currentGcodeLineNumber++;
       this.elapsedTime = 0;  // Reset time for next line

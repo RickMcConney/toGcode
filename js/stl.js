@@ -364,6 +364,8 @@ window.setSTLVisibility3D = function(visible) {
 window.addPendingSTLMeshes = function() {
     for (const model of window.stlModels) {
         if (!model.mesh && model.geometry) {
+            // Sync transform from 2D svgpath before adding (picks up any scaling done in 2D view)
+            syncSTLFromSvgPath(model);
             addSTLMesh3D(model);
         }
     }
