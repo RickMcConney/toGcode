@@ -8,9 +8,9 @@ class ToolpathPropertiesManager {
         // Define operation configurations
         this.operationConfigs = {
             'Drill': {
-                compatibleBits: ['Drill'],
+                compatibleBits: ['Drill', 'End Mill'],
                 fields: ['tool', 'depth', 'step'],
-                description: 'Drill holes at selected points'
+                description: 'Drill holes at selected points or helical drill selected circles'
             },
             'Profile': {
                 compatibleBits: ['End Mill', 'Ball Nose', 'VBit'],

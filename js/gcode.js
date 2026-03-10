@@ -306,7 +306,7 @@ function formatComment(text, profile) {
 // Order: Surfacing (0), Drill (1), VCarve (2), Pocket (3), Profiles (4)
 function getOperationPriority(operation) {
 	if (operation === 'Surfacing') return 0;
-	if (operation === 'Drill') return 1;
+	if (operation === 'Drill' || operation === 'HelicalDrill') return 1;
 	if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
 	if (operation === 'Pocket') return 3;
 	// All profile operations (Inside, Outside, Center) come last
@@ -604,6 +604,49 @@ function _generateDrillOperationGcode(toolpath, profile, useInches, settings) {
 		}
 
 		// Retract to safe height after drilling
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+	}
+
+	return output;
+}
+
+// HELPER FUNCTION: Process helical drill operations
+function _generateHelicalDrillOperationGcode(toolpath, profile, useInches, settings) {
+	var output = "";
+	var { feed, zfeed, depth, toolStep, safeHeight } = settings;
+	var paths = toolpath.paths;
+
+	var feedXY = useInches ? Math.round(feed / MM_PER_INCH * 100) / 100 : feed;
+	var feedZ = useInches ? Math.round(zfeed / MM_PER_INCH * 100) / 100 : zfeed;
+	// Use a blended feed rate for helical moves (simultaneous XY + Z)
+	var helicalFeed = Math.min(feedXY, feedZ);
+	var zCoordSafe = toGcodeUnitsZ(safeHeight, useInches);
+
+	for (var k = 0; k < paths.length; k++) {
+		var path = paths[k].tpath;
+		if (!path || path.length === 0) continue;
+
+		var comment = formatComment('HelicalDrill ' + toolpath.id, profile);
+		if (comment) output += comment + '\n';
+
+		// Rapid to safe height
+		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
+
+		// Rapid to start position
+		var startP = toGcodeUnits(path[0].x, path[0].y, useInches);
+		output += applyGcodeTemplate(profile.rapidTemplate, { x: startP.x, y: startP.y, f: feedXY }) + '\n';
+
+		// Plunge to surface (z=0)
+		output += applyGcodeTemplate(profile.cutTemplate, { z: toGcodeUnitsZ(0, useInches), f: feedZ }) + '\n';
+
+		// Helical descent and final cleanup circle — all points have z values
+		for (var j = 1; j < path.length; j++) {
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			var zCoord = toGcodeUnitsZ(path[j].z, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zCoord, f: helicalFeed }) + '\n';
+		}
+
+		// Retract to safe height
 		output += applyGcodeTemplate(profile.rapidTemplate, { z: zCoordSafe, f: feedZ / 2 }) + '\n';
 	}
 
@@ -1166,6 +1209,9 @@ function toGcode() {
 			output += _generatePocketOperationGcode(toolpath, profile, useInches, settings);
 		} else if (toolpath.operation === 'Surfacing') {
 			output += _generateSurfacingOperationGcode(toolpath, profile, useInches, settings);
+		}
+		else if (toolpath.operation === 'HelicalDrill') {
+			output += _generateHelicalDrillOperationGcode(toolpath, profile, useInches, settings);
 		}
 		else if (toolpath.operation === 'Drill') {
 			output += _generateDrillOperationGcode(toolpath, profile, useInches, settings);

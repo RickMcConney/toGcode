@@ -536,6 +536,214 @@ function makeHole(pt) {
 	}
 }
 
+function makeHelicalHole(circle, svgId) {
+	var name = 'Helical Drill';
+
+	if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation('Drill')) {
+		try {
+			const data = window.toolpathPropertiesManager.collectFormData();
+			window.toolpathPropertiesManager.updateDefaults('Drill', data);
+			const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+
+			if (selectedTool) {
+				const originalTool = window.currentTool;
+				window.currentTool = {
+					...selectedTool,
+					depth: data.depth || selectedTool.depth,
+					step: data.step || selectedTool.step
+				};
+				window.currentToolpathProperties = { ...data };
+
+				var radius_tool = toolRadius();
+
+				// Check if tool fits the circle
+				if (circle.radius <= radius_tool) {
+					var circleDiaMM = (circle.radius * 2 / viewScale).toFixed(2);
+					var toolDiaMM = (radius_tool * 2 / viewScale).toFixed(2);
+					notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
+					window.currentTool = originalTool;
+					window.currentToolpathProperties = null;
+					return;
+				}
+
+				// Generate helix points in world coordinates
+				var helixPath = generateHelixPath(circle, window.currentTool.depth, window.currentTool.step, radius_tool);
+				var paths = [];
+				paths.push({ tpath: helixPath, path: helixPath });
+
+				const beforeCount = toolpaths.length;
+				pushToolPath(paths, name, 'HelicalDrill', svgId);
+
+				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
+					const newToolpath = toolpaths[toolpaths.length - 1];
+					setActiveToolpaths([newToolpath]);
+				}
+
+				window.currentTool = originalTool;
+				window.currentToolpathProperties = null;
+				return;
+			}
+		} catch (e) {
+			// Fall through to default
+		}
+	}
+
+	// Fallback
+	var radius_tool = toolRadius();
+
+	if (circle.radius <= radius_tool) {
+		var circleDiaMM = (circle.radius * 2 / viewScale).toFixed(2);
+		var toolDiaMM = (radius_tool * 2 / viewScale).toFixed(2);
+		notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
+		return;
+	}
+
+	var helixPath = generateHelixPath(circle, currentTool.depth, currentTool.step, radius_tool);
+	var paths = [];
+	paths.push({ tpath: helixPath, path: helixPath });
+
+	const beforeCount = toolpaths.length;
+	pushToolPath(paths, name, 'HelicalDrill', svgId);
+
+	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
+		const newToolpath = toolpaths[toolpaths.length - 1];
+		setActiveToolpaths([newToolpath]);
+	}
+}
+
+/**
+ * Generate helix path points for helical drilling.
+ * The toolpath radius is offset inward by the tool radius so the cut edge
+ * matches the SVG circle. For circles larger than 2x tool diameter, multiple
+ * concentric passes are generated from the center outward.
+ *
+ * Cuts depth-first: at each Z level, all concentric radii are cut from
+ * inside out before descending to the next level. This avoids retracts.
+ *
+ * circle: {cx, cy, radius} in world coords
+ * depth: total depth in mm
+ * stepDown: depth per revolution in mm
+ * toolRadius: tool radius in world coords
+ * Returns array of {x, y, z} points in world coords, z in mm
+ */
+function generateHelixPath(circle, depth, stepDown, toolRadius) {
+	var points = [];
+	var pointsPerRevolution = 72; // 5 degrees per point
+	var cx = circle.cx;
+	var cy = circle.cy;
+	var outerCutRadius = circle.radius - toolRadius; // offset so tool edge touches circle
+
+	if (stepDown <= 0) stepDown = depth;
+
+	// Determine concentric radii needed.
+	// Stepover is 50% of tool diameter (= tool radius).
+	var stepover = toolRadius;
+	var radii = [];
+
+	if (outerCutRadius <= stepover) {
+		// Single pass — tool covers from center to the outer cut radius
+		radii.push(outerCutRadius);
+	} else {
+		// Multiple passes from center outward at fixed stepover
+		var r = stepover;
+		while (r < outerCutRadius) {
+			radii.push(r);
+			r += stepover;
+		}
+		radii.push(outerCutRadius); // final pass at exact outer radius
+	}
+
+	// Build list of Z depth levels
+	var zLevels = [];
+	var z = 0;
+	while (z < depth) {
+		z += stepDown;
+		if (z > depth) z = depth;
+		zLevels.push(-z);
+	}
+
+	// Track running angle offset so each operation continues from where
+	// the last one ended — no backtracking. The spiral-out transitions
+	// advance the offset so they progress around the circle.
+	var transitionPoints = Math.round(pointsPerRevolution / 8); // 1/8 turn to spiral out
+	var angleOffset = 0; // accumulated point offset
+	var currentZ = 0;
+	var r0 = radii[0];
+
+	for (var levelIdx = 0; levelIdx < zLevels.length; levelIdx++) {
+		var targetZ = zLevels[levelIdx];
+		var isLastLevel = (levelIdx === zLevels.length - 1);
+
+		// Helix down one revolution at the innermost radius, continuing from current angle
+		for (var i = 0; i <= pointsPerRevolution; i++) {
+			var t = i / pointsPerRevolution;
+			var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+			var z = currentZ + (targetZ - currentZ) * t;
+			points.push({ x: cx + r0 * Math.cos(angle), y: cy + r0 * Math.sin(angle), z: z, r: toolRadius });
+		}
+		angleOffset += pointsPerRevolution;
+
+		// At final depth, full circle at r0 to flatten the helix ramp
+		// before spiraling out. At intermediate depths the next helix re-cuts it.
+		if (isLastLevel) {
+			for (var i = 1; i <= pointsPerRevolution; i++) {
+				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+				points.push({ x: cx + r0 * Math.cos(angle), y: cy + r0 * Math.sin(angle), z: targetZ, r: toolRadius });
+			}
+			angleOffset += pointsPerRevolution;
+		}
+
+		// Expand outward through remaining radii at this depth
+		for (var rIdx = 1; rIdx < radii.length; rIdx++) {
+			var prevR = radii[rIdx - 1];
+			var r = radii[rIdx];
+
+			// Spiral outward from prevR to r in 1/8 turn, continuing from current angle
+			for (var i = 1; i <= transitionPoints; i++) {
+				var t = i / transitionPoints;
+				var transR = prevR + (r - prevR) * t;
+				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+				points.push({ x: cx + transR * Math.cos(angle), y: cy + transR * Math.sin(angle), z: targetZ, r: toolRadius });
+			}
+			angleOffset += transitionPoints;
+
+			// Full circle at this radius, continuing from current angle
+			for (var i = 1; i <= pointsPerRevolution; i++) {
+				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+				points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), z: targetZ, r: toolRadius });
+			}
+			angleOffset += pointsPerRevolution;
+		}
+
+		// At final depth, extend by the transition amount to clean up
+		// the 1/8 turn the helix missed during descent
+		if (isLastLevel) {
+			var finalR = radii[radii.length - 1];
+			for (var i = 1; i <= transitionPoints; i++) {
+				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+				points.push({ x: cx + finalR * Math.cos(angle), y: cy + finalR * Math.sin(angle), z: targetZ, r: toolRadius });
+			}
+		}
+
+		// If not the last level, spiral back inward to innermost radius in 1/8 turn
+		// (through already-cut material — no load)
+		if (!isLastLevel && radii.length > 1) {
+			var outerR = radii[radii.length - 1];
+			for (var i = 1; i <= transitionPoints; i++) {
+				var t = i / transitionPoints;
+				var transR = outerR + (r0 - outerR) * t;
+				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
+				points.push({ x: cx + transR * Math.cos(angle), y: cy + transR * Math.sin(angle), z: targetZ, r: toolRadius });
+			}
+			angleOffset += transitionPoints;
+		}
+
+		currentZ = targetZ;
+	}
+
+	return points;
+}
+
 function generateClipperInfill(inputPaths, stepOverDistance, radius, angle = 0) {
 	// Normalize winding order to ensure consistent behavior regardless of user draw direction
 	let normalizedPaths = normalizeWindingOrder(inputPaths);

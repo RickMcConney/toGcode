@@ -783,6 +783,23 @@ function doText() {
 }
 
 function doDrill() {
+	// If circular paths are preselected, create helical drill toolpaths directly
+	var selected = selectMgr.selectedPaths();
+	if (selected.length > 0) {
+		var drillOp = cncController.operationManager.getOperation('Drill');
+		if (drillOp) {
+			for (var i = 0; i < selected.length; i++) {
+				var circleInfo = drillOp.detectCircle(selected[i]);
+				if (circleInfo) {
+					makeHelicalHole(circleInfo, selected[i].id);
+				}
+			}
+		}
+		selectMgr.unselectAll();
+	}
+
+	// Enter drill mode — handles both path highlighting/helical drill
+	// and empty-space peck drilling
 	cncController.setMode("Drill");
 	setMode("Select");
 }

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-09";
+var APP_VERSION = "Ver 2026-03-10";
 
 var mode = "Select";
 var options = [];
@@ -832,6 +832,7 @@ function createSidebar() {
             <button class="nav-link" id="operations-tab" data-bs-toggle="tab" data-bs-target="#operations" type="button" role="tab">
                 <i data-lucide="cog"></i> Operations
             </button>
+            <button type="button" class="btn-close ms-auto me-2 align-self-center" id="panel-close-button" aria-label="Close" style="display: none;" title="Close panel"></button>
         </nav>
 
         <!-- Tab Content (scrollable) -->
@@ -848,7 +849,6 @@ function createSidebar() {
                 <div id="tool-properties-editor" class="p-3" style="display: none;">
                     <div class="mb-3 pb-3 border-bottom d-flex justify-content-between align-items-center">
                         <h6 class="mb-0" id="tool-properties-title">Tool Properties</h6>
-                        <button type="button" class="btn-close" id="tool-close-button" aria-label="Close"></button>
                     </div>
 
                     <!-- Properties form will be injected here -->
@@ -906,7 +906,6 @@ function createSidebar() {
                 <div id="operation-properties-editor" class="p-3" style="display: none;">
                     <div class="mb-3 pb-3 border-bottom d-flex justify-content-between align-items-center">
                         <h6 class="mb-0" id="operation-properties-title">Operation Properties</h6>
-                        <button type="button" class="btn-close" id="operation-close-button" aria-label="Close"></button>
                     </div>
 
                     <!-- Operation properties form will be injected here -->
@@ -1043,7 +1042,7 @@ function createSidebar() {
     // Add sidebar event handlers
     sidebar.addEventListener('click', function (e) {
         const item = e.target.closest('.sidebar-item');
-        const closeButton = e.target.closest('#tool-close-button, #operation-close-button');
+        const closeButton = e.target.closest('#panel-close-button');
 
         // Handle Close button (X) clicks
         if (closeButton) {
@@ -1609,6 +1608,10 @@ function showToolPropertiesEditor(operationName) {
     toolsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
+    // Show close button in tab bar
+    var closeBtn = document.getElementById('panel-close-button');
+    if (closeBtn) closeBtn.style.display = 'block';
+
     currentOperationName = operationName;
 
     // Get the operation instance first (needed for icon and properties)
@@ -1815,6 +1818,10 @@ function showOperationPropertiesEditor(operationName) {
     operationsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
+    // Show close button in tab bar
+    var closeBtn = document.getElementById('panel-close-button');
+    if (closeBtn) closeBtn.style.display = 'block';
+
     // Update title with icon
     currentOperationName = operationName;
     const operationIcon = getOperationIcon(operationName);
@@ -1953,6 +1960,44 @@ function setupToolpathUpdateButton(operationName) {
                 window.toolpathUpdateTargets = null;
             }
 
+            refreshToolPathsDisplay();
+            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+            redraw();
+            return;
+        }
+
+        // For HelicalDrill, regenerate helix with new depth/step/tool
+        if (operationName === 'Drill' && activeToolpaths.some(tp => tp.operation === 'HelicalDrill')) {
+            for (const toolpath of activeToolpaths) {
+                if (toolpath.operation !== 'HelicalDrill') continue;
+                toolpath.toolpathProperties = { ...data };
+                if (data.toolpathName) toolpath.label = data.toolpathName;
+                toolpath.tool = {
+                    ...selectedTool,
+                    depth: data.depth,
+                    step: data.step
+                };
+
+                // Regenerate helix from the linked SVG circle
+                const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
+                if (svgPath && typeof Drill !== 'undefined') {
+                    const drillOp = cncController.operationManager.getOperation('Drill');
+                    if (drillOp) {
+                        const circleInfo = drillOp.detectCircle(svgPath);
+                        if (circleInfo) {
+                            const newRadius = (selectedTool.diameter / 2) * viewScale;
+                            if (circleInfo.radius <= newRadius) {
+                                var circleDiaMM = (circleInfo.radius * 2 / viewScale).toFixed(2);
+                                var toolDiaMM = selectedTool.diameter.toFixed(2);
+                                notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
+                            } else {
+                                const helixPath = generateHelixPath(circleInfo, data.depth, data.step, newRadius);
+                                toolpath.paths = [{ tpath: helixPath, path: helixPath }];
+                            }
+                        }
+                    }
+                }
+            }
             refreshToolPathsDisplay();
             notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
             redraw();
@@ -2115,7 +2160,7 @@ function regenerateToolpathsForPaths(changedPathIds) {
 
     for (const toolpath of affectedToolpaths) {
         // Skip Drill — drill points aren't linked to svgpath geometry
-        if (toolpath.operation === 'Drill') continue;
+        if (toolpath.operation === 'Drill' || toolpath.operation === 'HelicalDrill') continue;
 
         // Find source svgpaths
         let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
@@ -2198,12 +2243,18 @@ function showToolpathPropertiesEditor(toolpath) {
     operationsList.style.display = 'none';
     propertiesEditor.style.display = 'block';
 
-    currentOperationName = toolpath.operation;
+    // Show close button in tab bar
+    var closeBtn = document.getElementById('panel-close-button');
+    if (closeBtn) closeBtn.style.display = 'block';
+
+    // Map HelicalDrill to Drill for properties panel
+    const propsOperation = toolpath.operation === 'HelicalDrill' ? 'Drill' : toolpath.operation;
+    currentOperationName = propsOperation;
     // Update title
-    title.textContent = `Edit ${toolpath.operation} Toolpath`;
+    title.textContent = `Edit ${toolpath.operation === 'HelicalDrill' ? 'Helical Drill' : toolpath.operation} Toolpath`;
 
     // Generate properties HTML with existing values
-    if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation(toolpath.operation)) {
+    if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation(propsOperation)) {
         // Build properties from the toolpath's own stored data
         let properties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : {
             toolId: toolpath.tool.recid,
@@ -2223,19 +2274,19 @@ function showToolpathPropertiesEditor(toolpath) {
         }
 
         form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(
-            toolpath.operation,
+            propsOperation,
             properties
         );
 
         // Set up the "Update Toolpath" button using the shared handler
-        setupToolpathUpdateButton(toolpath.operation);
+        setupToolpathUpdateButton(propsOperation);
 
         // Auto-update name when depth changes
-        wireDepthToNameAutoUpdate(toolpath.operation);
+        wireDepthToNameAutoUpdate(propsOperation);
 
         // Update help content
         if (window.stepWiseHelp) {
-            window.stepWiseHelp.setActiveOperation(toolpath.operation);
+            window.stepWiseHelp.setActiveOperation(propsOperation);
         }
 
         lucide.createIcons();
@@ -2260,6 +2311,9 @@ function autoCloseToolProperties(reason) {
 
 function showToolsList() {
     currentOperationName = null;
+    // Hide close button in tab bar
+    var closeBtn = document.getElementById('panel-close-button');
+    if (closeBtn) closeBtn.style.display = 'none';
     const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
     const form = document.getElementById('tool-properties-form');
     form.innerHTML = "";
@@ -2303,6 +2357,10 @@ function showPathPropertiesEditor(path) {
     toolsList.style.display = 'none';
     propertiesEditor.style.display = 'flex';
     propertiesEditor.style.flexDirection = 'column';
+
+    // Show close button in tab bar
+    var closeBtn = document.getElementById('panel-close-button');
+    if (closeBtn) closeBtn.style.display = 'block';
 
     // Update title
     currentOperationName = path.creationTool;
@@ -3662,7 +3720,6 @@ function handleOperationClick(operation) {
         // Machining Operations
         case 'Drill':
             doDrill();
-            setMode("Select");
             break;
 
         case 'Profile':
@@ -3719,8 +3776,10 @@ function handlePathClick(pathId) {
         const toolpath = toolpaths.find(tp => tp.id === pathId);
         if (toolpath) {
             // Check if this operation has properties manager support
+            // Map HelicalDrill to Drill for properties lookup
+            const opForProps = toolpath.operation === 'HelicalDrill' ? 'Drill' : toolpath.operation;
             const hasPropertiesSupport = window.toolpathPropertiesManager &&
-                window.toolpathPropertiesManager.hasOperation(toolpath.operation);
+                window.toolpathPropertiesManager.hasOperation(opForProps);
 
             if (hasPropertiesSupport) {
                 // Show toolpath properties editor
@@ -4356,7 +4415,7 @@ function addSvgGroup(groupId, groupName, paths) {
 function getOperationPriority(operation) {
     if (operation === 'Surfacing') return 0;
     if (operation === '3dProfile') return 0;
-    if (operation === 'Drill') return 1;
+    if (operation === 'Drill' || operation === 'HelicalDrill') return 1;
     if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
     if (operation === 'Pocket') return 3;
     // All profile operations (Inside, Outside, Center) come last
@@ -4549,6 +4608,7 @@ function getOperationIcon(operation) {
         case 'VCarve Out': return 'star';
         case 'VCarve': return 'star';
         case 'Drill': return 'circle-plus';
+        case 'HelicalDrill': return 'circle-plus';
         case 'Surfacing': return 'align-justify';
         case '3dProfile': return 'mountain';
         default: return 'circle';
