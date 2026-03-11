@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-10";
+var APP_VERSION = "Ver 2026-03-11";
 
 var mode = "Select";
 var options = [];
@@ -2160,7 +2160,31 @@ function regenerateToolpathsForPaths(changedPathIds) {
 
     for (const toolpath of affectedToolpaths) {
         // Skip Drill — drill points aren't linked to svgpath geometry
-        if (toolpath.operation === 'Drill' || toolpath.operation === 'HelicalDrill') continue;
+        if (toolpath.operation === 'Drill') continue;
+
+        // Helical drill: re-detect circle from moved svgpath and regenerate
+        if (toolpath.operation === 'HelicalDrill') {
+            let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
+            let sourcePath = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean)[0];
+            if (sourcePath && typeof Drill !== 'undefined') {
+                const drillOp = new Drill();
+                const circleInfo = drillOp.detectCircle(sourcePath);
+                if (circleInfo) {
+                    const originalTool = window.currentTool;
+                    window.currentTool = { ...toolpath.tool };
+                    window.currentToolpathProperties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : null;
+                    window.toolpathUpdateTargets = [toolpath];
+                    try {
+                        makeHelicalHole(circleInfo, sourcePath.id);
+                    } finally {
+                        window.currentTool = originalTool;
+                        window.currentToolpathProperties = null;
+                        window.toolpathUpdateTargets = null;
+                    }
+                }
+            }
+            continue;
+        }
 
         // Find source svgpaths
         let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);

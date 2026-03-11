@@ -8,7 +8,7 @@ let renderer, scene, camera;
 let initialized = false;
 let workpieceManager, toolpathAnimation, toolpathVisualizer;
 let orbitControls;
-let toolMesh;  // Visual representation of the cutting tool
+let toolGroup;  // Visual representation of the cutting tool (Group: children[0]=tip, children[1]=shank)
 let gridHelper3D;  // Grid helper reference for updates
 let axisLines = { x: null, y: null, z: null };  // Store axis line references
 let resizeListenerAttached = false;  // Track if resize listener has been added
@@ -418,373 +418,205 @@ function addAxisHelper() {
 }
 
 function createToolVisualization(toolDiameter) {
-  // Create initial tool mesh aligned with Z axis at origin
-  // The tool geometry will be updated as the tool moves along the toolpath
-  // Tool type will be determined from G-code comments (Flat, VBit, BallNose, Drill)
+  // Create tool as a Group with two children: tip (blue) and shank (gray)
+  // Matches the color scheme of the SVG tool icons on the Tools page
+  toolGroup = new THREE.Group();
 
-  const geometry = generateToolGeometryAtPosition(toolDiameter, 0, 0, 0, 'End Mill', 0);
-
-  // Create gray translucent material
-  const material = new THREE.MeshPhongMaterial({
-    color: 0x888888,  // Gray
+  const tipMaterial = new THREE.MeshPhongMaterial({
+    color: 0x4a9eda,  // Blue matching SVG tool icons
     transparent: true,
     opacity: 0.85,
     side: THREE.DoubleSide
   });
 
-  toolMesh = new THREE.Mesh(geometry, material);
-  toolMesh.castShadow = true;
-  toolMesh.receiveShadow = true;
-  scene.add(toolMesh);
+  const shankMaterial = new THREE.MeshPhongMaterial({
+    color: 0x888888,  // Gray matching SVG tool icons
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide
+  });
+
+  const tipMesh = new THREE.Mesh(new THREE.BufferGeometry(), tipMaterial);
+  tipMesh.castShadow = true;
+  tipMesh.receiveShadow = true;
+
+  const shankMesh = new THREE.Mesh(new THREE.BufferGeometry(), shankMaterial);
+  shankMesh.castShadow = true;
+  shankMesh.receiveShadow = true;
+
+  toolGroup.add(tipMesh);
+  toolGroup.add(shankMesh);
+  scene.add(toolGroup);
+
+  updateToolMesh(toolDiameter, 0, 0, 0, 'End Mill', 0);
 }
 
 function updateToolMesh(toolDiameter, posX, posY, posZ, toolType = 'End Mill', toolAngle = 0) {
-  // Update tool mesh geometry to new position with tip at (posX, posY, posZ)
-  // Supports different tool types: End Mill, VBit, Ball Nose, Drill
-  if (!toolMesh) return;
+  if (!toolGroup) return;
 
   // Apply origin offset so tool aligns with toolpath visualization
   const boundsOffset = getWorkpieceBoundsOffset();
   const offsetPosX = posX - boundsOffset.x;
   const offsetPosY = posY + boundsOffset.y;
 
-  // Create new geometry at the position using the tool type
-  // (geometry is created in world space with vertices at offsetPosX, offsetPosY, posZ)
-  const newGeometry = generateToolGeometryAtPosition(toolDiameter, offsetPosX, offsetPosY, posZ, toolType, toolAngle);
+  // Generate separate tip and shank geometries
+  const { tipGeometry, shankGeometry } = generateToolParts(toolDiameter, toolType, toolAngle);
 
-  // Dispose old geometry and assign new one
-  if (toolMesh.geometry) {
-    toolMesh.geometry.dispose();
-  }
-  toolMesh.geometry = newGeometry;
+  // Swap Y↔Z on both geometries to align tool with Z axis (vertical)
+  swapYZAxes(tipGeometry);
+  swapYZAxes(shankGeometry);
+
+  // Dispose old geometries and assign new ones
+  const tipMesh = toolGroup.children[0];
+  const shankMesh = toolGroup.children[1];
+  if (tipMesh.geometry) tipMesh.geometry.dispose();
+  if (shankMesh.geometry) shankMesh.geometry.dispose();
+  tipMesh.geometry = tipGeometry;
+  shankMesh.geometry = shankGeometry;
+
+  // Position the group at the tool's world location
+  toolGroup.position.set(offsetPosX, offsetPosY, posZ);
 }
 
-function generateToolGeometryAtPosition(toolDiameter, posX, posY, posZ, toolType = 'End Mill', toolAngle = 0) {
-  // Generate tool geometry with tip at (posX, posY, posZ) extending upward along Z
-  // Supports different tool types: End Mill (endmill), VBit (cone), Ball Nose (sphere), Drill (cone tip + cylinder)
-  // Returns geometry in world space for boolean operations
+// Swap Y and Z axes in geometry (converts Y-axis-aligned to Z-axis-aligned)
+function swapYZAxes(geometry) {
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    pos.setY(i, z);
+    pos.setZ(i, y);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+}
 
+// Merge two BufferGeometries into one
+function mergeToolGeometries(geomA, geomB) {
+  const merged = new THREE.BufferGeometry();
+  const positions = [], normals = [], indices = [];
+
+  const posA = geomA.attributes.position;
+  const normA = geomA.attributes.normal;
+  for (let i = 0; i < posA.count; i++) {
+    positions.push(posA.getX(i), posA.getY(i), posA.getZ(i));
+    if (normA) normals.push(normA.getX(i), normA.getY(i), normA.getZ(i));
+  }
+  if (geomA.index) {
+    for (let i = 0; i < geomA.index.count; i++) indices.push(geomA.index.getX(i));
+  }
+
+  const posB = geomB.attributes.position;
+  const normB = geomB.attributes.normal;
+  const offset = posA.count;
+  for (let i = 0; i < posB.count; i++) {
+    positions.push(posB.getX(i), posB.getY(i), posB.getZ(i));
+    if (normB) normals.push(normB.getX(i), normB.getY(i), normB.getZ(i));
+  }
+  if (geomB.index) {
+    for (let i = 0; i < geomB.index.count; i++) indices.push(geomB.index.getX(i) + offset);
+  }
+
+  merged.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  if (normals.length > 0) merged.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+  if (indices.length > 0) merged.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  merged.computeVertexNormals();
+
+  geomA.dispose();
+  geomB.dispose();
+  return merged;
+}
+
+// Shift all Y values in a geometry by an offset
+function shiftGeometryY(geometry, offset) {
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    pos.setY(i, pos.getY(i) + offset);
+  }
+  pos.needsUpdate = true;
+}
+
+// Create a cone geometry with tip at Y=0, base at Y=height (pointing downward)
+function createTipCone(radius, height, segments) {
+  const geom = new THREE.ConeGeometry(radius, height, segments);
+  const pos = geom.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    pos.setY(i, -pos.getY(i) + height / 2);  // Flip and shift tip to Y=0
+  }
+  pos.needsUpdate = true;
+  geom.computeVertexNormals();
+  return geom;
+}
+
+function generateToolParts(toolDiameter, toolType = 'End Mill', toolAngle = 0) {
+  // Returns { tipGeometry, shankGeometry } in Y-axis-aligned local space
+  // Tip at Y=0 extending upward. Blue tip = cutting portion, gray shank above.
   const radius = toolDiameter / 2;
-  const toolLength = 40;
-  let geometry;
+  const shankLength = 20;
+  const segments = 16;
+  const type = (toolType === 'End Mill') ? 'Flat' : toolType;
 
-  // Map tool type names: G-code uses 'End Mill', 'Ball Nose', 'VBit', 'Drill'
-  // Geometry creation expects 'Flat' for End Mill
-  const geometryToolType = (toolType === 'End Mill') ? 'Flat' : toolType;
+  let tipGeometry, shankGeometry;
 
-  if (geometryToolType === 'VBit') {
-    // V-bit: cone shape pointing downward with specified angle
-    // Tip should be at gcode location, extending upward with cylinder shaft
-    // Convert angle to radians and calculate cone dimensions
-    const angleRad = (toolAngle / 2) * (Math.PI / 180);  // Half angle
+  if (type === 'VBit') {
+    // V-bit: cone tip (blue) + cylinder shank (gray)
+    const angleRad = (toolAngle / 2) * (Math.PI / 180);
     const coneHeight = radius / Math.tan(angleRad);
-    const cylinderHeight = toolLength - coneHeight;  // Remaining length is shaft
 
-    // Create cone geometry (points upward initially)
-    const coneGeometry = new THREE.ConeGeometry(radius, coneHeight, 16);
-    const conePositions = coneGeometry.attributes.position;
+    tipGeometry = createTipCone(radius, coneHeight, segments);
 
-    // Transform cone: flip upside down so it points down, then shift tip to Y=0
-    // Initial cone: tip at Y=+coneHeight/2, base at Y=-coneHeight/2
-    // After flip: tip at Y=-coneHeight/2, base at Y=+coneHeight/2
-    // After shift: tip at Y=0, base at Y=coneHeight
-    for (let i = 0; i < conePositions.count; i++) {
-      const y = conePositions.getY(i);
-      // Flip upside down then shift tip to Y=0
-      conePositions.setY(i, -y + coneHeight / 2);
-    }
-    conePositions.needsUpdate = true;
-    coneGeometry.computeVertexNormals();
+    shankGeometry = new THREE.CylinderGeometry(radius, radius, shankLength, segments);
+    shiftGeometryY(shankGeometry, coneHeight + shankLength / 2);
 
-    // Create cylinder for shaft above cone
-    const cylinderGeometry = new THREE.CylinderGeometry(radius, radius, cylinderHeight, 16);
-    const cylinderPositions = cylinderGeometry.attributes.position;
-
-    // Position cylinder so its bottom sits at cone base (Y = coneHeight)
-    // Default cylinder: top at Y=+cylinderHeight/2, bottom at Y=-cylinderHeight/2
-    // Need: bottom at Y=coneHeight, top at Y=coneHeight+cylinderHeight
-    for (let i = 0; i < cylinderPositions.count; i++) {
-      const y = cylinderPositions.getY(i);
-      // Shift so bottom aligns with cone base
-      cylinderPositions.setY(i, y + coneHeight + cylinderHeight / 2);
-    }
-    cylinderPositions.needsUpdate = true;
-    cylinderGeometry.computeVertexNormals();
-
-    // Merge cone and cylinder geometries
-    const mergedGeometry = new THREE.BufferGeometry();
-
-    // Combine vertex positions
-    const combinedPositions = [];
-    const combinedNormals = [];
-    const combinedIndices = [];
-
-    // Add cone vertices and indices
-    const conePos = coneGeometry.attributes.position;
-    const coneNorm = coneGeometry.attributes.normal;
-    for (let i = 0; i < conePos.count; i++) {
-      combinedPositions.push(conePos.getX(i), conePos.getY(i), conePos.getZ(i));
-      if (coneNorm) {
-        combinedNormals.push(coneNorm.getX(i), coneNorm.getY(i), coneNorm.getZ(i));
-      }
-    }
-
-    if (coneGeometry.index) {
-      for (let i = 0; i < coneGeometry.index.count; i++) {
-        combinedIndices.push(coneGeometry.index.getX(i));
-      }
-    }
-
-    // Add cylinder vertices and indices
-    const cylPos = cylinderGeometry.attributes.position;
-    const cylNorm = cylinderGeometry.attributes.normal;
-    const coneVertexCount = conePos.count;
-    for (let i = 0; i < cylPos.count; i++) {
-      combinedPositions.push(cylPos.getX(i), cylPos.getY(i), cylPos.getZ(i));
-      if (cylNorm) {
-        combinedNormals.push(cylNorm.getX(i), cylNorm.getY(i), cylNorm.getZ(i));
-      }
-    }
-
-    if (cylinderGeometry.index) {
-      for (let i = 0; i < cylinderGeometry.index.count; i++) {
-        combinedIndices.push(cylinderGeometry.index.getX(i) + coneVertexCount);
-      }
-    }
-
-    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(combinedPositions), 3));
-    if (combinedNormals.length > 0) {
-      mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(combinedNormals), 3));
-    }
-    if (combinedIndices.length > 0) {
-      mergedGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(combinedIndices), 1));
-    }
-    mergedGeometry.computeVertexNormals();
-
-    geometry = mergedGeometry;
-  } else if (geometryToolType === 'BallNose' || geometryToolType === 'Ball Nose') {
-    // Ball nose: sphere at tip with cylinder shaft
-    // Shaft diameter is 3/4 the ball diameter, 30mm long
-    // Geometry created along Y axis, alignment code will swap to Z axis for world space
+  } else if (type === 'BallNose' || type === 'Ball Nose') {
+    // Ball nose: sphere + flute cylinder (blue) + shank cylinder (gray)
     const sphereRadius = radius;
     const shaftRadius = radius * 0.75;
-    const shaftHeight = 30;
+    const fluteLength = Math.max(radius * 3, 15);
 
-    // Create sphere geometry (centered at origin)
-    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 16, 16);
-    const spherePositions = sphereGeometry.attributes.position;
+    // Tip = sphere (bottom at Y=0) + flute cylinder
+    const sphereGeom = new THREE.SphereGeometry(sphereRadius, segments, segments);
+    shiftGeometryY(sphereGeom, sphereRadius);  // Bottom at Y=0
 
-    // Position sphere so its bottom (lowest point) is at Y=0
-    // Default sphere is centered at origin, so lowest point is at Y=-radius
-    // We need to shift up by radius so lowest point is at Y=0
-    for (let i = 0; i < spherePositions.count; i++) {
-      const y = spherePositions.getY(i);
-      spherePositions.setY(i, y + sphereRadius);
-    }
-    spherePositions.needsUpdate = true;
-    sphereGeometry.computeVertexNormals();
+    const fluteGeom = new THREE.CylinderGeometry(shaftRadius, shaftRadius, fluteLength, segments);
+    shiftGeometryY(fluteGeom, sphereRadius * 2 + fluteLength / 2);
 
-    // Create cylinder for shaft above sphere (along Y axis)
-    // CylinderGeometry is Y-axis aligned by default
-    const cylinderGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftHeight, 16);
-    const cylinderPositions = cylinderGeometry.attributes.position;
+    tipGeometry = mergeToolGeometries(sphereGeom, fluteGeom);
 
-    // Position cylinder so its bottom sits at sphere top (Y = 2*sphereRadius)
-    // Default cylinder: top at Y=+shaftHeight/2, bottom at Y=-shaftHeight/2
-    // Need: bottom at Y=2*sphereRadius, top at Y=2*sphereRadius+shaftHeight
-    for (let i = 0; i < cylinderPositions.count; i++) {
-      const y = cylinderPositions.getY(i);
-      cylinderPositions.setY(i, y + sphereRadius * 2 + shaftHeight / 2);
-    }
-    cylinderPositions.needsUpdate = true;
-    cylinderGeometry.computeVertexNormals();
+    // Shank above flutes
+    const shankBottom = sphereRadius * 2 + fluteLength;
+    shankGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shankLength, segments);
+    shiftGeometryY(shankGeometry, shankBottom + shankLength / 2);
 
-    // Merge sphere and cylinder geometries
-    const mergedGeometry = new THREE.BufferGeometry();
-    const combinedPositions = [];
-    const combinedNormals = [];
-    const combinedIndices = [];
+  } else if (type === 'Drill') {
+    // Drill: cone tip + body cylinder (blue) + shank cylinder (gray)
+    const tipHeight = radius / Math.tan((59 * Math.PI) / 180);
+    const bodyHeight = Math.max(radius * 3, 15);
 
-    // Add sphere vertices and indices
-    const spherePos = sphereGeometry.attributes.position;
-    const sphereNorm = sphereGeometry.attributes.normal;
-    for (let i = 0; i < spherePos.count; i++) {
-      combinedPositions.push(spherePos.getX(i), spherePos.getY(i), spherePos.getZ(i));
-      if (sphereNorm) {
-        combinedNormals.push(sphereNorm.getX(i), sphereNorm.getY(i), sphereNorm.getZ(i));
-      }
-    }
+    const coneGeom = createTipCone(radius, tipHeight, segments);
 
-    if (sphereGeometry.index) {
-      for (let i = 0; i < sphereGeometry.index.count; i++) {
-        combinedIndices.push(sphereGeometry.index.getX(i));
-      }
-    }
+    const bodyGeom = new THREE.CylinderGeometry(radius, radius, bodyHeight, segments);
+    shiftGeometryY(bodyGeom, tipHeight + bodyHeight / 2);
 
-    // Add cylinder vertices and indices
-    const cylPos = cylinderGeometry.attributes.position;
-    const cylNorm = cylinderGeometry.attributes.normal;
-    const sphereVertexCount = spherePos.count;
-    for (let i = 0; i < cylPos.count; i++) {
-      combinedPositions.push(cylPos.getX(i), cylPos.getY(i), cylPos.getZ(i));
-      if (cylNorm) {
-        combinedNormals.push(cylNorm.getX(i), cylNorm.getY(i), cylNorm.getZ(i));
-      }
-    }
+    tipGeometry = mergeToolGeometries(coneGeom, bodyGeom);
 
-    if (cylinderGeometry.index) {
-      for (let i = 0; i < cylinderGeometry.index.count; i++) {
-        combinedIndices.push(cylinderGeometry.index.getX(i) + sphereVertexCount);
-      }
-    }
+    // Shank above drill body
+    const shankBottom = tipHeight + bodyHeight;
+    shankGeometry = new THREE.CylinderGeometry(radius, radius, shankLength, segments);
+    shiftGeometryY(shankGeometry, shankBottom + shankLength / 2);
 
-    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(combinedPositions), 3));
-    if (combinedNormals.length > 0) {
-      mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(combinedNormals), 3));
-    }
-    if (combinedIndices.length > 0) {
-      mergedGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(combinedIndices), 1));
-    }
-    mergedGeometry.computeVertexNormals();
-
-    geometry = mergedGeometry;
-  } else if (geometryToolType === 'Drill') {
-    // Drill bit: cylindrical body with conical pointed tip
-    // Tip angle is typically around 118 degrees, so half angle is 59 degrees
-    const tipHeight = radius / Math.tan((59 * Math.PI) / 180);  // Half angle = 59°
-    const bodyHeight = toolLength - tipHeight;
-
-    // Create cone for the pointed tip
-    const coneGeometry = new THREE.ConeGeometry(radius, tipHeight, 16);
-    const conePositions = coneGeometry.attributes.position;
-
-    // Transform cone: flip upside down so tip points down, then shift tip to Y=0
-    for (let i = 0; i < conePositions.count; i++) {
-      const y = conePositions.getY(i);
-      conePositions.setY(i, -y + tipHeight / 2);
-    }
-    conePositions.needsUpdate = true;
-    coneGeometry.computeVertexNormals();
-
-    // Create cylinder for the drill body
-    const cylinderGeometry = new THREE.CylinderGeometry(radius, radius, bodyHeight, 16);
-    const cylinderPositions = cylinderGeometry.attributes.position;
-
-    // Position cylinder so its bottom sits at the cone base
-    for (let i = 0; i < cylinderPositions.count; i++) {
-      const y = cylinderPositions.getY(i);
-      cylinderPositions.setY(i, y + tipHeight + bodyHeight / 2);
-    }
-    cylinderPositions.needsUpdate = true;
-    cylinderGeometry.computeVertexNormals();
-
-    // Merge cone and cylinder geometries
-    const mergedGeometry = new THREE.BufferGeometry();
-    const combinedPositions = [];
-    const combinedNormals = [];
-    const combinedIndices = [];
-
-    // Add cone vertices and indices
-    const conePos = coneGeometry.attributes.position;
-    const coneNorm = coneGeometry.attributes.normal;
-    for (let i = 0; i < conePos.count; i++) {
-      combinedPositions.push(conePos.getX(i), conePos.getY(i), conePos.getZ(i));
-      if (coneNorm) {
-        combinedNormals.push(coneNorm.getX(i), coneNorm.getY(i), coneNorm.getZ(i));
-      }
-    }
-
-    if (coneGeometry.index) {
-      for (let i = 0; i < coneGeometry.index.count; i++) {
-        combinedIndices.push(coneGeometry.index.getX(i));
-      }
-    }
-
-    // Add cylinder vertices and indices
-    const cylPos = cylinderGeometry.attributes.position;
-    const cylNorm = cylinderGeometry.attributes.normal;
-    const coneVertexCount = conePos.count;
-    for (let i = 0; i < cylPos.count; i++) {
-      combinedPositions.push(cylPos.getX(i), cylPos.getY(i), cylPos.getZ(i));
-      if (cylNorm) {
-        combinedNormals.push(cylNorm.getX(i), cylNorm.getY(i), cylNorm.getZ(i));
-      }
-    }
-
-    if (cylinderGeometry.index) {
-      for (let i = 0; i < cylinderGeometry.index.count; i++) {
-        combinedIndices.push(cylinderGeometry.index.getX(i) + coneVertexCount);
-      }
-    }
-
-    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(combinedPositions), 3));
-    if (combinedNormals.length > 0) {
-      mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(combinedNormals), 3));
-    }
-    if (combinedIndices.length > 0) {
-      mergedGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(combinedIndices), 1));
-    }
-    mergedGeometry.computeVertexNormals();
-
-    geometry = mergedGeometry;
   } else {
-    // End Mill / Flat endmill (default): cylinder
-    geometry = new THREE.CylinderGeometry(radius, radius, toolLength, 16);
+    // End Mill (Flat): flute cylinder (blue) + shank cylinder (gray)
+    const fluteLength = Math.max(radius * 3, 15);
+
+    tipGeometry = new THREE.CylinderGeometry(radius, radius, fluteLength, segments);
+    shiftGeometryY(tipGeometry, fluteLength / 2);  // Bottom at Y=0
+
+    shankGeometry = new THREE.CylinderGeometry(radius, radius, shankLength, segments);
+    shiftGeometryY(shankGeometry, fluteLength + shankLength / 2);
   }
 
-  // Transform vertices to world space
-  const positions = geometry.attributes.position;
-
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i);
-    const y = positions.getY(i);
-    const z = positions.getZ(i);
-
-    let alignedX, alignedY, alignedZ;
-
-    // Use geometryToolType which was calculated at the start of the function
-    if (geometryToolType === 'Flat') {
-      // Cylinder: swap Y and Z to align with Z axis
-      alignedX = x;
-      alignedY = z;
-      alignedZ = y + toolLength / 2;  // Position so tip is at Z=0
-    } else if (geometryToolType === 'VBit') {
-      // Cone (flipped to point downward) + cylinder: align with Z axis
-      // The tip is at Y=0 in local space, positioned at gcode location
-      alignedX = x;
-      alignedY = z;
-      alignedZ = y;  // Tip is at Y=0, positioned at posZ in world space
-    } else if (geometryToolType === 'Drill') {
-      // Drill bit (cone tip + cylinder body): align with Z axis
-      // The tip is at Y=0 in local space, positioned at gcode location
-      alignedX = x;
-      alignedY = z;
-      alignedZ = y;  // Tip is at Y=0, positioned at posZ in world space
-    } else if (geometryToolType === 'Ball Nose' || geometryToolType === 'BallNose') {
-      // Ball nose (sphere + shaft): align with Z axis
-      // The tip (sphere bottom) is at Y=0 in local space, positioned at gcode location
-      alignedX = x;
-      alignedY = z;
-      alignedZ = y;  // Tip is at Y=0, positioned at posZ in world space
-    } else {
-      // Unknown types: default to cylinder behavior
-      alignedX = x;
-      alignedY = z;
-      alignedZ = y + toolLength / 2;
-    }
-
-    // Translate to world position (posX, posY, posZ)
-    const worldX = alignedX + posX;
-    const worldY = alignedY + posY;
-    const worldZ = alignedZ + posZ;
-
-    positions.setXYZ(i, worldX, worldY, worldZ);
-  }
-
-  positions.needsUpdate = true;
-  geometry.computeVertexNormals();
-
-  return geometry;
+  return { tipGeometry, shankGeometry };
 }
 
 function setupLighting() {
@@ -1245,12 +1077,14 @@ function cleanup3DView() {
     toolpathAnimation = null;
   }
 
-  // Dispose tool mesh
-  if (toolMesh) {
-    if (toolMesh.geometry) toolMesh.geometry.dispose();
-    if (toolMesh.material) toolMesh.material.dispose();
-    if (scene) scene.remove(toolMesh);
-    toolMesh = null;
+  // Dispose tool group (tip + shank meshes)
+  if (toolGroup) {
+    toolGroup.children.forEach(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    if (scene) scene.remove(toolGroup);
+    toolGroup = null;
   }
 
   // Dispose toolpath visualizer (stored in toolpathAnimation, but check if accessible)

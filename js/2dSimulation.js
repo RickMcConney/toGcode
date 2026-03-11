@@ -621,6 +621,79 @@ function drawMaterialRemovalCircles() {
     }
 
     ctx.restore();
+
+    // Draw filled circle at current tool position (outside save/restore to avoid inherited state)
+    drawToolPositionCircle();
+}
+
+/**
+ * Draw a filled circle at the current tool position during 2D simulation.
+ * Blue depth gradient for cutting moves (deeper = darker blue).
+ * Red depth gradient for rapid moves (Z=0 dark red, positive Z lighter red).
+ */
+function drawToolPositionCircle() {
+    if (!simulation2D.precomputedPoints || simulation2D.precomputedPoints.length === 0) return;
+
+    const idx = simulation2D.currentLineIndex;
+    if (idx < 0 || idx >= simulation2D.precomputedPoints.length) return;
+
+    const point = simulation2D.precomputedPoints[idx];
+    if (!point || point.moveType === NON_MOVEMENT) return;
+
+    // Calculate interpolated position
+    const t = simulation2D.currentLineProgress || 0;
+    const toolX = point.startX + (point.x - point.startX) * t;
+    const toolY = point.startY + (point.y - point.startY) * t;
+    const toolZ = point.startZ + (point.z - point.startZ) * t;
+
+    // Calculate tool radius
+    let radius;
+    if (point.moveType === CUT && point.tool && point.tool.angle && point.tool.angle > 0) {
+        // V-bits: radius varies with depth during cuts
+        radius = getToolCircleRadius(toolZ, point.tool) * viewScale;
+    } else if (point.tool && point.tool.diameter) {
+        // Use full nominal tool diameter (important for rapids where depth-based radius would be zero)
+        radius = (point.tool.diameter / 2) * viewScale;
+    } else {
+        radius = point.toolRadius;
+    }
+
+    const screenRadius = Math.max(2, radius * zoomLevel);
+    const screenPt = worldToScreen(toolX, toolY);
+
+    ctx.save();
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+
+    if (point.moveType === CUT) {
+        // Blue depth gradient: shallow = light blue, deep = dark blue
+        const maxDepth = (typeof getOption === 'function' ? getOption('workpieceThickness') : 19) || 19;
+        const depth = Math.abs(toolZ);
+        const dt = Math.min(Math.max(depth / maxDepth, 0), 1);
+        const r = Math.round(160 * (1 - dt));
+        const g = Math.round(200 - 160 * dt);
+        const b = Math.round(255 - 95 * dt);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.strokeStyle = `rgb(${Math.max(0, r - 40)},${Math.max(0, g - 40)},${Math.max(0, b - 20)})`;
+    } else {
+        // Rapid color: red (#FF1E00) at Z=0 to green (#3CCC34) at safeZ
+        // Interpolate in HSL to avoid brown midpoint
+        const safeZ = (typeof getOption === 'function' ? getOption('safeHeight') : 5) || 5;
+        const rt = Math.min(Math.max(toolZ / safeZ, 0), 1);  // 0 at Z=0, 1 at safeZ
+        // #FF1E00 ≈ hsl(7, 100%, 50%), #3CCC34 ≈ hsl(115, 60%, 50%)
+        const h = 7 + 108 * rt;       // 7° → 115°
+        const s = 100 - 40 * rt;      // 100% → 60%
+        const l = 50;                  // constant lightness
+        ctx.fillStyle = `hsl(${h}, ${s}%, ${l}%)`;
+        ctx.strokeStyle = `hsl(${h}, ${Math.max(0, s - 15)}%, ${Math.max(0, l - 10)}%)`;
+    }
+
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(screenPt.x, screenPt.y, screenRadius, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
 }
 
 /**
@@ -807,6 +880,7 @@ function runSimulation2D() {
         // Check if we've finished all lines
         if (simulation2D.currentLineIndex >= simulation2D.precomputedPoints.length) {
             simulation2D.currentLineIndex--;
+            simulation2D.currentLineProgress = 1.0;
             finishSimulation2D();
            
             return;
