@@ -292,7 +292,7 @@ function loadTools() {
 // File input handlers
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
-fileInput.accept = '.svg,.stl,.png,.jpg,.jpeg';
+fileInput.accept = '.svg,.stl,.png,.jpg,.jpeg,.gcode,.nc,.ngc,.tap';
 fileInput.id = 'fileInput';
 fileInput.addEventListener('change', function (e) {
     autoCloseToolProperties('file import');
@@ -301,6 +301,21 @@ fileInput.addEventListener('change', function (e) {
     currentFileName = file.name.split('.').shift();
 
     var ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'gcode' || ext === 'nc' || ext === 'ngc' || ext === 'tap') {
+        var reader = new FileReader();
+        reader.onload = function (event) {
+            window._importedGcode = event.target.result;
+            window._cachedGcode = event.target.result;
+            // Switch to 3D tab to run simulation
+            var tab3D = document.getElementById('3d-tab');
+            if (tab3D) {
+                tab3D.click();
+            }
+        };
+        reader.readAsText(file);
+        fileInput.value = "";
+        return;
+    }
     if (ext === 'stl') {
         if (typeof window.importSTLFile === 'function') {
             window.importSTLFile(file);
@@ -741,7 +756,7 @@ function createToolbar() {
                 <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="save" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Save Project">
                     <i data-lucide="save"></i>Save
                 </button>
-                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import SVG, STL, or image files">
+                <button type="button" class="btn btn-outline-primary btn-sm btn-toolbar" data-action="import" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Import SVG, STL, G-code, or image files">
                     <i data-lucide="import"></i>Import
                 </button>
                 <button type="button" class="btn btn-outline-success btn-sm btn-toolbar" data-action="gcode" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Save G-code">
@@ -790,6 +805,7 @@ function createToolbar() {
                 }
                 currentFileName = "none";
                 setProjectName('');
+                window._importedGcode = null;
                 newProject();
                 break;
             case 'open':
@@ -1238,12 +1254,19 @@ function createSidebar() {
             }
 
             // Load and show gcode viewer when switching to 3D view
-            if (typeof gcodeView !== 'undefined' && gcodeView && typeof toGcode === 'function') {
-                const gcode = toGcode();
-                window._cachedGcode = gcode;
-                gcodeView.populate(gcode);
-                if (typeof showGcodeViewerPanel === 'function') {
-                    showGcodeViewerPanel();
+            if (typeof gcodeView !== 'undefined' && gcodeView) {
+                let gcode;
+                if (window._importedGcode) {
+                    gcode = window._importedGcode;
+                } else if (typeof toGcode === 'function') {
+                    gcode = toGcode();
+                }
+                if (gcode) {
+                    window._cachedGcode = gcode;
+                    gcodeView.populate(gcode);
+                    if (typeof showGcodeViewerPanel === 'function') {
+                        showGcodeViewerPanel();
+                    }
                 }
             }
 

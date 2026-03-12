@@ -221,9 +221,9 @@ function refreshToolpath() {
   // Clear existing toolpath visualization
   toolpathAnimation.clearToolpath();
 
-  // Regenerate from current G-code
-  if (typeof toGcode === 'function') {
-    const gcode = toGcode();
+  // Regenerate from current G-code or use imported G-code
+  const gcode = window._importedGcode || (typeof toGcode === 'function' ? toGcode() : null);
+  if (gcode) {
     toolpathAnimation.loadFromGcode(gcode);
   }
 
@@ -350,16 +350,11 @@ function initThree() {
   // Simulation controls are now created by bootstrap-layout.js overlay system
   // No need to create them here
 
-  // Load toolpaths from generated G-code if available
-  if (window.toolpaths && window.toolpaths.length > 0) {
-    // Use cached gcode from bootstrap-layout tab switch if available, otherwise generate
-    const gcode = window._cachedGcode || (typeof toGcode === 'function' ? toGcode() : null);
-    window._cachedGcode = null;
-    if (gcode) {
-      toolpathAnimation.loadFromGcode(gcode);
-    } else {
-      console.warn('toGcode function not found');
-    }
+  // Load toolpaths from generated G-code or imported G-code file
+  const gcode = window._cachedGcode || window._importedGcode || (window.toolpaths && window.toolpaths.length > 0 && typeof toGcode === 'function' ? toGcode() : null);
+  window._cachedGcode = null;
+  if (gcode) {
+    toolpathAnimation.loadFromGcode(gcode);
   } else {
     console.warn('No toolpaths found - create some in the 2D view first');
     // Still create voxel grid so workpiece appearance is consistent (solid voxels vs bare mesh)
@@ -2049,6 +2044,9 @@ class ToolpathAnimation {
       if (activeTool && activeTool.diameter) {
         toolRadius = activeTool.diameter / 2;
       }
+    } else if (this.toolInfo && this.toolInfo.diameter) {
+      // Use tool info parsed from G-code comments (e.g. imported G-code files)
+      toolRadius = this.toolInfo.diameter / 2;
     }
     this.toolRadius = toolRadius;
 
