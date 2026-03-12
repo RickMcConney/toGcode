@@ -614,13 +614,8 @@ class TabEditor extends Select {
             ctx.restore();
 
             // Draw center handle
-            ctx.beginPath();
-            ctx.arc(screenCenter.x, screenCenter.y, this.tabHandleSize, 0, Math.PI * 2);
-            ctx.fillStyle = this.draggedTab === i ? '#ff0000' : (this.hoveredTab === i ? '#ffff00' : '#0080ff');
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            var handleColor = this.draggedTab === i ? '#ff0000' : (this.hoveredTab === i ? '#ffff00' : '#0080ff');
+            this.drawHandle(ctx, screenCenter.x, screenCenter.y, this.tabHandleSize, handleColor, '#ffffff');
         }
 
         ctx.restore();

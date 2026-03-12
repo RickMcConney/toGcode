@@ -61,6 +61,12 @@ class PathEdit extends Select {
 
     // Helper to update properties panel and refresh icons
     updatePropertiesPanel() {
+        // Save current form values before rebuilding
+        const oldRadiusInput = document.getElementById('radiusInput');
+        if (oldRadiusInput) this.lastRadiusValue = oldRadiusInput.value;
+        const oldCornerSelect = document.getElementById('cornerStyleSelect');
+        if (oldCornerSelect) this.lastCornerStyle = oldCornerSelect.value;
+
         const form = document.getElementById('tool-properties-form');
         if (form) {
             form.innerHTML = this.getPropertiesHTML();
@@ -342,36 +348,26 @@ class PathEdit extends Select {
                 const pt = path[i];
                 const screenPt = worldToScreen(pt.x, pt.y);
 
-                // Draw handle
-                ctx.beginPath();
-                ctx.arc(screenPt.x, screenPt.y, this.handleSize, 0, Math.PI * 2);
-
                 // Color based on state
+                var fillColor, strokeColor;
                 if (this.activeHandle === i) {
-                    // Red for actively dragging
-                    ctx.fillStyle = handleActiveColor;
-                    ctx.strokeStyle = handleActiveStroke;
+                    fillColor = handleActiveColor;
+                    strokeColor = handleActiveStroke;
                 } else if (selectedSet.has(i)) {
-                    // Purple for selected for radius application
-                    ctx.fillStyle = '#9333ea';
-                    ctx.strokeStyle = '#6b21a8';
+                    fillColor = '#9333ea';
+                    strokeColor = '#6b21a8';
                 } else if (this.hoveredHandle === i) {
-                    // Yellow highlight for hovered (deletable)
-                    ctx.fillStyle = handleHoverColor;
-                    ctx.strokeStyle = handleHoverStroke;
+                    fillColor = handleHoverColor;
+                    strokeColor = handleHoverStroke;
                 } else if (i === 0) {
-                    // Green for first point
-                    ctx.fillStyle = '#22c55e';
-                    ctx.strokeStyle = '#16a34a';
+                    fillColor = '#22c55e';
+                    strokeColor = '#16a34a';
                 } else {
-                    // Blue for normal
-                    ctx.fillStyle = handleNormalColor;
-                    ctx.strokeStyle = handleNormalStroke;
+                    fillColor = handleNormalColor;
+                    strokeColor = handleNormalStroke;
                 }
 
-                ctx.lineWidth = 2;
-                ctx.fill();
-                ctx.stroke();
+                this.drawHandle(ctx, screenPt.x, screenPt.y, this.handleSize, fillColor, strokeColor);
             }
             ctx.restore();
 
@@ -380,26 +376,8 @@ class PathEdit extends Select {
                 const screenPt = worldToScreen(this.insertPreviewPoint.x, this.insertPreviewPoint.y);
 
                 ctx.save();
-                ctx.beginPath();
-                ctx.arc(screenPt.x, screenPt.y, this.handleSize, 0, Math.PI * 2);
-
-                // Green semi-transparent for preview
-                ctx.fillStyle = insertPreviewColor;
-                ctx.strokeStyle = insertPreviewStroke;
-                ctx.lineWidth = 2;
-                ctx.fill();
-                ctx.stroke();
-
-                // Add a small cross in the center
-                ctx.beginPath();
-                ctx.moveTo(screenPt.x - 3, screenPt.y);
-                ctx.lineTo(screenPt.x + 3, screenPt.y);
-                ctx.moveTo(screenPt.x, screenPt.y - 3);
-                ctx.lineTo(screenPt.x, screenPt.y + 3);
-                ctx.strokeStyle = insertPreviewStroke;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
+                this.drawHandle(ctx, screenPt.x, screenPt.y, this.handleSize, insertPreviewColor, insertPreviewStroke);
+                this.drawCrosshair(ctx, screenPt.x, screenPt.y, 3, insertPreviewStroke, 1);
                 ctx.restore();
             }
         }
@@ -796,6 +774,9 @@ class PathEdit extends Select {
         const radiusInput = document.getElementById('radiusInput');
         if (radiusInput) {
             radiusInput.addEventListener('change', () => {
+                this.lastRadiusValue = radiusInput.value;
+            });
+            radiusInput.addEventListener('input', () => {
                 this.lastRadiusValue = radiusInput.value;
             });
         }

@@ -118,45 +118,27 @@ class Pen extends Operation {
 
         // Draw preview line
         if (this.previewLine) {
-            ctx.beginPath();
             let pStart = worldToScreen(this.previewLine.start.x, this.previewLine.start.y);
             let pEnd = worldToScreen(this.previewLine.end.x, this.previewLine.end.y);
-            ctx.moveTo(pStart.x, pStart.y);
-            ctx.lineTo(pEnd.x, pEnd.y);
 
-            // Use different color/style for closing preview
             if (this.previewLine.closing) {
-                ctx.strokeStyle = penCloseLineColor; // Green for closing
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]); // Dashed line
+                this.drawLine(ctx, pStart.x, pStart.y, pEnd.x, pEnd.y, penCloseLineColor, 2, [5, 5]);
             } else {
-                ctx.strokeStyle = penLineColor;
-                ctx.lineWidth = 1;
-                ctx.setLineDash([]); // Solid line
+                this.drawLine(ctx, pStart.x, pStart.y, pEnd.x, pEnd.y, penLineColor, 1);
             }
-            ctx.stroke();
         }
 
         // Highlight first point when near it for closing
         if (this.nearFirstPoint && this.drawingPoints.length >= 3) {
             const firstPoint = this.drawingPoints[0];
             let pFirst = worldToScreen(firstPoint.x, firstPoint.y);
-            ctx.beginPath();
-            ctx.arc(pFirst.x, pFirst.y, this.closeDistance, 0, 2 * Math.PI);
-            ctx.strokeStyle = penFirstPointColor;
-            ctx.lineWidth = 2;
+            // Dashed ring around close zone
             ctx.setLineDash([3, 3]);
-            ctx.stroke();
-
-            // Draw a filled circle at the first point
-            ctx.beginPath();
-            ctx.arc(pFirst.x, pFirst.y, 4, 0, 2 * Math.PI);
-            ctx.fillStyle = penFirstPointColor;
-            ctx.fill();
+            this.drawCircle(ctx, pFirst.x, pFirst.y, this.closeDistance, null, penFirstPointColor, 2);
+            ctx.setLineDash([]);
+            // Filled dot at first point
+            this.drawCircle(ctx, pFirst.x, pFirst.y, 4, penFirstPointColor, null);
         }
-
-        // Reset line dash for other drawing operations
-        ctx.setLineDash([]);
     }
 
     endDrawing() {

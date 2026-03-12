@@ -33,6 +33,47 @@ class Operation {
     // Drawing
     draw(ctx) { }
 
+    // Canvas drawing helpers
+    drawCircle(ctx, x, y, radius, fillColor, strokeColor, lineWidth) {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        if (fillColor) {
+            ctx.fillStyle = fillColor;
+            ctx.fill();
+        }
+        if (strokeColor) {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = lineWidth || 1;
+            ctx.stroke();
+        }
+    }
+
+    drawHandle(ctx, x, y, size, fillColor, strokeColor, lineWidth) {
+        this.drawCircle(ctx, x, y, size, fillColor, strokeColor, lineWidth || 2);
+    }
+
+    drawLine(ctx, x1, y1, x2, y2, color, lineWidth, dash) {
+        ctx.beginPath();
+        if (dash) ctx.setLineDash(dash);
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth || 1;
+        ctx.stroke();
+        if (dash) ctx.setLineDash([]);
+    }
+
+    drawCrosshair(ctx, x, y, size, color, lineWidth) {
+        ctx.beginPath();
+        ctx.moveTo(x - size, y);
+        ctx.lineTo(x + size, y);
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x, y + size);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth || 1;
+        ctx.stroke();
+    }
+
     // Optional helper methods
     isActive() {
         return false;

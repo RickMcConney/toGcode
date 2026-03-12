@@ -965,9 +965,7 @@ class Transform extends Select {
         }
         else if (type == 'rotate') {
             // Filled circle background like other handles
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
+            this.drawCircle(ctx, x, y, size, ctx.fillStyle, null);
          
 
             // Arc from 9 o'clock counter-clockwise to 10 o'clock
@@ -993,26 +991,12 @@ class Transform extends Select {
         }
         else if (type == 'center') {
             // Crosshair for pivot center
-            const crossSize = size + 3;
-            ctx.beginPath();
-            ctx.moveTo(x - crossSize, y);
-            ctx.lineTo(x + crossSize, y);
-            ctx.moveTo(x, y - crossSize);
-            ctx.lineTo(x, y + crossSize);
-            ctx.stroke();
-
+            this.drawCrosshair(ctx, x, y, size + 3, ctx.strokeStyle, ctx.lineWidth);
             // Small circle at center
-            ctx.beginPath();
-            ctx.arc(x, y, 3, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
+            this.drawCircle(ctx, x, y, 3, ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth);
         }
         else {
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+            this.drawCircle(ctx, x, y, size, ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth);
         }
     }
 
@@ -1024,23 +1008,8 @@ class Transform extends Select {
 
         let screenHandle = worldToScreen(this.mouse.x, this.mouse.y);
         let screenCenter = worldToScreen(this.pivotCenter.x, this.pivotCenter.y);
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(screenCenter.x, screenCenter.y);
-        ctx.lineTo(screenHandle.x, screenHandle.y);
-        ctx.closePath();
-        ctx.stroke();
-
-        ctx.setLineDash([]);
-        ctx.fillStyle = handleHoverColor;
-        ctx.strokeStyle = handleHoverStroke;
-        ctx.beginPath();
-        ctx.arc(screenHandle.x, screenHandle.y, this.handleSize, 0, Math.PI * 2);
-        ctx.closePath();
-
-        ctx.stroke();
-        ctx.fill();
+        this.drawLine(ctx, screenCenter.x, screenCenter.y, screenHandle.x, screenHandle.y, selectionBoxColor, 1, [5, 5]);
+        Operation.prototype.drawHandle.call(this, ctx, screenHandle.x, screenHandle.y, this.handleSize, handleHoverColor, handleHoverStroke);
     }
 
     drawTransformBox(ctx) {
