@@ -1,13 +1,21 @@
 /**
- * GcodeView - Displays G-code during simulation with current line highlighting
- * and seeking support via line clicks.
+ * GcodeView - Virtualized G-code viewer for simulation.
+ * Only renders the visible rows in the DOM (~50 elements) instead of all lines,
+ * so setCurrentLine is O(1) regardless of file size.
  */
 class GcodeView {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
-        this.lines = [];                    // Array of {lineNumber, text, element}
+        this.lineTexts = [];                // Array of raw line strings
         this.currentLineNumber = -1;        // Currently highlighted line
-        this.gcodeText = '';               // Full G-code text
+        this.gcodeText = '';                // Full G-code text
+        this.lineHeight = 20;              // Estimated px height per line
+        this.visibleStart = 0;             // First visible line index
+        this.visibleEnd = 0;               // Last visible line index (exclusive)
+        this.renderedElements = [];        // Currently rendered DOM elements (sparse by line index)
+        this._viewport = null;             // Scrollable viewport div
+        this._content = null;              // Inner content div (sized to full height)
+        this._linesContainer = null;       // Container for visible line divs
     }
 
     /**
@@ -16,169 +24,197 @@ class GcodeView {
      */
     populate(gcodeText) {
         this.gcodeText = gcodeText;
-        this.lines = [];
         this.currentLineNumber = -1;
-        this._renderLines(gcodeText);
-    }
-
-    /**
-     * Highlight the current line and auto-scroll to keep it visible
-     * @param {number} lineNumber - G-code line number
-     */
-    setCurrentLine(lineNumber) {
-        if (lineNumber === this.currentLineNumber) {
-            return;  // No change
-        }
-
-        // Remove highlight from previous line
-        if (this.currentLineNumber >= 0) {
-            const prevElement = this.container.querySelector(
-                `[data-line-number="${this.currentLineNumber}"]`
-            );
-            if (prevElement) {
-                prevElement.classList.remove('active-gcode-line');
-            }
-        }
-
-        // Add highlight to the exact line requested
-        const currentElement = this.container.querySelector(
-            `[data-line-number="${lineNumber}"]`
-        );
-        if (currentElement) {
-            currentElement.classList.add('active-gcode-line');
-            // Auto-scroll into view
-            currentElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            this.currentLineNumber = lineNumber;
-        }
-    }
-
-    /**
-     * Show the G-code view
-     */
-    show() {
-        if (this.container) {
-            this.container.style.display = '';
-        }
-    }
-
-    /**
-     * Hide the G-code view
-     */
-    hide() {
-        if (this.container) {
-            this.container.style.display = 'none';
-        }
-    }
-
-    /**
-     * Clear all lines and hide
-     */
-    clear() {
-        if (this.container) {
-            this.container.innerHTML = '';
-        }
-        this.lines = [];
-        this.currentLineNumber = -1;
-        this.gcodeText = '';
-    }
-
-    /**
-     * Internal: Parse and render G-code lines
-     * @private
-     */
-    _renderLines(gcodeText) {
-        if (!this.container) {
-            console.warn('GcodeView container not found');
-            return;
-        }
 
         let lines = gcodeText.split('\n');
         // Remove trailing empty lines
         while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
             lines.pop();
         }
+        this.lineTexts = lines;
+        this._buildVirtualizedDOM();
+    }
 
-        let lineNumber = 0;  // 0-indexed (matches movement array indexing)
+    /**
+     * Highlight the current line and scroll it into view
+     * @param {number} lineNumber - G-code line number (0-based)
+     */
+    setCurrentLine(lineNumber) {
+        if (lineNumber === this.currentLineNumber) {
+            return;
+        }
 
+        const oldLine = this.currentLineNumber;
+        this.currentLineNumber = lineNumber;
+
+        // Scroll so the current line is visible
+        if (this._viewport && lineNumber >= 0 && lineNumber < this.lineTexts.length) {
+            const targetScrollTop = lineNumber * this.lineHeight;
+            const viewportHeight = this._viewport.clientHeight;
+            const currentScrollTop = this._viewport.scrollTop;
+
+            // Only scroll if the line is outside the visible area
+            if (targetScrollTop < currentScrollTop || targetScrollTop > currentScrollTop + viewportHeight - this.lineHeight) {
+                // Center the line in the viewport
+                this._viewport.scrollTop = targetScrollTop - viewportHeight / 2;
+            } else {
+                // Line is already visible, just update highlights
+                this._updateHighlight(oldLine, lineNumber);
+                return;
+            }
+            // _renderVisibleLines will be called by the scroll event
+        }
+    }
+
+    show() {
+        if (this.container) {
+            this.container.style.display = '';
+        }
+    }
+
+    hide() {
+        if (this.container) {
+            this.container.style.display = 'none';
+        }
+    }
+
+    clear() {
+        if (this.container) {
+            this.container.innerHTML = '';
+        }
+        this.lineTexts = [];
+        this.currentLineNumber = -1;
+        this.renderedElements = [];
+        this._viewport = null;
+        this._content = null;
+        this._linesContainer = null;
+        this.gcodeText = '';
+    }
+
+    /**
+     * Build the virtualized DOM structure:
+     *   container > viewport (scrollable) > content (full height) > linesContainer (visible lines only)
+     */
+    _buildVirtualizedDOM() {
+        if (!this.container) return;
+
+        this.container.innerHTML = '';
+        this.renderedElements = [];
+        this.visibleStart = -1;
+        this.visibleEnd = -1;
+
+        // Viewport - scrollable container
+        this._viewport = document.createElement('div');
+        this._viewport.style.cssText = 'overflow-y:auto; height:100%; position:relative;';
+
+        // Content - sized to full virtual height for correct scrollbar
+        this._content = document.createElement('div');
+        this._content.style.cssText = `height:${this.lineTexts.length * this.lineHeight}px; position:relative;`;
+
+        // Lines container - holds only the visible line elements
+        this._linesContainer = document.createElement('div');
+        this._linesContainer.style.cssText = 'position:absolute; left:0; right:0;';
+
+        this._content.appendChild(this._linesContainer);
+        this._viewport.appendChild(this._content);
+        this.container.appendChild(this._viewport);
+
+        // Re-render on scroll
+        this._viewport.addEventListener('scroll', () => {
+            this._renderVisibleLines();
+        });
+
+        // Render initial visible lines - use requestAnimationFrame so the
+        // viewport has been laid out and clientHeight is available
+        requestAnimationFrame(() => {
+            this._renderVisibleLines();
+        });
+    }
+
+    /**
+     * Render only the lines currently visible in the viewport
+     */
+    _renderVisibleLines() {
+        if (!this._viewport || this.lineTexts.length === 0) return;
+
+        const scrollTop = this._viewport.scrollTop;
+        let viewportHeight = this._viewport.clientHeight;
+
+        // If viewport has no height yet (container hidden/not laid out),
+        // use a reasonable default so we render enough lines
+        if (viewportHeight <= 0) {
+            viewportHeight = 600;
+        }
+
+        // Calculate visible range with buffer lines above and below
+        const buffer = 10;
+        const newStart = Math.max(0, Math.floor(scrollTop / this.lineHeight) - buffer);
+        const newEnd = Math.min(this.lineTexts.length, Math.ceil((scrollTop + viewportHeight) / this.lineHeight) + buffer);
+
+        // Skip if range hasn't changed
+        if (newStart === this.visibleStart && newEnd === this.visibleEnd) return;
+
+        this.visibleStart = newStart;
+        this.visibleEnd = newEnd;
+
+        // Rebuild visible lines
         const fragment = document.createDocumentFragment();
+        this.renderedElements = [];
 
-        lines.forEach((text) => {
-            // Skip empty lines but still count them
-            const trimmed = text.trim();
+        for (let i = newStart; i < newEnd; i++) {
+            const div = document.createElement('div');
+            div.className = 'gcode-line';
+            if (i === this.currentLineNumber) {
+                div.className += ' active-gcode-line';
+            }
+            div.style.cssText = `position:absolute; top:${i * this.lineHeight}px; left:0; right:0; height:${this.lineHeight}px; line-height:${this.lineHeight}px; cursor:pointer; overflow:hidden; white-space:nowrap;`;
 
-            const lineDiv = document.createElement('div');
-            lineDiv.className = 'gcode-line';
-            lineDiv.setAttribute('data-line-number', lineNumber);
-
-            // Format: "N: G-code text" (0-based indexing to match movement array)
-            const lineText = document.createElement('span');
-            lineText.className = 'gcode-line-number';
-            lineText.textContent = (lineNumber+1) + ': ';  // 0-based indexing
+            const lineNum = document.createElement('span');
+            lineNum.className = 'gcode-line-number';
+            lineNum.textContent = (i + 1) + ': ';
 
             const codeText = document.createElement('span');
             codeText.className = 'gcode-line-code';
-            codeText.textContent = trimmed || '(empty)';
+            codeText.textContent = this.lineTexts[i].trim() || '(empty)';
 
-            lineDiv.appendChild(lineText);
-            lineDiv.appendChild(codeText);
+            div.appendChild(lineNum);
+            div.appendChild(codeText);
 
-            // Store reference
-            this.lines.push({
-                lineNumber: lineNumber,
-                text: text,
-                element: lineDiv
-            });
+            // Click handler for seeking
+            div.addEventListener('click', () => this._handleLineClick(i));
 
-            fragment.appendChild(lineDiv);
-            lineNumber++;
-        });
+            fragment.appendChild(div);
+            this.renderedElements[i] = div;
+        }
 
-        this.container.innerHTML = '';
-        this.container.appendChild(fragment);
-
-        // Wire up click handlers
-        this._setupClickHandlers();
+        this._linesContainer.innerHTML = '';
+        this._linesContainer.appendChild(fragment);
     }
 
     /**
-     * Internal: Set up click handlers for seeking
-     * @private
+     * Update highlight without re-rendering (when line is already in visible range)
      */
-    _setupClickHandlers() {
-        if (!this.container) return;
-
-        const lineElements = this.container.querySelectorAll('.gcode-line');
-        lineElements.forEach((element) => {
-            element.addEventListener('click', (e) => {
-                const lineNumber = parseInt(element.getAttribute('data-line-number'), 10);
-                this._handleLineClick(lineNumber);
-            });
-
-            // Visual feedback on hover
-            element.style.cursor = 'pointer';
-        });
+    _updateHighlight(oldLine, newLine) {
+        if (oldLine >= 0 && this.renderedElements[oldLine]) {
+            this.renderedElements[oldLine].classList.remove('active-gcode-line');
+        }
+        if (newLine >= 0 && this.renderedElements[newLine]) {
+            this.renderedElements[newLine].classList.add('active-gcode-line');
+        }
     }
 
     /**
-     * Internal: Handle click on a G-code line
-     * @private
+     * Handle click on a G-code line
      */
     _handleLineClick(lineNumber) {
-        // Highlight the clicked line in viewer
         this.setCurrentLine(lineNumber);
 
-        // Seek the simulator to this line
-        // Simulations are mutually exclusive - only one should be active
-        // Check 2D simulation first (running or paused means it's the active one)
         if (typeof simulation2D !== 'undefined' && (simulation2D.isRunning || simulation2D.isPaused)) {
-            // 2D simulation is active - use direct line-based seeking
             if (typeof setSimulation2DLineNumber === 'function') {
                 setSimulation2DLineNumber(lineNumber);
             }
         } else if (typeof setSimulation3DProgress === 'function') {
-            // 3D simulation is active - use setSimulation3DProgress which handles all updates
             setSimulation3DProgress(lineNumber);
         }
     }
-
 }

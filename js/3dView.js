@@ -451,6 +451,9 @@ function createToolVisualization(toolDiameter) {
   updateToolMesh(toolDiameter, 0, 0, 0, 'End Mill', 0);
 }
 
+// Cache for tool geometry to avoid regenerating every frame
+let _cachedToolKey = null;  // "diameter|type|angle"
+
 function updateToolMesh(toolDiameter, posX, posY, posZ, toolType = 'End Mill', toolAngle = 0) {
   if (!toolGroup) return;
 
@@ -459,22 +462,28 @@ function updateToolMesh(toolDiameter, posX, posY, posZ, toolType = 'End Mill', t
   const offsetPosX = posX - boundsOffset.x;
   const offsetPosY = posY + boundsOffset.y;
 
-  // Generate separate tip and shank geometries
-  const { tipGeometry, shankGeometry } = generateToolParts(toolDiameter, toolType, toolAngle);
+  // Only regenerate geometry when tool properties change (not every frame)
+  const toolKey = toolDiameter + '|' + toolType + '|' + toolAngle;
+  if (toolKey !== _cachedToolKey) {
+    _cachedToolKey = toolKey;
 
-  // Swap Y↔Z on both geometries to align tool with Z axis (vertical)
-  swapYZAxes(tipGeometry);
-  swapYZAxes(shankGeometry);
+    // Generate separate tip and shank geometries
+    const { tipGeometry, shankGeometry } = generateToolParts(toolDiameter, toolType, toolAngle);
 
-  // Dispose old geometries and assign new ones
-  const tipMesh = toolGroup.children[0];
-  const shankMesh = toolGroup.children[1];
-  if (tipMesh.geometry) tipMesh.geometry.dispose();
-  if (shankMesh.geometry) shankMesh.geometry.dispose();
-  tipMesh.geometry = tipGeometry;
-  shankMesh.geometry = shankGeometry;
+    // Swap Y↔Z on both geometries to align tool with Z axis (vertical)
+    swapYZAxes(tipGeometry);
+    swapYZAxes(shankGeometry);
 
-  // Position the group at the tool's world location
+    // Dispose old geometries and assign new ones
+    const tipMesh = toolGroup.children[0];
+    const shankMesh = toolGroup.children[1];
+    if (tipMesh.geometry) tipMesh.geometry.dispose();
+    if (shankMesh.geometry) shankMesh.geometry.dispose();
+    tipMesh.geometry = tipGeometry;
+    shankMesh.geometry = shankGeometry;
+  }
+
+  // Position the group at the tool's world location (cheap - just set position)
   toolGroup.position.set(offsetPosX, offsetPosY, posZ);
 }
 
@@ -877,22 +886,12 @@ function updateSimulation3DDisplays() {
   }
 
   if (simTimeElem) {
-    // Calculate cumulative elapsed time by finding previous movement's cumulative time + current elapsed
-    let cumulativeElapsedTime = 0;
-
-    // Find previous movement (same logic as in update() method)
-    let prevMovement = null;
-    for (const move of toolpathAnimation.movementTiming) {
-      if (move.gcodeLineNumber < toolpathAnimation.currentGcodeLineNumber) {
-        if (!prevMovement || move.gcodeLineNumber > prevMovement.gcodeLineNumber) {
-          prevMovement = move;
-        }
-      }
-    }
-
-    // Cumulative elapsed = previous movement's cumulative time + current elapsed within movement
+    // O(1) lookup: previous movement's cumulative time + current elapsed within movement
+    const prevMovement = toolpathAnimation.currentMovementIndex > 0
+      ? toolpathAnimation.movementTiming[toolpathAnimation.currentMovementIndex - 1]
+      : null;
     const prevMovementEndTime = prevMovement ? prevMovement.cumulativeTime : 0;
-    cumulativeElapsedTime = prevMovementEndTime + toolpathAnimation.elapsedTime;
+    const cumulativeElapsedTime = prevMovementEndTime + toolpathAnimation.elapsedTime;
 
     simTimeElem.textContent = formatTime(cumulativeElapsedTime);
   }
@@ -1472,9 +1471,10 @@ class ToolpathAnimation {
     // G-code text for line iteration
     this.gcodeLines = [];  // Array of G-code lines (split from gcode text)
 
-    // Line-driven animation state (PRIMARY STATE)
-    this.currentGcodeLineNumber = 1;  // Current G-code line number (1-indexed, source of truth)
-    this.totalGcodeLines = 0;  // Total number of G-code lines
+    // Movement-index-driven animation state (PRIMARY STATE)
+    this.currentMovementIndex = 0;  // Index into movementTiming array (source of truth)
+    this.currentGcodeLineNumber = 0;  // Derived from movementTiming[currentMovementIndex].gcodeLineNumber for display
+    this.totalGcodeLines = 0;  // Total number of G-code lines (for display/progress)
     this.justSeeked = false;  // Flag to prevent advancing on frame immediately after seek
     this.justAdvancedLine = false;  // Flag to skip tool update on frame we advance lines
     this.wasStopped = false;  // Flag to track if stopped (vs paused) - affects play behavior
@@ -1654,8 +1654,6 @@ class ToolpathAnimation {
             numberOfVoxels = clippedWidth*clippedLength/(this.voxelSize*this.voxelSize);
 
         }
-        console.log("number of voxels = "+numberOfVoxels+ " voxex size = "+this.voxelSize);     
-  
 
         // Round clipped bounds UP to clean voxel boundaries to ensure all in-bounds toolpath is captured
         const toolpathWidthMM = Math.ceil((clippedMaxX - clippedMinX) / this.voxelSize) * this.voxelSize;
@@ -1710,7 +1708,6 @@ class ToolpathAnimation {
 
       // PHASE 2.1: Save current config so we don't recreate unnecessarily
       this.lastVoxelConfig = currentConfig;
-      console.log('Voxel grid created/updated with config:', currentConfig);
 
     } catch (error) {
       console.error('Error initializing voxel grid:', error);
@@ -2062,16 +2059,6 @@ class ToolpathAnimation {
       timers.voxelGridTime = performance.now() - timers.voxelGridStart;
     }
 
-    // Report performance metrics
-    const totalTime = performance.now() - perfStart;
-    console.log(`=== G-CODE LOADING PROFILE ===`);
-    console.log(`Tool Info Parsing:      ${timers.toolInfoTime.toFixed(2)}ms`);
-    console.log(`G-code Parsing:         ${timers.parseGcodeTime.toFixed(2)}ms`);
-    console.log(`Animation Timing:       ${timers.animationTime.toFixed(2)}ms`);
-    console.log(`Path Visualization:     ${timers.visualizeTime.toFixed(2)}ms`);
-    if (timers.voxelGridTime) console.log(`Voxel Grid Init:        ${timers.voxelGridTime.toFixed(2)}ms`);
-    console.log(`TOTAL:                  ${totalTime.toFixed(2)}ms`);
-    console.log(`Movements parsed: ${movements.length}`);
 
     // Update progress slider range for line-based animation
     const progressSlider = document.getElementById('3d-simulation-progress');
@@ -2274,17 +2261,34 @@ class ToolpathAnimation {
   }
 
   /**
-   * Get movement for a specific G-code line number
-   * Returns the movement object if this line has a G0/G1 command, null otherwise
-   * Uses the parser's results which handle custom post-processor profiles
+   * Sync currentGcodeLineNumber from the current movement index.
+   * Call after changing currentMovementIndex to keep display state consistent.
    */
-  getMovementForLine(lineNumber) {
-    for (const movement of this.movementTiming) {
-      if (movement.gcodeLineNumber === lineNumber) {
-        return movement;
+  _syncGcodeLineNumber() {
+    if (this.currentMovementIndex >= 0 && this.currentMovementIndex < this.movementTiming.length) {
+      this.currentGcodeLineNumber = this.movementTiming[this.currentMovementIndex].gcodeLineNumber || 0;
+    }
+  }
+
+  /**
+   * Binary search: find the movement index whose gcodeLineNumber is closest to (at or before) targetLine.
+   * Returns -1 if no movement exists at or before targetLine.
+   */
+  _findMovementIndexForLine(targetLine) {
+    const mt = this.movementTiming;
+    if (mt.length === 0) return -1;
+    let lo = 0, hi = mt.length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const lineNum = mt[mid].gcodeLineNumber;
+      if (lineNum === undefined || lineNum > targetLine) {
+        hi = mid - 1;
+      } else {
+        best = mid;
+        lo = mid + 1;
       }
     }
-    return null;
+    return best;
   }
 
   visualizeToolpathWithGCode(movements) {
@@ -2356,23 +2360,19 @@ class ToolpathAnimation {
   }
 
   play() {
-    // Reset voxels and line number only if at the end of the file
-    // If we seeked to a different line, continue from that line
-    if (this.currentGcodeLineNumber >= this.totalGcodeLines - 1) {
+    // Reset voxels and position only if at the end of the file
+    // If we seeked to a different position, continue from there
+    if (this.currentMovementIndex >= this.movementTiming.length - 1) {
       if (this.voxelGrid) {
         this.voxelGrid.reset();
         this.voxelMaterialRemover.reset();
         this.voxelGrid.updateVoxelColors();
         this.voxelGrid.updateInstanceMatrices();
       }
-      this.currentGcodeLineNumber = 0;  // 0-based indexing - start at line 0
+      this.currentMovementIndex = 0;
+      this._syncGcodeLineNumber();
       this.elapsedTime = 0;
-      this.wasStopped = false;  // Clear the stop flag
-
-      // Skip ahead to first actual movement (skip non-movement lines at start)
-      while (this.currentGcodeLineNumber <= this.totalGcodeLines && !this.getMovementForLine(this.currentGcodeLineNumber)) {
-        this.currentGcodeLineNumber++;
-      }
+      this.wasStopped = false;
     }
     this.isPlaying = true;
     this.updateStatus();
@@ -2380,10 +2380,9 @@ class ToolpathAnimation {
 
   pause() {
     this.isPlaying = false;
-    // FIX: If animation finished naturally, set wasStopped=true so next play resets
-    // Only clear wasStopped if we're pausing in the MIDDLE of animation (before the end)
-    // currentGcodeLineNumber is 0-indexed, last valid index is totalGcodeLines - 1
-    if (this.currentGcodeLineNumber < this.totalGcodeLines - 1) {
+    // If animation finished naturally, set wasStopped=true so next play resets
+    // Only clear wasStopped if we're pausing in the MIDDLE of animation
+    if (this.currentMovementIndex < this.movementTiming.length - 1) {
       this.wasStopped = false;  // Pause in middle keeps current position
     } else {
       this.wasStopped = true;  // Animation finished at last line - next play will reset
@@ -2442,8 +2441,12 @@ class ToolpathAnimation {
     if (targetLineNumber < 0) targetLineNumber = 0;
     if (targetLineNumber > this.totalGcodeLines) targetLineNumber = this.totalGcodeLines;
 
-    const oldLineNumber = this.currentGcodeLineNumber;
-    const isBackwardSeek = targetLineNumber < oldLineNumber;
+    // Find the movement index at or before the target line (O(log n) binary search)
+    const targetIdx = this._findMovementIndexForLine(targetLineNumber);
+    if (targetIdx < 0) return;  // No movements at or before this line
+
+    const oldIdx = this.currentMovementIndex;
+    const isBackwardSeek = targetIdx < oldIdx;
 
     // Reset voxels if seeking backward
     if (isBackwardSeek) {
@@ -2454,55 +2457,28 @@ class ToolpathAnimation {
       this.currentToolInfo = null;
     }
 
-    // Replay material removal from old to new line
-    // Replay UP TO but NOT INCLUDING the target line (show state BEFORE current line executes)
-    if (isBackwardSeek && targetLineNumber > 0) {
-      // Backward seek: replay from line 0 to one before target
-      this._replayFromLineToLine(0, targetLineNumber - 1);
-    } else if (!isBackwardSeek && targetLineNumber > oldLineNumber) {
-      // Forward seek: replay from current to one before target
-      this._replayFromLineToLine(oldLineNumber, targetLineNumber - 1);
+    // Replay material removal UP TO but NOT INCLUDING the target (show state BEFORE current line executes)
+    if (isBackwardSeek && targetIdx > 0) {
+      this._replayFromMovementIndexToIndex(0, targetIdx - 1);
+    } else if (!isBackwardSeek && targetIdx > oldIdx) {
+      this._replayFromMovementIndexToIndex(oldIdx, targetIdx - 1);
     }
 
-    // Set state to target line
-    this.currentGcodeLineNumber = targetLineNumber;
-    this.elapsedTime = 0;  // Reset time at start of target line
-    this.justSeeked = true;  // Prevent advancing on next update call
+    // Set state to target movement
+    this.currentMovementIndex = targetIdx;
+    this._syncGcodeLineNumber();
+    this.elapsedTime = 0;
+    this.justSeeked = true;
 
-    // Update tool and voxel grid
-    // Set tool to BEFORE this line (previous movement's end position)
-    const targetMovement = this.getMovementForLine(targetLineNumber);
-    if (targetMovement) {
-      this.currentFeedRate = targetMovement.f || 0;  // Use f (feed rate) from optimized structure
-      // Find previous movement to position tool at START of current line
-      let prevMovement = null;
-      for (let i = targetLineNumber - 1; i >= 0; i--) {
-        const move = this.getMovementForLine(i);
-        if (move) {  // Found actual movement
-          prevMovement = move;
-          break;
-        }
-      }
-      if (prevMovement) {
-        // Position tool at end of previous movement (start of current line)
-        this.updateToolPositionAtCoordinates(prevMovement.x, prevMovement.y, prevMovement.z, false, prevMovement.gcodeLineNumber || targetLineNumber);
-      } else {
-        // No previous movement, use safe starting position
-        this.updateToolPositionAtCoordinates(0, 0, 5, false, 0);
-      }
+    // Position tool at end of previous movement (start of current line)
+    const prevMove = targetIdx > 0 ? this.movementTiming[targetIdx - 1] : null;
+    const targetMove = this.movementTiming[targetIdx];
+    this.currentFeedRate = targetMove.feedRate || 0;
+
+    if (prevMove) {
+      this.updateToolPositionAtCoordinates(prevMove.x, prevMove.y, prevMove.z, false, prevMove.gcodeLineNumber || 0);
     } else {
-      // No movement at this line, find last actual movement position
-      let lastMovement = null;
-      for (let i = targetLineNumber - 1; i >= 0; i--) {
-        const move = this.getMovementForLine(i);
-        if (move) {  // Found actual movement (movementTiming object)
-          lastMovement = move;
-          break;
-        }
-      }
-      if (lastMovement) {
-        this.updateToolPositionAtCoordinates(lastMovement.x, lastMovement.y, lastMovement.z, false, lastMovement.gcodeLineNumber || targetLineNumber);
-      }
+      this.updateToolPositionAtCoordinates(0, 0, 5, false, 0);
     }
 
     // Batch update GPU
@@ -2515,16 +2491,8 @@ class ToolpathAnimation {
   }
 
   setProgress(lineNumber, skipViewerUpdate) {
-    // Seek to a specific G-code line number
-    // Find the movement with this exact line number
-
-    let targetMovementIndex = -1;
-    for (let i = 0; i < this.movementTiming.length; i++) {
-      if (this.movementTiming[i].gcodeLineNumber === lineNumber) {
-        targetMovementIndex = i;
-        break;
-      }
-    }
+    // Seek to a specific G-code line number using binary search
+    const targetMovementIndex = this._findMovementIndexForLine(lineNumber);
 
     if (targetMovementIndex === -1) return; // Line not found
 
@@ -2590,49 +2558,6 @@ class ToolpathAnimation {
     }
 
     this.updateWorkpiece();
-  }
-
-  /**
-   * Replay material removal from one G-code line to another
-   * Processes all lines between start and end, executing movements and material removal
-   * Used for both forward and backward seeking
-   */
-  _replayFromLineToLine(startLine, endLine) {
-    // Use distance-based step size (half voxel size) so no voxels are missed,
-    // even on long movements like G1 X-65.6 Y-34 to Y26 (60mm travel).
-    const stepDist = this.voxelGrid ? this.voxelGrid.voxelSize * 0.5 : 0.5;
-
-    for (let lineNum = startLine; lineNum <= endLine && lineNum <= this.totalGcodeLines; lineNum++) {
-      const movement = this.getMovementForLine(lineNum);
-
-      if (!movement) continue;  // Line has no movement, skip
-
-      if (movement.isG1 && this.voxelGrid && this.voxelMaterialRemover) {
-        // Find previous movement position for interpolation (only on cutting moves)
-        let prevPos = { x: 0, y: 0, z: 5 };
-        for (let searchLine = lineNum - 1; searchLine >= 0; searchLine--) {
-          const prevMove = this.getMovementForLine(searchLine);
-          if (prevMove) {  // Found actual movement
-            prevPos = { x: prevMove.x, y: prevMove.y, z: prevMove.z };
-            break;
-          }
-        }
-
-        try {
-          const toolData = this.getToolForLine(lineNum) || this.toolInfo ||
-            { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
-          this.voxelMaterialRemover.removeAlongPath(
-            this.voxelGrid,
-            prevPos,
-            { x: movement.x, y: movement.y, z: movement.z },
-            toolData,
-            stepDist
-          );
-        } catch (e) {
-          console.error('Voxel replay error at line ' + lineNum + ':', e);
-        }
-      }
-    }
   }
 
   _replayFromMovementIndexToIndex(startIndex, endIndex) {
@@ -2922,160 +2847,103 @@ class ToolpathAnimation {
   }
 
   update() {
-    if (this.movementTiming.length === 0 || this.currentGcodeLineNumber > this.totalGcodeLines) return;
+    if (this.movementTiming.length === 0 || this.currentMovementIndex >= this.movementTiming.length) return;
 
     // Skip all simulation work if not playing
     if (!this.isPlaying) {
       return;
     }
 
-    // If playing, increment elapsed time within the current movement
+    // Clear the seek flag now that we've processed this frame
+    if (this.justSeeked) {
+      this.justSeeked = false;
+      return;
+    }
+
+    // Increment elapsed time - this is cumulative time into the animation from current position
     const deltaTime = (1 / 60) * this.speed;  // Assume 60fps, multiply by speed factor
     this.elapsedTime += deltaTime;
 
-    // Get the movement for the current G-code line (if it exists)
-    const currentMovement = this.getMovementForLine(this.currentGcodeLineNumber);
+    // Calculate the target cumulative time we should be at
+    const prevMovementAtStart = this.currentMovementIndex > 0 ? this.movementTiming[this.currentMovementIndex - 1] : null;
+    const baseTime = prevMovementAtStart ? prevMovementAtStart.cumulativeTime : 0;
+    const targetCumulativeTime = baseTime + this.elapsedTime;
 
-    // Find previous movement to calculate segment start time
-    let prevMovement = null;
-    for (const move of this.movementTiming) {
-      if (move.gcodeLineNumber < this.currentGcodeLineNumber) {
-        if (!prevMovement || move.gcodeLineNumber > prevMovement.gcodeLineNumber) {
-          prevMovement = move;
-        }
-      }
-    }
+    // Advance through all movements that should have completed by now
+    const stepDist = this.voxelGrid ? this.voxelGrid.voxelSize * 0.5 : 0.5;
 
-    const prevMovementEndTime = prevMovement ? prevMovement.cumulativeTime : 0;
-    const currentMovementEndTime = currentMovement ? currentMovement.cumulativeTime : prevMovementEndTime;
-    const movementDuration = currentMovementEndTime - prevMovementEndTime;
+    while (this.currentMovementIndex < this.movementTiming.length) {
+      const move = this.movementTiming[this.currentMovementIndex];
 
-    // Check if current movement is complete and advance to next line if needed
-    // (but only if playing, and not on the frame immediately after seeking)
-    // Also advance if we're on a non-movement line (currentMovement is null)
-    const shouldAdvance = this.isPlaying && !this.justSeeked &&
-                          ((!currentMovement) ||  // Skip non-movement lines immediately
-                           (currentMovement && this.elapsedTime >= movementDuration));  // Or when movement is complete
-
-    if (shouldAdvance) {
-      // Ensure completing movement's voxels are fully removed along its path.
-      // At higher speeds, short movements (common at curves) complete within a
-      // single frame, causing their voxel removal to be skipped entirely.
-      if (currentMovement) {
-        if (currentMovement.isG1 && this.enableVoxelRemoval &&
-            this.voxelGrid && this.voxelMaterialRemover) {
-          const prevPos = prevMovement
-            ? { x: prevMovement.x, y: prevMovement.y, z: prevMovement.z }
-            : { x: 0, y: 0, z: 5 };
-          try {
-            const toolData = this.getToolForLine(this.currentGcodeLineNumber) || this.toolInfo ||
-              { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
-            this.voxelMaterialRemover.removeAlongPath(
-              this.voxelGrid,
-              prevPos,
-              { x: currentMovement.x, y: currentMovement.y, z: currentMovement.z },
-              toolData,
-              this.voxelGrid.voxelSize * 0.5
-            );
-          } catch (e) {
-            console.error('Voxel removal error during advance:', e);
-          }
-        }
-        // Update tool visual to movement endpoint (prevents tool lagging behind the cut)
-        this.updateToolPositionAtCoordinates(
-          currentMovement.x, currentMovement.y, currentMovement.z,
-          currentMovement.isG1, this.currentGcodeLineNumber
-        );
+      // If this movement hasn't completed yet, stop - we'll interpolate within it below
+      if (move.cumulativeTime > targetCumulativeTime) {
+        break;
       }
 
-      // Movement is complete (or non-movement line), advance to next line
-      this.currentGcodeLineNumber++;
-      this.elapsedTime = 0;  // Reset time for next line
-      this.justAdvancedLine = true;  // Skip tool update this frame
-
-      // Skip ahead until we find a line with a movement or reach end
-      let maxIterations = this.totalGcodeLines + 1;  // Total number of lines (0 to totalGcodeLines inclusive)
-      while (this.currentGcodeLineNumber <= this.totalGcodeLines && !this.getMovementForLine(this.currentGcodeLineNumber) && maxIterations-- > 0) {
-        this.currentGcodeLineNumber++;
+      // This movement has completed - do voxel removal along its full path
+      if (move.isG1 && this.enableVoxelRemoval && this.voxelGrid && this.voxelMaterialRemover) {
+        const prev = this.currentMovementIndex > 0 ? this.movementTiming[this.currentMovementIndex - 1] : null;
+        const prevPos = prev ? { x: prev.x, y: prev.y, z: prev.z } : { x: 0, y: 0, z: 5 };
+        try {
+          const toolData = this.getToolForLine(move.gcodeLineNumber) || this.toolInfo ||
+            { diameter: this.toolRadius * 2, type: 'End Mill', angle: 0 };
+          this.voxelMaterialRemover.removeAlongPath(
+            this.voxelGrid, prevPos,
+            { x: move.x, y: move.y, z: move.z },
+            toolData, stepDist
+          );
+        } catch (e) {
+          console.error('Voxel removal error during advance:', e);
+        }
       }
 
-      // If we've reached the end, clamp to last valid line index, pause, and keep voxels visible
-      if (this.currentGcodeLineNumber >= this.totalGcodeLines) {
-        this.currentGcodeLineNumber = this.totalGcodeLines - 1;  // Clamp to last valid line (0-indexed)
+      this.currentMovementIndex++;
 
-        // Update tool position one final time to show final location
-        const finalMovement = this.getMovementForLine(this.currentGcodeLineNumber);
-        if (finalMovement) {
-          this.updateToolPositionAtCoordinates(finalMovement.x, finalMovement.y, finalMovement.z, finalMovement.isG1, this.currentGcodeLineNumber);
-        }
+      // If we've reached the end, finish up
+      if (this.currentMovementIndex >= this.movementTiming.length) {
+        this.currentMovementIndex = this.movementTiming.length - 1;
+        this._syncGcodeLineNumber();
+
+        const finalMovement = this.movementTiming[this.currentMovementIndex];
+        this.updateToolPositionAtCoordinates(finalMovement.x, finalMovement.y, finalMovement.z, finalMovement.isG1, finalMovement.gcodeLineNumber);
 
         this.pause();
         this.updateStatus();
         return;
       }
-
-      // Get the new movement (will process it this frame)
-      const nextMovement = this.getMovementForLine(this.currentGcodeLineNumber);
-      if (!nextMovement) return;  // No more movements
     }
 
-    // Clear the seek flag now that we've processed this frame
-    if (this.justSeeked) {
-      this.justSeeked = false;
+    // Rebase elapsedTime relative to new position so it doesn't compound across frames
+    const newPrev = this.currentMovementIndex > 0 ? this.movementTiming[this.currentMovementIndex - 1] : null;
+    const newBaseTime = newPrev ? newPrev.cumulativeTime : 0;
+    this.elapsedTime = targetCumulativeTime - newBaseTime;
+
+    // Sync display state
+    this._syncGcodeLineNumber();
+
+    // Now interpolate within the current (in-progress) movement
+    const currentMovement = this.movementTiming[this.currentMovementIndex];
+    const movementDuration = currentMovement.cumulativeTime - newBaseTime;
+
+    const prevPos = newPrev
+      ? { x: newPrev.x, y: newPrev.y, z: newPrev.z }
+      : { x: 0, y: 0, z: 5 };
+
+    let t = 0;
+    if (movementDuration > 0) {
+      t = this.elapsedTime / movementDuration;
+      t = Math.max(0, Math.min(1, t));
     }
 
-    // Skip tool position update if we just advanced to a new line
-    // (let the next frame recalculate with fresh movement data)
-    if (this.justAdvancedLine) {
-      this.justAdvancedLine = false;
-      // Sync viewer to current line and return
-      if (typeof gcodeView !== 'undefined' && gcodeView) {
-        gcodeView.setCurrentLine(this.currentGcodeLineNumber);
-      }
-      this.updateWorkpiece();
-      return;
-    }
-
-    // Calculate tool position - interpolate within current movement if it exists
-    let toolX, toolY, toolZ, isG1 = false;
-
-    if (currentMovement) {
-      // Interpolate between previous and current movement
-      const prevPos = prevMovement
-        ? { x: prevMovement.x, y: prevMovement.y, z: prevMovement.z }
-        : { x: 0, y: 0, z: 5 };
-
-      let t = 0;
-      if (movementDuration > 0) {
-        t = this.elapsedTime / movementDuration;
-        t = Math.max(0, Math.min(1, t));  // Clamp to [0, 1]
-      }
-
-      // Linear interpolation
-      toolX = prevPos.x + (currentMovement.x - prevPos.x) * t;
-      toolY = prevPos.y + (currentMovement.y - prevPos.y) * t;
-      toolZ = prevPos.z + (currentMovement.z - prevPos.z) * t;
-      isG1 = currentMovement.isG1 || false;
-      this.currentFeedRate = currentMovement.feedRate || 0;
-    } else {
-      // No movement at this line - stay at previous position (no-op)
-      if (prevMovement) {
-        toolX = prevMovement.x;
-        toolY = prevMovement.y;
-        toolZ = prevMovement.z;
-        isG1 = false;
-      } else {
-        toolX = 0;
-        toolY = 0;
-        toolZ = 5;
-        isG1 = false;
-      }
-    }
+    const toolX = prevPos.x + (currentMovement.x - prevPos.x) * t;
+    const toolY = prevPos.y + (currentMovement.y - prevPos.y) * t;
+    const toolZ = prevPos.z + (currentMovement.z - prevPos.z) * t;
+    this.currentFeedRate = currentMovement.feedRate || 0;
 
     // Update tool position and remove material at interpolated location
-    this.updateToolPositionAtCoordinates(toolX, toolY, toolZ, isG1, this.currentGcodeLineNumber);
+    this.updateToolPositionAtCoordinates(toolX, toolY, toolZ, currentMovement.isG1 || false, this.currentGcodeLineNumber);
 
-    // Sync G-code viewer to current line
+    // Sync gcode viewer - now cheap thanks to virtualized DOM (only ~50 elements rendered)
     if (typeof gcodeView !== 'undefined' && gcodeView) {
       gcodeView.setCurrentLine(this.currentGcodeLineNumber);
     }
@@ -3161,9 +3029,9 @@ class ToolpathAnimation {
       }
     }
 
-    // Get the current line number directly from the movement (not from imprecise time conversion)
-    // This ensures the correct line is always shown
+    // Sync movement index and line number from the segment
     const currentMovement = this.movementTiming[segmentIndex];
+    this.currentMovementIndex = segmentIndex;
     this.currentGcodeLineNumber = currentMovement ? currentMovement.gcodeLineNumber : 0;
 
     // Use the tool lookup table to get the correct tool for this line number

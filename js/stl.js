@@ -28,10 +28,6 @@ window.importSTLFile = function(file) {
             positionSTLModel(model);
             window.stlModels.push(model);
 
-            console.log('STL imported:', model.name,
-                'Triangles:', geometry.attributes.position.count / 3,
-                'Bounds (mm):', model.bbox3d);
-
             // Add to 3D view
             addSTLMesh3D(model);
 
@@ -601,7 +597,6 @@ function generateHeightMap(model, resolutionMM) {
         cellSize: cellSize
     };
 
-    console.log('Height map generated:', width, 'x', height, 'cells at', cellSize, 'mm resolution');
 }
 
 // ============================================================
@@ -934,7 +929,6 @@ function extractContourLoops(model, zLevel) {
         }
     }
 
-    console.log('Slice at Z=' + zLevel.toFixed(2) + 'mm:', segments.length, 'segments →', loops.length, 'loops');
     return loops;
 }
 
@@ -1093,8 +1087,6 @@ window.do3dProfile = function() {
                 .filter(l => l.length >= 3);
             if (useLoops.length === 0) continue;
 
-            console.log('Pass', pass + 1, 'Z=' + zLevel.toFixed(2) + 'mm:', useLoops.length, 'contour loops');
-
             for (const loop of useLoops) {
                 // Check if this loop's outline is significantly larger than
                 // any previous loop. Compare bounding boxes — if a previous
@@ -1155,8 +1147,6 @@ window.do3dProfile = function() {
             if (typeof window.notify === 'function') window.notify('No contour toolpath generated — check STL model and tool settings', 'error');
             return;
         }
-
-        console.log('3D Profile (contour): generated', allPaths.length, 'contour loops across', numPasses, 'passes');
 
     } else {
         // ---- Raster strategy ----
