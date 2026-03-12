@@ -428,7 +428,7 @@ class Select extends Operation {
 
         if (pathToShow) {
             const currentOp = window.cncController.operationManager.currentOperation.name;
-            if (isOnDrawTab && currentOp !== 'Move' && currentOp !== 'Boolean') {
+            if (isOnDrawTab && currentOp !== 'Move' && currentOp !== 'Boolean' && currentOp !== 'Offset' && currentOp !== 'Pattern') {
                 doMove();
             } else if (isOnOperationsTab) {
                 this.doOperation();

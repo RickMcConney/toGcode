@@ -218,6 +218,13 @@ function deleteSelected() {
 	});
 
 	selectMgr.unselectAll();
+
+	// Clear transform box so handles don't linger after delete
+	var transformOp = cncController && cncController.operationManager && cncController.operationManager.getOperation('Move');
+	if (transformOp) {
+		transformOp.transformBox = null;
+	}
+
 	redraw();
 }
 
@@ -302,6 +309,13 @@ function doUndo() {
 			}
 		}
 	}
+	// Clear PathEdit's cached original so corner operations work fresh after undo
+	var editOp = cncController && cncController.operationManager && cncController.operationManager.getOperation('Edit');
+	if (editOp) {
+		editOp.originalPathBeforeRadius = null;
+		editOp.originalPathBeforeRadiusId = null;
+	}
+
 	onPathsChanged(null);
 }
 
@@ -780,6 +794,14 @@ function doShape() {
 function doText() {
 	cncController.setMode("Text");
 	//selectMgr.unselectAll();
+}
+
+function doOffset() {
+	cncController.setMode("Offset");
+}
+
+function doPattern() {
+	cncController.setMode("Pattern");
 }
 
 function doDrill() {

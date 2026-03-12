@@ -27,7 +27,7 @@ class PathEdit extends Select {
         this.originalPathBeforeRadius = null; // Store original path before radius operations for re-application
         this.syncFirstLast = false; // Track if first/last points should be synchronized
         this.lastRadiusValue = '5'; // Store last entered radius value
-        this.lastInvertValue = false; // Store last invert checkbox state
+        this.lastCornerStyle = 'outer'; // Store last corner style selection
 
         // Define keydown handler (will be added/removed in start/stop)
         this.keydownHandler = (evt) => {
@@ -616,23 +616,26 @@ class PathEdit extends Select {
 
             <div class="card mb-3">
                 <div class="card-body">
-                    <h6 class="card-title">Add Radius Corner</h6>
+                    <h6 class="card-title">Corner Style</h6>
 
                     <div class="mb-2">
-                        <label for="radiusInput" class="form-label">Radius</label>
-                        <input type="text" class="form-control form-control-sm" id="radiusInput"
-                               value="${this.lastRadiusValue}" placeholder="5mm or 1/4in" ${!hasSelection ? 'disabled' : ''}>
+                        <label for="cornerStyleSelect" class="form-label">Style</label>
+                        <select class="form-select form-select-sm" id="cornerStyleSelect">
+                            <option value="outer" ${this.lastCornerStyle === 'outer' ? 'selected' : ''}>Radius (outer)</option>
+                            <option value="inner" ${this.lastCornerStyle === 'inner' ? 'selected' : ''}>Radius (inner)</option>
+                            <option value="miter" ${this.lastCornerStyle === 'miter' ? 'selected' : ''}>Miter (chamfer)</option>
+                            <option value="dogbone" ${this.lastCornerStyle === 'dogbone' ? 'selected' : ''}>Dogbone</option>
+                        </select>
                     </div>
 
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="invertRadiusCheck" ${this.lastInvertValue ? 'checked' : ''} ${!hasSelection ? 'disabled' : ''}>
-                        <label class="form-check-label" for="invertRadiusCheck">
-                            Invert (cut into shape)
-                        </label>
+                    <div class="mb-2">
+                        <label for="radiusInput" class="form-label">Size</label>
+                        <input type="text" class="form-control form-control-sm" id="radiusInput"
+                               value="${this.lastRadiusValue}" placeholder="5mm or 1/4in">
                     </div>
 
                     <button type="button" class="btn btn-success btn-sm w-100" id="applyRadiusBtn" ${!hasSelection ? 'disabled' : ''}>
-                        <i data-lucide="circle-dot"></i> Apply Radius
+                        <i data-lucide="circle-dot"></i> Apply Corner
                     </button>
                     <small class="form-text text-muted text-center d-block mt-2">
                         ${hasSelectedHandles ? `Will apply to ${selectedCount === 1 ? '1 point' : selectedCount + ' points'}` : 'Click points to select, or click Apply to radius all points'}
@@ -656,8 +659,11 @@ class PathEdit extends Select {
     }
 
     onPropertiesChanged(data) {
-        // PathEdit doesn't need to handle property changes
-        // Button event handlers are wired up in bootstrap-layout.js
+        // Save corner style and radius so they persist across panel rebuilds
+        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
+        if (cornerStyleSelect) this.lastCornerStyle = cornerStyleSelect.value;
+        const radiusInput = document.getElementById('radiusInput');
+        if (radiusInput) this.lastRadiusValue = radiusInput.value;
     }
 
     applySmoothingToPath() {
@@ -780,6 +786,20 @@ class PathEdit extends Select {
             });
         }
 
+        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
+        if (cornerStyleSelect) {
+            cornerStyleSelect.addEventListener('change', () => {
+                this.lastCornerStyle = cornerStyleSelect.value;
+            });
+        }
+
+        const radiusInput = document.getElementById('radiusInput');
+        if (radiusInput) {
+            radiusInput.addEventListener('change', () => {
+                this.lastRadiusValue = radiusInput.value;
+            });
+        }
+
         const smoothBtn = document.getElementById('applySmoothBtn');
         if (smoothBtn) {
             smoothBtn.addEventListener('click', () => {
@@ -799,7 +819,7 @@ class PathEdit extends Select {
         }
 
         const radiusInput = document.getElementById('radiusInput');
-        const invertCheck = document.getElementById('invertRadiusCheck');
+        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
 
         if (!radiusInput) {
             console.log('Radius input not found');
@@ -809,23 +829,25 @@ class PathEdit extends Select {
         // Get radius using parseDimension (supports mm, inches, and fractions)
         const radiusMM = parseDimension(radiusInput.value);
         if (isNaN(radiusMM) || radiusMM <= 0) {
-            console.log('Invalid radius value. Please enter a valid value (e.g., "5mm", "1/4in", "0.25")');
+            console.log('Invalid value. Please enter a valid value (e.g., "5mm", "1/4in", "0.25")');
             return;
         }
 
         // Store the entered values for next time
         this.lastRadiusValue = radiusInput.value;
-        const invert = invertCheck ? invertCheck.checked : false;
-        this.lastInvertValue = invert;
+        const cornerStyle = cornerStyleSelect ? cornerStyleSelect.value : 'outer';
+        this.lastCornerStyle = cornerStyle;
+        const invert = cornerStyle === 'inner';
 
         const radiusWorld = radiusMM * viewScale;
 
-        // Save original path if not already saved
-        if (!this.originalPathBeforeRadius) {
+        // Save original path if not already saved, or if path changed (e.g. after undo)
+        if (!this.originalPathBeforeRadius || this.originalPathBeforeRadiusId !== selectedPath.id) {
             this.originalPathBeforeRadius = {
                 path: selectedPath.path.map(pt => ({ x: pt.x, y: pt.y })),
                 closed: selectedPath.closed
             };
+            this.originalPathBeforeRadiusId = selectedPath.id;
         }
 
         // Restore from original before applying new radius
@@ -867,11 +889,11 @@ class PathEdit extends Select {
         let processedPoint0 = false;
 
         for (const pointIndex of pointsToProcess) {
-            const success = this.insertRadiusCorner(
+            const success = this.insertCorner(
                 selectedPath,
                 pointIndex,
                 radiusWorld,
-                invert
+                cornerStyle
             );
             if (success) {
                 successCount++;
@@ -918,15 +940,170 @@ class PathEdit extends Select {
     }
 
     /**
+     * Dispatch to the appropriate corner insertion method based on style
+     */
+    insertCorner(svgPath, pointIndex, radius, cornerStyle) {
+        switch (cornerStyle) {
+            case 'dogbone':
+                return this.insertDogboneCorner(svgPath, pointIndex, radius);
+            case 'miter':
+                return this.insertMiterCorner(svgPath, pointIndex, radius);
+            case 'inner':
+                return this.insertRadiusCorner(svgPath, pointIndex, radius, true);
+            case 'outer':
+            default:
+                return this.insertRadiusCorner(svgPath, pointIndex, radius, false);
+        }
+    }
+
+    /**
+     * Insert a dogbone corner at the specified point index.
+     * A dogbone is a circular notch cut into the inside corner so a round
+     * endmill can clear the material at a sharp inside corner.
+     * Circle center is at radius distance from corner along the bisector.
+     * The corner point is replaced by an arc between the two points where
+     * the circle crosses the adjacent edges.
+     */
+    insertDogboneCorner(svgPath, pointIndex, radius) {
+        const path = svgPath.path;
+        const n = path.length;
+        if (n < 3) return false;
+
+        const hasDuplicateEndpoint = n > 1 &&
+            path[0].x === path[n - 1].x && path[0].y === path[n - 1].y;
+
+        let prevIndex = (pointIndex - 1 + n) % n;
+        let nextIndex = (pointIndex + 1) % n;
+        if (pointIndex === 0 && hasDuplicateEndpoint) prevIndex = n - 2;
+
+        const prev = path[prevIndex];
+        const current = path[pointIndex];
+        const next = path[nextIndex];
+
+        // Unit vectors along each edge away from the corner
+        const v1 = { x: prev.x - current.x, y: prev.y - current.y };
+        const v2 = { x: next.x - current.x, y: next.y - current.y };
+        const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+        const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+        if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) return false;
+
+        const u1 = { x: v1.x / len1, y: v1.y / len1 };
+        const u2 = { x: v2.x / len2, y: v2.y / len2 };
+
+        // Bisector pointing into the corner interior
+        const bisector = { x: u1.x + u2.x, y: u1.y + u2.y };
+        const bisLen = Math.sqrt(bisector.x * bisector.x + bisector.y * bisector.y);
+        if (bisLen < 0.001) return false;
+        bisector.x /= bisLen;
+        bisector.y /= bisLen;
+
+        // Dogbone center at radius from corner along bisector
+        const center = {
+            x: current.x + bisector.x * radius,
+            y: current.y + bisector.y * radius
+        };
+
+        // The circle passes through the corner (distance = radius).
+        // Find the OTHER intersection of the circle with each edge.
+        // Edge 1: P(t) = current + t * u1,  t >= 0
+        // |P(t) - center|^2 = radius^2
+        // Let d = current - center, then |d + t*u1|^2 = r^2
+        // t^2 + 2t(d·u1) + |d|^2 - r^2 = 0
+        // We know |d| = radius, so |d|^2 - r^2 = 0, giving t(t + 2(d·u1)) = 0
+        // t=0 is the corner itself; the other root is t = -2(d·u1)
+        const d = { x: current.x - center.x, y: current.y - center.y };
+
+        const dot1 = d.x * u1.x + d.y * u1.y;
+        const intT1 = -2 * dot1;
+        if (intT1 <= 0 || intT1 >= len1 * MAX_TANGENT_RATIO) return false;
+        const p1 = { x: current.x + u1.x * intT1, y: current.y + u1.y * intT1 };
+
+        const dot2 = d.x * u2.x + d.y * u2.y;
+        const intT2 = -2 * dot2;
+        if (intT2 <= 0 || intT2 >= len2 * MAX_TANGENT_RATIO) return false;
+        const p2 = { x: current.x + u2.x * intT2, y: current.y + u2.y * intT2 };
+
+        // Arc from p1 to p2 around center, going through the far side (the notch)
+        const angle1 = Math.atan2(p1.y - center.y, p1.x - center.x);
+        const angle2 = Math.atan2(p2.y - center.y, p2.x - center.x);
+
+        // We want the major arc (the one that goes away from the corner,
+        // through the deepest point of the notch)
+        const cross = u1.x * u2.y - u1.y * u2.x;
+        let sweep = angle2 - angle1;
+        if (sweep > Math.PI) sweep -= 2 * Math.PI;
+        if (sweep < -Math.PI) sweep += 2 * Math.PI;
+
+        // Pick the arc that goes the long way round (through the notch)
+        if (cross > 0 && sweep > 0) sweep -= 2 * Math.PI;
+        if (cross < 0 && sweep < 0) sweep += 2 * Math.PI;
+
+        const numPoints = Math.max(5, Math.ceil(Math.abs(sweep) * ARC_POINTS_PER_RADIAN));
+        const arcPoints = [];
+
+        arcPoints.push({ x: p1.x, y: p1.y });
+        for (let i = 1; i < numPoints; i++) {
+            const t = i / numPoints;
+            const a = angle1 + sweep * t;
+            arcPoints.push({
+                x: center.x + radius * Math.cos(a),
+                y: center.y + radius * Math.sin(a)
+            });
+        }
+        arcPoints.push({ x: p2.x, y: p2.y });
+
+        path.splice(pointIndex, 1, ...arcPoints);
+        return true;
+    }
+
+    /**
+     * Insert a miter (chamfer) corner — replaces the sharp corner with a flat cut.
+     */
+    insertMiterCorner(svgPath, pointIndex, distance) {
+        const path = svgPath.path;
+        const n = path.length;
+        if (n < 3) return false;
+
+        const hasDuplicateEndpoint = n > 1 &&
+            path[0].x === path[n - 1].x && path[0].y === path[n - 1].y;
+
+        let prevIndex = (pointIndex - 1 + n) % n;
+        let nextIndex = (pointIndex + 1) % n;
+        if (pointIndex === 0 && hasDuplicateEndpoint) prevIndex = n - 2;
+
+        const prev = path[prevIndex];
+        const current = path[pointIndex];
+        const next = path[nextIndex];
+
+        const v1 = { x: prev.x - current.x, y: prev.y - current.y };
+        const v2 = { x: next.x - current.x, y: next.y - current.y };
+        const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+        const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+        if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) return false;
+
+        // Clamp distance to not exceed segment lengths
+        const d = Math.min(distance, len1 * MAX_TANGENT_RATIO, len2 * MAX_TANGENT_RATIO);
+
+        const u1 = { x: v1.x / len1, y: v1.y / len1 };
+        const u2 = { x: v2.x / len2, y: v2.y / len2 };
+
+        // Two points: one on each edge at 'distance' from the corner
+        const p1 = { x: current.x + u1.x * d, y: current.y + u1.y * d };
+        const p2 = { x: current.x + u2.x * d, y: current.y + u2.y * d };
+
+        path.splice(pointIndex, 1, p1, p2);
+        return true;
+    }
+
+    /**
      * Insert a radius corner (fillet) at the specified point index
      * @param {Object} svgPath - The path object
      * @param {Number} pointIndex - Index of the point to add radius to
      * @param {Number} radius - Radius in world coordinates
      * @param {Boolean} invert - If true, radius cuts into shape (concave), otherwise rounds out (convex)
-     * @param {Boolean} suppressAlerts - If true, don't show alert dialogs (for batch operations)
      * @returns {Boolean} Success status
      */
-    insertRadiusCorner(svgPath, pointIndex, radius, invert, suppressAlerts = false) {
+    insertRadiusCorner(svgPath, pointIndex, radius, invert) {
         const path = svgPath.path;
         const n = path.length;
 

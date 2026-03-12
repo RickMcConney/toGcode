@@ -1071,7 +1071,7 @@ function createSidebar() {
             // First activate the operation (calls start() which loads saved properties)
 
             // Then show the properties editor (which calls getPropertiesHTML())
-            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', , 'Boolean', 'Gemini', 'Text', 'Tabs'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', 'Boolean', 'Gemini', 'Text', 'Tabs', 'Offset', 'Pattern', 'Drill'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
@@ -1110,6 +1110,14 @@ function createSidebar() {
         if (svgGroup && item.dataset.svgGroupHeader) {
             e.preventDefault();
             showSvgGroupContextMenu(e, item.dataset.svgGroupHeader);
+            return;
+        }
+
+        // Check if this is a pattern group folder
+        const patternGroup = item.closest('[data-pattern-group-id]');
+        if (patternGroup && item.dataset.patternGroupHeader) {
+            e.preventDefault();
+            showGroupContextMenu(e, item.dataset.patternGroupHeader, 'patternGroupId', 'Pattern Group', 'data-pattern-group-id');
             return;
         }
 
@@ -3741,6 +3749,12 @@ function handleOperationClick(operation) {
         case 'Tabs':
             doTabEditor();
             break;
+        case 'Offset':
+            doOffset();
+            break;
+        case 'Pattern':
+            doPattern();
+            break;
         // Machining Operations
         case 'Drill':
             doDrill();
@@ -3817,7 +3831,7 @@ function handlePathClick(pathId) {
     const path = svgpaths.find(p => p.id === pathId);
     if (path && path.creationTool && path.creationProperties) {
         // Only show properties editor if this is a draw tool that supports editing
-        if (path.creationTool === 'Text' || path.creationTool === 'Shape') {
+        if (path.creationTool === 'Text' || path.creationTool === 'Shape' || path.creationTool === 'Offset' || path.creationTool === 'Pattern') {
             // Always switch to Draw Tools tab when editing from paths list
             const drawToolsTab = document.getElementById('draw-tools-tab');
             const drawToolsPane = document.getElementById('draw-tools');
@@ -3831,6 +3845,23 @@ function handlePathClick(pathId) {
 
             // Show properties editor for this path
             showPathPropertiesEditor(path);
+            cncController.setMode(path.creationTool);
+
+            // For Offset/Pattern: select generated paths first (red), source paths last (magenta)
+            if ((path.creationTool === 'Offset' || path.creationTool === 'Pattern') && path.creationProperties.sourceIds) {
+                selectMgr.unselectAll();
+                // Select generated paths first (they'll draw red)
+                const sourceIds = path.creationProperties.sourceIds;
+                svgpaths.filter(p => p.creationTool === path.creationTool && p.creationProperties &&
+                    p.creationProperties.sourceIds && arraysEqual(p.creationProperties.sourceIds, sourceIds))
+                    .forEach(p => selectMgr.selectPath(p));
+                // Select source paths last (they'll draw magenta)
+                sourceIds.forEach(srcId => {
+                    const srcPath = svgpaths.find(p => p.id === srcId);
+                    if (srcPath) selectMgr.selectPath(srcPath);
+                });
+                redraw();
+            }
         }
     }
 }
@@ -4036,7 +4067,7 @@ function showToolFolderContextMenu(event, toolName) {
 
 
 // Context menu for SVG group folders
-function showSvgGroupContextMenu(event, groupId) {
+function showGroupContextMenu(event, groupId, filterKey, groupLabel, selectorAttr) {
     createContextMenu(event, {
         items: [
             { label: 'Show All', icon: 'eye', action: 'show-all' },
@@ -4048,19 +4079,19 @@ function showSvgGroupContextMenu(event, groupId) {
         onAction: function (action, groupId) {
             switch (action) {
                 case 'show-all':
-                    setGroupVisibility(svgpaths, 'svgGroupId', groupId, true, 'path(s)');
+                    setGroupVisibility(svgpaths, filterKey, groupId, true, 'path(s)');
                     break;
                 case 'hide-all':
-                    setGroupVisibility(svgpaths, 'svgGroupId', groupId, false, 'path(s)');
+                    setGroupVisibility(svgpaths, filterKey, groupId, false, 'path(s)');
                     break;
                 case 'delete-all':
                     deleteGroup({
                         collection: svgpaths,
-                        filterKey: 'svgGroupId',
+                        filterKey: filterKey,
                         filterValue: groupId,
-                        groupLabel: 'SVG Group',
+                        groupLabel: groupLabel,
                         itemLabel: 'path(s)',
-                        selectorAttr: 'data-svg-group-id'
+                        selectorAttr: selectorAttr
                     });
                     break;
             }
@@ -4068,37 +4099,12 @@ function showSvgGroupContextMenu(event, groupId) {
     });
 }
 
-// Context menu for text group folders
+function showSvgGroupContextMenu(event, groupId) {
+    showGroupContextMenu(event, groupId, 'svgGroupId', 'SVG Group', 'data-svg-group-id');
+}
+
 function showTextGroupContextMenu(event, groupId) {
-    createContextMenu(event, {
-        items: [
-            { label: 'Show All', icon: 'eye', action: 'show-all' },
-            { label: 'Hide All', icon: 'eye-off', action: 'hide-all' },
-            { divider: true },
-            { label: 'Delete All', icon: 'trash-2', action: 'delete-all', danger: true }
-        ],
-        data: groupId,
-        onAction: function (action, groupId) {
-            switch (action) {
-                case 'show-all':
-                    setGroupVisibility(svgpaths, 'textGroupId', groupId, true, 'path(s)');
-                    break;
-                case 'hide-all':
-                    setGroupVisibility(svgpaths, 'textGroupId', groupId, false, 'path(s)');
-                    break;
-                case 'delete-all':
-                    deleteGroup({
-                        collection: svgpaths,
-                        filterKey: 'textGroupId',
-                        filterValue: groupId,
-                        groupLabel: 'Text Group',
-                        itemLabel: 'path(s)',
-                        selectorAttr: 'data-text-group-id'
-                    });
-                    break;
-            }
-        }
-    });
+    showGroupContextMenu(event, groupId, 'textGroupId', 'Text Group', 'data-text-group-id');
 }
 
 
@@ -4245,7 +4251,7 @@ function addSvgPath(id, name) {
     item.className = 'sidebar-item';
     item.dataset.pathId = id;
     const sp = svgpaths.find(p => p.id === id);
-    const icon = (sp && sp.creationTool === 'STL') ? 'file-box' : getPathIcon(name);
+    const icon = sp ? getIconForPath(sp) : getPathIcon(name);
     item.innerHTML = `
         <i data-lucide="${icon}"></i>${name}
     `;
@@ -4435,6 +4441,113 @@ function addSvgGroup(groupId, groupName, paths) {
     lucide.createIcons();
 }
 
+// Add pattern group to sidebar (groups all pattern paths together)
+function addPatternGroup(groupId, groupName, icon, paths, creationTool) {
+    const section = document.getElementById('svg-paths-section');
+
+    // Remove any existing group with this ID
+    const existingGroup = section.querySelector(`[data-pattern-group-id="${groupId}"]`);
+    if (existingGroup) {
+        existingGroup.remove();
+    }
+
+    // Create collapsible group container
+    const groupContainer = document.createElement('div');
+    groupContainer.dataset.patternGroupId = groupId;
+    groupContainer.className = 'pattern-group';
+
+    // Create group header
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'sidebar-item fw-bold d-flex align-items-center justify-content-between';
+    groupHeader.dataset.patternGroupHeader = groupId;
+
+    // Create folder content
+    const folderContent = document.createElement('span');
+    folderContent.innerHTML = `<i data-lucide="${icon}"></i>${groupName}`;
+    folderContent.style.flex = '1';
+    folderContent.style.cursor = 'pointer';
+
+    // Create chevron for expand/collapse
+    const chevronContainer = document.createElement('span');
+    chevronContainer.dataset.bsToggle = 'collapse';
+    chevronContainer.dataset.bsTarget = `#${groupId}`;
+    chevronContainer.setAttribute('aria-expanded', 'false');
+    chevronContainer.style.cursor = 'pointer';
+
+    const chevron = document.createElement('i');
+    chevron.className = 'collapse-chevron';
+    chevron.dataset.lucide = 'chevron-down';
+    chevron.style.minWidth = '16px';
+
+    chevronContainer.appendChild(chevron);
+
+    groupHeader.appendChild(folderContent);
+    groupHeader.appendChild(chevronContainer);
+
+    // Handle clicking on the chevron - just toggle, don't select
+    chevronContainer.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    // Handle clicking on the folder content to select all paths and show properties
+    folderContent.addEventListener('click', (e) => {
+        const groupPaths = svgpaths.filter(p => p.patternGroupId === groupId);
+        if (groupPaths.length > 0) {
+            document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
+            groupHeader.classList.add('selected');
+
+            // Show properties editor for this group
+            const firstPath = groupPaths[0];
+            if (firstPath.creationTool && firstPath.creationProperties) {
+                // Select generated paths first (red), then source paths last (magenta)
+                selectMgr.unselectAll();
+                groupPaths.forEach(p => selectMgr.selectPath(p));
+                if (firstPath.creationProperties.sourceIds) {
+                    firstPath.creationProperties.sourceIds.forEach(srcId => {
+                        const srcPath = svgpaths.find(p => p.id === srcId);
+                        if (srcPath) selectMgr.selectPath(srcPath);
+                    });
+                }
+
+                // Switch to Draw Tools tab
+                const drawToolsTab = document.getElementById('draw-tools-tab');
+                const drawToolsPane = document.getElementById('draw-tools');
+                document.querySelectorAll('#sidebar-tabs .nav-link').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('#sidebar-tabs ~ .sidebar-tab-content .tab-pane').forEach(pane => pane.classList.remove('show', 'active'));
+                drawToolsTab.classList.add('active');
+                drawToolsPane.classList.add('show', 'active');
+
+                showPathPropertiesEditor(firstPath);
+                cncController.setMode(creationTool);
+            }
+
+            redraw();
+        }
+    });
+
+    groupContainer.appendChild(groupHeader);
+
+    // Create collapsible container for individual paths
+    const collapseContainer = document.createElement('div');
+    collapseContainer.className = 'collapse';
+    collapseContainer.id = groupId;
+
+    // Add individual paths
+    paths.forEach(path => {
+        const item = document.createElement('div');
+        item.className = 'sidebar-item ms-4';
+        item.dataset.pathId = path.id;
+        item.innerHTML = `
+            <i data-lucide="${icon}"></i>${path.name}
+        `;
+        collapseContainer.appendChild(item);
+    });
+
+    groupContainer.appendChild(collapseContainer);
+    section.appendChild(groupContainer);
+    lucide.createIcons();
+}
+
 // Get operation priority for sorting (same as cnc.js)
 function getOperationPriority(operation) {
     if (operation === 'Surfacing') return 0;
@@ -4544,7 +4657,11 @@ function selectSidebarNode(id) {
         if (item) {
             document.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
             item.classList.add('selected');
-            item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Only scroll if the paths list is visible (not when tool properties editor is open)
+            const propertiesEditor = document.getElementById('tool-properties-editor');
+            if (!propertiesEditor || propertiesEditor.style.display === 'none') {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         }
     }, 100);
 }
@@ -4580,6 +4697,13 @@ function getToolIcon(bit) {
         case 'Drill': return 'drill.svg';
         default: return 'endmill.svg';
     }
+}
+
+function getIconForPath(sp) {
+    if (sp.creationTool === 'STL') return 'file-box';
+    if (sp.creationTool === 'Offset') return 'fullscreen';
+    if (sp.creationTool === 'Pattern') return 'grid-3x3';
+    return getPathIcon(sp.name);
 }
 
 function getPathIcon(name) {
