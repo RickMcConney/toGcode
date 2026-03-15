@@ -934,6 +934,556 @@ function doSurfacing() {
 	pushToolPath(paths, 'Surfacing', 'Surfacing', null, null);
 }
 
+/**
+ * Round concave corners of a polygon by offsetting outward then inward.
+ * This ensures the CNC tool (with the given radius) can reach all internal corners.
+ */
+function roundConcaveCorners(path, radius) {
+	if (radius <= 0) return path;
+	var offset1 = new clipper.ClipperOffset(20, 0.25);
+	offset1.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+	var expanded = [];
+	offset1.Execute(expanded, radius);
+	if (expanded.length === 0) return path;
+
+	var offset2 = new clipper.ClipperOffset(20, 0.25);
+	offset2.AddPath(expanded[0], ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+	var result = [];
+	offset2.Execute(result, -radius);
+	if (result.length === 0) return path;
+	result[0].push(result[0][0]); // close path
+	return result[0];
+}
+
+/**
+ * Round convex corners of a polygon by offsetting inward then outward.
+ * This ensures the male plug's external corners match the female socket's rounded internal corners.
+ */
+function roundConvexCorners(path, radius) {
+	if (radius <= 0) return path;
+	var offset1 = new clipper.ClipperOffset(20, 0.25);
+	offset1.AddPath(path, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+	var shrunk = [];
+	offset1.Execute(shrunk, -radius);
+	if (shrunk.length === 0) return path;
+
+	var offset2 = new clipper.ClipperOffset(20, 0.25);
+	offset2.AddPath(shrunk[0], ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+	var result = [];
+	offset2.Execute(result, radius);
+	if (result.length === 0) return path;
+	result[0].push(result[0][0]); // close path
+	return result[0];
+}
+
+/**
+ * Compute total travel distance of a closed polygon path.
+ */
+function computePathPerimeter(path) {
+	let len = 0;
+	for (let i = 0; i < path.length - 1; i++) {
+		let dx = path[i + 1].x - path[i].x;
+		let dy = path[i + 1].y - path[i].y;
+		len += Math.sqrt(dx * dx + dy * dy);
+	}
+	return len;
+}
+
+/**
+ * Generate concentric contour passes by repeatedly offsetting inward.
+ * Returns an array of closed paths (each already closed with first==last).
+ * Array order: [0] = outermost ring, [n] = innermost ring.
+ * Respects islands: uses ClipperJS difference to subtract island offsets.
+ * Filters out degenerate fragments (< 3 points or near-zero area slivers).
+ */
+function generateConcentricContours(outerPath, islandPaths, stepover) {
+	let contours = [];
+	let currentOuters = [outerPath];
+	let minArea = stepover * stepover * 0.1;
+
+	while (currentOuters.length > 0) {
+		let nextOuters = [];
+		for (let outer of currentOuters) {
+			contours.push(outer);
+			let co = new clipper.ClipperOffset(20, 0.025);
+			co.AddPath(outer, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+			let result = [];
+			co.Execute(result, -stepover);
+			for (let r of result) {
+				// Subtract island regions using ClipperJS difference
+				let remaining = [r];
+				for (let island of islandPaths) {
+					let clpr = new ClipperLib.Clipper();
+					clpr.AddPaths(remaining, ClipperLib.PolyType.ptSubject, true);
+					clpr.AddPath(island, ClipperLib.PolyType.ptClip, true);
+					let diff = [];
+					clpr.Execute(ClipperLib.ClipType.ctDifference, diff,
+						ClipperLib.PolyFillType.pftEvenOdd,
+						ClipperLib.PolyFillType.pftEvenOdd);
+					remaining = diff;
+				}
+				for (let rem of remaining) {
+					// Filter degenerate fragments
+					if (rem.length < 3) continue;
+					let fragArea = Math.abs(ClipperLib.Clipper.Area(rem));
+					if (fragArea < minArea) continue;
+					rem.push(rem[0]); // close path
+					nextOuters.push(rem);
+				}
+			}
+		}
+		currentOuters = nextOuters;
+	}
+	return contours;
+}
+
+/**
+ * Compute total raster travel distance for a set of boundary paths.
+ * Generates infill lines and sums all segment lengths.
+ */
+function computeRasterTravel(boundaries, stepover, pocketRadius, angle) {
+	let groups = generateClipperInfill(boundaries, stepover, pocketRadius, angle);
+	let totalTravel = 0;
+	for (let group of groups) {
+		for (let seg of group.paths) {
+			if (seg.length >= 2) {
+				let dx = seg[1].x - seg[0].x;
+				let dy = seg[1].y - seg[0].y;
+				totalTravel += Math.sqrt(dx * dx + dy * dy);
+			}
+		}
+	}
+	return totalTravel;
+}
+
+/**
+ * Generate adaptive pocket toolpaths: uses concentric contours for narrow/irregular
+ * regions near the boundary and switches to raster infill for large open interiors.
+ *
+ * Heuristic: at each candidate contour ring, compare the contour perimeter against
+ * the actual raster travel distance for that ring's interior. Contours are kept while
+ * they are shorter travel than the raster alternative. Once raster becomes shorter,
+ * the remainder is filled with raster lines.
+ *
+ * Contours are emitted inside-to-outside so each pass only removes one stepover width.
+ *
+ * @param {number} finishingRadius - Radius of a finishing tool that will make a
+ *   separate profile pass (world units). If >= pocketRadius the outermost contour
+ *   is skipped. Pass 0 when there is no finishing pass.
+ */
+function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, angle, direction, finishingRadius) {
+	// First offset inward/outward by tool radius to get the machinable boundaries
+	let outerOffset = offsetPath(outerPath, pocketRadius, false);
+	if (outerOffset.length === 0) return [];
+	let machinedOuter = outerOffset[0];
+
+	let machinedIslands = [];
+	for (let p of islandPaths) {
+		let islandOffset = offsetPath(p, pocketRadius, true);
+		if (islandOffset.length === 0) continue;
+		machinedIslands.push(islandOffset[0]);
+	}
+
+	// Generate concentric contour rings from the machined boundary inward
+	// allContours[0] = outermost, allContours[n] = innermost
+	let allContours = generateConcentricContours(machinedOuter, machinedIslands, stepover);
+
+	// Decide where to switch from contour to raster by comparing actual travel distances.
+	// Keep contours while contour perimeter < raster travel for that ring's interior.
+	let switchIndex = allContours.length; // default: all contours, no raster
+
+	for (let i = 1; i < allContours.length; i++) {
+		let contourPerimeter = computePathPerimeter(allContours[i]);
+		if (contourPerimeter <= 0) continue;
+
+		// Build raster boundaries for this ring's interior
+		let rasterBoundaries = [allContours[i]];
+		for (let island of machinedIslands) {
+			if (pathIn(allContours[i], island)) {
+				rasterBoundaries.push(island);
+			}
+		}
+
+		let rasterTravel = computeRasterTravel(rasterBoundaries, stepover, pocketRadius, angle);
+		if (rasterTravel > 0 && rasterTravel < contourPerimeter) {
+			switchIndex = i;
+			break;
+		}
+	}
+
+	// Build contour paths: inside-to-outside so each pass only cuts one stepover width.
+	// Only skip outermost contour (index 0) if the finishing tool is large enough to cover it.
+	let paths = [];
+	let skipOutermost = (finishingRadius >= pocketRadius);
+	let startIdx = skipOutermost ? 1 : 0;
+
+	for (let i = switchIndex - 1; i >= startIdx; i--) {
+		let contour = allContours[i].slice();
+		if (direction == "climb") contour = reversePath(contour);
+		paths.push({ tpath: contour, isContour: true, passStart: true });
+	}
+
+	// Add island contours when outermost contour is not skipped
+	if (!skipOutermost) {
+		for (let island of machinedIslands) {
+			let islandContour = island.slice();
+			if (direction != "climb") islandContour = reversePath(islandContour);
+			paths.push({ tpath: islandContour, isContour: true, passStart: true });
+		}
+	}
+
+	// Generate raster infill for the remaining interior (from switchIndex inward).
+	// Use the machined outer (offset inward past contour coverage) as the raster
+	// boundary so that all areas between islands get filled.
+	if (switchIndex < allContours.length) {
+		// Use the innermost kept contour as the raster boundary so raster only
+		// fills the interior that contour passes didn't already cover.
+		let rasterBoundary = allContours[switchIndex - 1];
+		let rasterBoundaries = [rasterBoundary];
+		for (let island of machinedIslands) {
+			if (pathIn(rasterBoundary, island)) {
+				rasterBoundaries.push(island);
+			}
+		}
+
+		let tpaths = generateClipperInfill(rasterBoundaries, stepover, pocketRadius, angle);
+		let chains = extractConnectivityChains(tpaths, stepover, angle);
+
+		// Collect all island paths (both machined islands and the raster boundary contour
+		// fragments that act as obstacles) for travel-move intersection testing.
+		// This detects when a straight travel between chain segments would cross an
+		// island — including open star points that protrude into the raster area.
+		const obstacleIslands = machinedIslands.slice();
+		// Also add the original (un-offset) island paths passed to this function,
+		// since star points may protrude past the machined-island offset.
+		for (let p of islandPaths) {
+			obstacleIslands.push(p);
+		}
+
+		const infillPaths = [];
+		for (let chain of chains) {
+			// Split chain into sub-chains where travel between segments crosses an island
+			let currentPath = [];
+			let segCount = 0;
+			for (let si = 0; si < chain.segments.length; si++) {
+				let segment = chain.segments[si];
+				if (currentPath.length > 0 && obstacleIslands.length > 0) {
+					// Check if travel from end of current path to start of this segment crosses any island
+					let lastPt = currentPath[currentPath.length - 1];
+					let nextPt = segment[0];
+					let crosses = false;
+					for (let island of obstacleIslands) {
+						if (lineIntersectsPath(lastPt, nextPt, island) > 0) {
+							crosses = true;
+							break;
+						}
+					}
+					if (crosses) {
+						// Flush current sub-chain as a separate path with a retract
+						infillPaths.push({
+							tpath: currentPath,
+							isContour: false,
+							isChain: true,
+							passStart: true,
+							sourceY: chain.startY,
+							segmentCount: segCount
+						});
+						currentPath = [];
+						segCount = 0;
+					}
+				}
+				currentPath.push(...segment);
+				segCount++;
+			}
+			if (currentPath.length > 0) {
+				infillPaths.push({
+					tpath: currentPath,
+					isContour: false,
+					isChain: true,
+					passStart: true,
+					sourceY: chain.startY,
+					segmentCount: segCount
+				});
+			}
+		}
+
+		const optimizedChains = optimizeChainOrder(infillPaths);
+		// Raster infill first (center), then contours (inside-to-outside toward boundary)
+		// Optimize the combined list so contours start near where the previous path ended
+		return optimizePathListOrder([...optimizedChains, ...paths]);
+	}
+
+	// Pure contour mode (no raster needed for small/narrow pockets)
+	// Optimize contour order and start points for minimal travel
+	return optimizePathListOrder(paths);
+}
+
+/**
+ * Optimize the order of path groups using nearest-neighbor on group start points.
+ * Each group's internal path order is preserved (already optimized per-shape).
+ * Groups are reordered so the tool moves geographically between shapes.
+ */
+function optimizeGroupOrder(groups) {
+	if (groups.length === 0) return [];
+	if (groups.length === 1) return groups[0];
+	// Build index with start point of each group
+	let remaining = groups.map((g, i) => {
+		let p = g[0].tpath[0];
+		return { idx: i, x: p.x, y: p.y };
+	});
+	let ordered = [];
+	// Start with group nearest to origin
+	remaining.sort((a, b) => (a.x * a.x + a.y * a.y) - (b.x * b.x + b.y * b.y));
+	let current = remaining.shift();
+	ordered.push(...groups[current.idx]);
+	while (remaining.length > 0) {
+		// Find nearest group start to end of last path in current result
+		let lastPath = ordered[ordered.length - 1].tpath;
+		let endPt = lastPath[lastPath.length - 1];
+		let bestIdx = 0;
+		let bestDist = Infinity;
+		for (let i = 0; i < remaining.length; i++) {
+			let dx = remaining[i].x - endPt.x;
+			let dy = remaining[i].y - endPt.y;
+			let d = dx * dx + dy * dy;
+			if (d < bestDist) { bestDist = d; bestIdx = i; }
+		}
+		current = remaining.splice(bestIdx, 1)[0];
+		ordered.push(...groups[current.idx]);
+	}
+	return ordered;
+}
+
+function doInlay() {
+	setMode("Inlay");
+	if (selectMgr.noSelection()) {
+		notify('Select a path for inlay');
+		return;
+	}
+
+	const props = window.currentToolpathProperties;
+	const inlayType = props?.inlayType || 'female';
+	const clearanceMM = props?.clearance || 0.1;
+	const clearance = clearanceMM * viewScale;
+	const cutOut = props?.cutOut || false;
+
+	// Get finishing tool
+	const finishingToolId = props?.finishingToolId;
+	const finishingTool = window.toolpathPropertiesManager.getToolById(finishingToolId);
+	if (!finishingTool) {
+		notify('Finishing tool not found', 'error');
+		return;
+	}
+
+	const pocketingTool = { ...window.currentTool };
+	const pocketRadius = pocketingTool.diameter / 2 * viewScale;
+	const finishRadius = finishingTool.diameter / 2 * viewScale;
+	const stepover = 2 * pocketRadius * pocketingTool.stepover / 100;
+	const angle = props?.angle || 0;
+	const direction = pocketingTool.direction || 'climb';
+
+	// Get selected paths
+	var inputPaths = [];
+	var selected = selectMgr.selectedPaths();
+	for (let svgpath of selected)
+		inputPaths.push(svgpath.path);
+
+	inputPaths = normalizeWindingOrder(inputPaths);
+	const selectedSvgIds = selected.map(p => p.id);
+
+	// Identify outer paths and islands.
+	// An island is any path fully contained inside another selected path.
+	let allOuters = [];
+	let allIslands = [];
+	for (let i = 0; i < inputPaths.length; i++) {
+		let isIsland = false;
+		for (let j = 0; j < inputPaths.length; j++) {
+			if (i === j) continue;
+			if (pathIn(inputPaths[j], inputPaths[i])) {
+				isIsland = true;
+				break;
+			}
+		}
+		if (isIsland) allIslands.push(inputPaths[i]);
+		else allOuters.push(inputPaths[i]);
+	}
+
+	if (allOuters.length === 0) {
+		notify('Unable to determine outer boundary for inlay');
+		return;
+	}
+
+	// Collect per-shape path groups so we can optimize the order of shapes
+	// while keeping each shape's internally-optimized paths together.
+	let pocketGroups = [];  // each entry: array of paths for one shape
+	let profileGroups = []; // each entry: array of profile paths for one shape
+	let cutOutGroups = [];  // each entry: array of cutout paths for one shape
+
+	for (let outerPath of allOuters) {
+		// Find islands contained in this specific outer path
+		let islandPaths = allIslands.filter(isl => pathIn(outerPath, isl));
+
+		if (inlayType === 'female') {
+			// Female socket: pocket inside the path with rounded concave corners
+			let roundedOuter = roundConcaveCorners(outerPath, finishRadius);
+			let roundedIslands = islandPaths.map(p => roundConvexCorners(p, finishRadius));
+
+			// Generate pocket with adaptive contour/raster; skip outermost contour only if finishing tool covers it
+			let pocketPaths = generatePocketPaths(roundedOuter, roundedIslands, pocketRadius, stepover, angle, direction, finishRadius);
+			if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+
+			// Generate finishing profile (inside the rounded path)
+			let shapeProfPaths = [];
+			let profileOffset = offsetPath(roundedOuter, finishRadius, false);
+			if (profileOffset.length > 0) {
+				let profileContour = profileOffset[0].slice();
+				if (direction == "climb") profileContour = reversePath(profileContour);
+				shapeProfPaths.push({ tpath: profileContour, isContour: true });
+			}
+			// Profile around islands (outside offset for islands)
+			for (let island of roundedIslands) {
+				let islandProfileOffset = offsetPath(island, finishRadius, true);
+				if (islandProfileOffset.length > 0) {
+					let islandContour = islandProfileOffset[0].slice();
+					if (direction != "climb") islandContour = reversePath(islandContour);
+					shapeProfPaths.push({ tpath: islandContour, isContour: true });
+				}
+			}
+			if (shapeProfPaths.length > 0) profileGroups.push(shapeProfPaths);
+
+		} else {
+			// Male plug paths are collected per-shape here, then processed
+			// together after the loop to create a shared outer boundary.
+		}
+	}
+
+	// Male plug: process all shapes together with one shared outer boundary.
+	// This keeps small parts (like letters) connected as a single piece.
+	if (inlayType === 'male') {
+		let expand = 2 * pocketingTool.diameter * viewScale;
+
+		// Build clearance-adjusted shapes for all outers and islands
+		let allClearanceOuters = [];
+		let allClearanceIslands = [];
+
+		for (let outerPath of allOuters) {
+			let islandPaths = allIslands.filter(isl => pathIn(outerPath, isl));
+			let roundedOuter = roundConvexCorners(outerPath, finishRadius);
+			let roundedIslands = islandPaths.map(p => roundConcaveCorners(p, finishRadius));
+
+			// Apply clearance: shrink the plug path
+			let clearanceOuter = roundedOuter;
+			if (clearance > 0) {
+				let clearanceOffset = new clipper.ClipperOffset(20, 0.25);
+				clearanceOffset.AddPath(roundedOuter, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+				let clearanceResult = [];
+				clearanceOffset.Execute(clearanceResult, -clearance);
+				if (clearanceResult.length > 0) {
+					clearanceResult[0].push(clearanceResult[0][0]); // close
+					clearanceOuter = clearanceResult[0];
+				}
+			}
+
+			allClearanceOuters.push(clearanceOuter);
+
+			// Expand islands by clearance
+			for (let p of roundedIslands) {
+				if (clearance <= 0) { allClearanceIslands.push(p); continue; }
+				let co = new clipper.ClipperOffset(20, 0.25);
+				co.AddPath(p, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+				let cr = [];
+				co.Execute(cr, clearance);
+				if (cr.length > 0) { cr[0].push(cr[0][0]); allClearanceIslands.push(cr[0]); }
+				else allClearanceIslands.push(p);
+			}
+		}
+
+		// Compute convex hull of all clearance shapes, then expand outward
+		let allPts = [];
+		for (let co of allClearanceOuters) {
+			for (let pt of co) {
+				allPts.push({ x: pt.x, y: pt.y });
+			}
+		}
+		let hull = convexHull(allPts);
+		let expanded = offsetPath(hull, expand, true);
+		let outerBoundary = expanded[0];
+		// Close the path
+		if (outerBoundary.length > 0 &&
+			(outerBoundary[0].x !== outerBoundary[outerBoundary.length - 1].x ||
+			 outerBoundary[0].y !== outerBoundary[outerBoundary.length - 1].y)) {
+			outerBoundary.push({ x: outerBoundary[0].x, y: outerBoundary[0].y });
+		}
+
+		// Generate pocket: convex hull is the boundary, all letter shapes are islands
+		let pocketPaths = generatePocketPaths(outerBoundary, allClearanceOuters, pocketRadius, stepover, angle, direction, finishRadius);
+
+		// Also pocket inside any design islands (holes like in O, A, B)
+		for (let island of allClearanceIslands) {
+			let islandPocket = generatePocketPaths(island, [], pocketRadius, stepover, angle, direction, finishRadius);
+			pocketPaths.push(...islandPocket);
+		}
+
+		if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+
+		// Generate finishing profile around each letter shape (outside offset)
+		let shapeProfPaths = [];
+		for (let co of allClearanceOuters) {
+			let profileOffset = offsetPath(co, finishRadius, true);
+			if (profileOffset.length > 0) {
+				let profileContour = profileOffset[0].slice();
+				if (direction != "climb") profileContour = reversePath(profileContour);
+				shapeProfPaths.push({ tpath: profileContour, isContour: true });
+			}
+		}
+		// Profile inside design islands
+		for (let island of allClearanceIslands) {
+			let islandProfileOffset = offsetPath(island, finishRadius, false);
+			if (islandProfileOffset.length > 0) {
+				let islandContour = islandProfileOffset[0].slice();
+				if (direction == "climb") islandContour = reversePath(islandContour);
+				shapeProfPaths.push({ tpath: islandContour, isContour: true });
+			}
+		}
+		if (shapeProfPaths.length > 0) profileGroups.push(shapeProfPaths);
+
+		// Optional: cut out around the convex hull boundary
+		if (cutOut) {
+			let materialDepth = (typeof getOption === 'function' ? getOption('workpieceThickness') : null) || pocketingTool.depth;
+			let cutOutOffset = offsetPath(outerBoundary, pocketRadius, false);
+			if (cutOutOffset.length > 0) {
+				let cutOutContour = cutOutOffset[0].slice();
+				if (direction == "climb") cutOutContour = reversePath(cutOutContour);
+				cutOutGroups.push([{ tpath: cutOutContour, isContour: true, cutOutDepth: materialDepth }]);
+			}
+		}
+	}
+
+	// Push accumulated toolpaths with optimized group ordering
+	let allPocketPaths = optimizeGroupOrder(pocketGroups);
+	if (allPocketPaths.length > 0) {
+		window.currentTool = { ...pocketingTool };
+		pushToolPath(allPocketPaths, inlayType === 'female' ? 'Inlay Socket' : 'Inlay Plug', 'Inlay', null, selectedSvgIds);
+	}
+
+	let allProfilePaths = optimizeGroupOrder(profileGroups);
+	if (allProfilePaths.length > 0) {
+		window.currentTool = { ...finishingTool, depth: pocketingTool.depth, step: pocketingTool.step };
+		pushToolPath(allProfilePaths, inlayType === 'female' ? 'Inlay Socket Profile' : 'Inlay Plug Profile', 'Inlay', null, selectedSvgIds);
+	}
+
+	let allCutOutPaths = optimizeGroupOrder(cutOutGroups);
+	if (allCutOutPaths.length > 0) {
+		let materialDepth = allCutOutPaths[0].cutOutDepth;
+		let cleanCutOutPaths = allCutOutPaths.map(p => ({ tpath: p.tpath, isContour: p.isContour }));
+		window.currentTool = { ...pocketingTool, depth: materialDepth };
+		pushToolPath(cleanCutOutPaths, 'Inlay Plug Cutout', 'Inlay', null, selectedSvgIds);
+	}
+
+	// Restore pocketing tool (generateToolpathForSelection will restore the original)
+	window.currentTool = pocketingTool;
+}
+
 function doPocket() {
 	setMode("Pocket");
 	if (selectMgr.noSelection()) {
@@ -944,92 +1494,53 @@ function doPocket() {
 	var radius = toolRadius();
 	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
-	var angle = window.currentToolpathProperties?.angle || 0;  // Get infill angle, default to 0° (horizontal)
+	var angle = window.currentToolpathProperties?.angle || 0;
 	var inputPaths = [];
 
-	var selected =  selectMgr.selectedPaths();
-	for(let svgpath of selected)
+	var selected = selectMgr.selectedPaths();
+	for (let svgpath of selected)
 		inputPaths.push(svgpath.path);
 
-	// Normalize ALL input paths to ensure consistent winding order
-	// This makes island detection work correctly regardless of how user drew the paths
 	inputPaths = normalizeWindingOrder(inputPaths);
-
-	var paths = [];
-	var offsetPaths = [];
-
-	// Use the original normalized outer path (first/largest) for containment testing
-	// This ensures pathIn() works with consistent winding order
-	let outerPathForTest = inputPaths[0];
-
-	// Get the union for offsetting operations
-	let outerPath = getUnionOfPaths(inputPaths)[0];
-
-	let tpath = offsetPath(outerPath, radius, false);
-	offsetPaths.push(tpath[0]);
-
-	// Apply doInside() direction logic to outer contour
-	// For conventional: no reverse (clockwise)
-	// For climb: reverse (counter-clockwise)
-	if (currentTool.direction == "climb") {
-		tpath[0] = reversePath(tpath[0]);
-	}
-	paths.push({ tpath: tpath[0], isContour: true });
-
-	for (p of inputPaths) {
-		if (pathIn(outerPathForTest, p)) {
-			let tpath = offsetPath(p, radius, true);
-
-			// Apply doOutside() direction logic to hole contours
-			// For conventional: reverse (counter-clockwise)
-			// For climb: no reverse (clockwise)
-			if (currentTool.direction != "climb") {
-				tpath[0] = reversePath(tpath[0]);
-			}
-
-			paths.push({ tpath: tpath[0], isContour: true });
-			offsetPaths.push(tpath[0]);
-		}
-	}
-
-	let tpaths = generateClipperInfill(offsetPaths, stepover, radius, angle);
-
-	// Extract connectivity chains - groups segments that can be cut together without crossing islands
-	let chains = extractConnectivityChains(tpaths, stepover, angle);
-
-	// Convert chains to path objects for processing
-	// Each chain represents a contiguous set of segments from the same Y-line that don't cross islands
-	const infillPaths = [];
-	for (let chain of chains) {
-		// Flatten all segments in this chain into a single path
-		const combinedPath = [];
-		for (let segment of chain.segments) {
-			combinedPath.push(...segment);
-		}
-
-		infillPaths.push({
-			tpath: combinedPath,
-			isContour: false,
-			isChain: true,
-			sourceY: chain.startY,
-			segmentCount: chain.segments.length
-		});
-	}
-
-	// Apply nearest-neighbor optimization to order chains
-	const optimizedChains = optimizeChainOrder(infillPaths);
-
-	// Separate contours that were added earlier
-	const contours = paths.filter(p => p.isContour);
-
-	// Reassemble: optimized chains first, then contours last
-	paths.length = 0;
-	paths.push(...optimizedChains);
-	paths.push(...contours);
-
-	// Collect all selected SVG path IDs for multi-path tracking
+	var direction = currentTool.direction || 'climb';
 	const selectedSvgIds = selectMgr.selectedPaths().map(p => p.id);
-	pushToolPath(paths, name, 'Pocket', null, selectedSvgIds);
+
+	// Separate paths into outer boundaries and islands.
+	// An island is any path fully contained inside another path.
+	let outers = [];
+	let islands = [];
+	for (let i = 0; i < inputPaths.length; i++) {
+		let isIsland = false;
+		for (let j = 0; j < inputPaths.length; j++) {
+			if (i === j) continue;
+			if (pathIn(inputPaths[j], inputPaths[i])) {
+				isIsland = true;
+				break;
+			}
+		}
+		if (isIsland) islands.push(inputPaths[i]);
+		else outers.push(inputPaths[i]);
+	}
+
+	// Union overlapping outer paths
+	let unionOuters = outers.length > 1 ? getUnionOfPaths(outers) : outers;
+
+	// Generate pocket for each outer boundary with its contained islands
+	let pocketGroups = [];
+	for (let outerPath of unionOuters) {
+		let containedIslands = islands.filter(isl => pathIn(outerPath, isl));
+		let paths = generatePocketPaths(outerPath, containedIslands, radius, stepover, angle, direction, 0);
+		if (paths.length > 0) pocketGroups.push(paths);
+	}
+
+	if (pocketGroups.length === 0) {
+		notify('Unable to generate pocket paths');
+		return;
+	}
+
+	// Order shape groups geographically, keeping each shape's paths together
+	let allPaths = optimizeGroupOrder(pocketGroups);
+	pushToolPath(allPaths, name, 'Pocket', null, selectedSvgIds);
 }
 
 function doVcarve() {

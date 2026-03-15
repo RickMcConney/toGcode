@@ -1,5 +1,49 @@
 var clipper = ClipperLib;
 
+// Compute the convex hull of a set of {x,y} points using Andrew's monotone chain algorithm.
+// Returns a closed polygon (first point NOT repeated) in counter-clockwise order.
+function convexHull(points) {
+	if (points.length < 3) return points.slice();
+	var pts = points.slice().sort(function(a, b) { return a.x - b.x || a.y - b.y; });
+
+	// Remove duplicates
+	var unique = [pts[0]];
+	for (var i = 1; i < pts.length; i++) {
+		if (pts[i].x !== pts[i - 1].x || pts[i].y !== pts[i - 1].y) {
+			unique.push(pts[i]);
+		}
+	}
+	pts = unique;
+	if (pts.length < 3) return pts;
+
+	function cross(o, a, b) {
+		return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+	}
+
+	// Build lower hull
+	var lower = [];
+	for (var i = 0; i < pts.length; i++) {
+		while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) {
+			lower.pop();
+		}
+		lower.push(pts[i]);
+	}
+
+	// Build upper hull
+	var upper = [];
+	for (var i = pts.length - 1; i >= 0; i--) {
+		while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) {
+			upper.pop();
+		}
+		upper.push(pts[i]);
+	}
+
+	// Remove last point of each half because it's repeated
+	lower.pop();
+	upper.pop();
+	return lower.concat(upper);
+}
+
 function subdividePath(path, size) {
 	var points = [];
 	for (var i = 0; i < path.length - 1; i++) {
@@ -1134,6 +1178,96 @@ function optimizeChainOrder(chains) {
 
 		optimized.push(current);
 		currentEnd = getPathEndPoint(current.tpath);
+	}
+
+	return optimized;
+}
+
+/**
+ * Nearest-neighbor optimization for a mixed list of path objects ({tpath, isContour, ...}).
+ * Infill/chain paths may be reversed for shorter travel; contour paths are never reversed
+ * (to preserve climb/conventional direction) but closed contours are rotated to start at
+ * the nearest point.
+ */
+function optimizePathListOrder(paths) {
+	if (paths.length <= 1) return paths;
+
+	const optimized = [];
+	const remaining = paths.slice();
+
+	// Start with the path closest to origin (0,0) to give a deterministic start
+	let bestIdx = 0;
+	let bestDist = Infinity;
+	for (let i = 0; i < remaining.length; i++) {
+		let p = remaining[i].tpath;
+		if (!p || p.length === 0) continue;
+		let d = p[0].x * p[0].x + p[0].y * p[0].y;
+		if (d < bestDist) { bestDist = d; bestIdx = i; }
+	}
+	let current = remaining.splice(bestIdx, 1)[0];
+	optimized.push(current);
+	let currentEnd = current.tpath[current.tpath.length - 1];
+
+	while (remaining.length > 0) {
+		let nearestIdx = 0;
+		let nearestDist = Infinity;
+		let nearestAction = 'none'; // 'none', 'reverse', or 'rotate'
+		let rotateIdx = 0;
+
+		for (let i = 0; i < remaining.length; i++) {
+			let tp = remaining[i].tpath;
+			if (!tp || tp.length === 0) continue;
+
+			let startPt = tp[0];
+			let endPt = tp[tp.length - 1];
+			let distToStart = (currentEnd.x - startPt.x) ** 2 + (currentEnd.y - startPt.y) ** 2;
+
+			if (distToStart < nearestDist) {
+				nearestDist = distToStart;
+				nearestIdx = i;
+				nearestAction = 'none';
+			}
+
+			if (remaining[i].isContour) {
+				// For closed contours, find nearest point and rotate to start there
+				for (let j = 1; j < tp.length - 1; j++) { // skip last point (same as first for closed)
+					let d = (currentEnd.x - tp[j].x) ** 2 + (currentEnd.y - tp[j].y) ** 2;
+					if (d < nearestDist) {
+						nearestDist = d;
+						nearestIdx = i;
+						nearestAction = 'rotate';
+						rotateIdx = j;
+					}
+				}
+			} else {
+				// For infill/chains, allow reversing
+				let distToEnd = (currentEnd.x - endPt.x) ** 2 + (currentEnd.y - endPt.y) ** 2;
+				if (distToEnd < nearestDist) {
+					nearestDist = distToEnd;
+					nearestIdx = i;
+					nearestAction = 'reverse';
+				}
+			}
+		}
+
+		current = remaining.splice(nearestIdx, 1)[0];
+
+		if (nearestAction === 'reverse') {
+			current = { ...current, tpath: reversePath(current.tpath) };
+		} else if (nearestAction === 'rotate' && rotateIdx > 0) {
+			// Rotate closed contour to start at the nearest point
+			let tp = current.tpath;
+			// If last point == first point (closed), drop the duplicate before rotating
+			let isClosed = tp.length > 1 &&
+				tp[0].x === tp[tp.length - 1].x && tp[0].y === tp[tp.length - 1].y;
+			let core = isClosed ? tp.slice(0, -1) : tp;
+			let rotated = core.slice(rotateIdx).concat(core.slice(0, rotateIdx));
+			if (isClosed) rotated.push(rotated[0]); // re-close
+			current = { ...current, tpath: rotated };
+		}
+
+		optimized.push(current);
+		currentEnd = current.tpath[current.tpath.length - 1];
 	}
 
 	return optimized;

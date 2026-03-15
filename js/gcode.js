@@ -874,15 +874,33 @@ function getPointAlongPath(path, distance) {
 function generateRampIn(path, toolDiameter, currentZ, stepdown, safeHeight, profile, useInches, feedXY, feedZ) {
 	var output = '';
 	var rampDistWorld = 2 * toolDiameter * viewScale; // world units
-	var rampPt = getPointAlongPath(path, rampDistWorld);
-	var rampCoord = toGcodeUnits(rampPt.x, rampPt.y, useInches);
-	var startCoord = toGcodeUnits(path[0].x, path[0].y, useInches);
 	var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
 
 	// Previous pass depth (one stepdown shallower, capped at surface)
 	var prevZ = (stepdown > 0) ? Math.min(0, currentZ + stepdown) : 0;
 	var prevZCoord = toGcodeUnitsZ(prevZ, useInches);
 	var currentZCoord = toGcodeUnitsZ(currentZ, useInches);
+
+	// Find the ramp point and which segment index it lands on
+	var rampSegIdx = 0;
+	var remaining = rampDistWorld;
+	var rampPt = path[0];
+	for (var i = 1; i < path.length; i++) {
+		var dx = path[i].x - path[i - 1].x;
+		var dy = path[i].y - path[i - 1].y;
+		var segLen = Math.sqrt(dx * dx + dy * dy);
+		if (segLen > 0 && remaining <= segLen) {
+			var t = remaining / segLen;
+			rampPt = { x: path[i - 1].x + dx * t, y: path[i - 1].y + dy * t };
+			rampSegIdx = i;
+			break;
+		}
+		remaining -= segLen;
+		rampSegIdx = i;
+		rampPt = path[i];
+	}
+
+	var rampCoord = toGcodeUnits(rampPt.x, rampPt.y, useInches);
 
 	// Retract to safe height
 	output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: feedZ }) + '\n';
@@ -890,34 +908,48 @@ function generateRampIn(path, toolDiameter, currentZ, stepdown, safeHeight, prof
 	output += applyGcodeTemplate(profile.rapidTemplate, { x: rampCoord.x, y: rampCoord.y, f: feedXY }) + '\n';
 	// Plunge to previous pass depth
 	output += applyGcodeTemplate(profile.cutTemplate, { z: prevZCoord, f: feedZ }) + '\n';
-	// Ramp cut back to path start at current depth
+
+	// Ramp back to path start following the path segments in reverse,
+	// interpolating Z from prevZ to currentZ along the way.
+	var totalRampDist = 0;
+	if (rampSegIdx > 0) {
+		var dx0 = rampPt.x - path[rampSegIdx - 1].x;
+		var dy0 = rampPt.y - path[rampSegIdx - 1].y;
+		totalRampDist += Math.sqrt(dx0 * dx0 + dy0 * dy0);
+	}
+	for (var i = rampSegIdx - 1; i >= 1; i--) {
+		var dxs = path[i].x - path[i - 1].x;
+		var dys = path[i].y - path[i - 1].y;
+		totalRampDist += Math.sqrt(dxs * dxs + dys * dys);
+	}
+
+	var zRange = currentZ - prevZ; // negative (going deeper)
+	var distSoFar = 0;
+
+	// Walk back through path points from rampSegIdx-1 to 0
+	if (rampSegIdx > 0) {
+		var dx1 = rampPt.x - path[rampSegIdx - 1].x;
+		var dy1 = rampPt.y - path[rampSegIdx - 1].y;
+		distSoFar += Math.sqrt(dx1 * dx1 + dy1 * dy1);
+		var frac = totalRampDist > 0 ? distSoFar / totalRampDist : 1;
+		var interpZ = prevZ + zRange * frac;
+		var pc = toGcodeUnits(path[rampSegIdx - 1].x, path[rampSegIdx - 1].y, useInches);
+		output += applyGcodeTemplate(profile.cutTemplate, { x: pc.x, y: pc.y, z: toGcodeUnitsZ(interpZ, useInches), f: feedXY }) + '\n';
+	}
+
+	for (var i = rampSegIdx - 2; i >= 0; i--) {
+		var dxs = path[i + 1].x - path[i].x;
+		var dys = path[i + 1].y - path[i].y;
+		distSoFar += Math.sqrt(dxs * dxs + dys * dys);
+		var frac = totalRampDist > 0 ? distSoFar / totalRampDist : 1;
+		var interpZ = prevZ + zRange * frac;
+		var pc = toGcodeUnits(path[i].x, path[i].y, useInches);
+		output += applyGcodeTemplate(profile.cutTemplate, { x: pc.x, y: pc.y, z: toGcodeUnitsZ(interpZ, useInches), f: feedXY }) + '\n';
+	}
+
+	// Ensure we end exactly at path start at full depth
+	var startCoord = toGcodeUnits(path[0].x, path[0].y, useInches);
 	output += applyGcodeTemplate(profile.cutTemplate, { x: startCoord.x, y: startCoord.y, z: currentZCoord, f: feedXY }) + '\n';
-
-	return output;
-}
-
-// HELPER FUNCTION: Generate ramp-in using toMM coordinates (for profile operations)
-function generateRampInMM(path, toolDiameter, currentZ, stepdown, safeHeight, profile, useInches, feed, zfeed) {
-	var output = '';
-	var rampDistWorld = 2 * toolDiameter * viewScale; // world units
-	var rampPt = getPointAlongPath(path, rampDistWorld);
-	var rampMM = toMM(rampPt.x, rampPt.y);
-	var startMM = toMM(path[0].x, path[0].y);
-	var safeZCoord = toGcodeUnitsZ(safeHeight, useInches);
-
-	// Previous pass depth (one stepdown shallower, capped at surface)
-	var prevZ = (stepdown > 0) ? Math.min(0, currentZ + stepdown) : 0;
-	var prevZCoord = toGcodeUnitsZ(prevZ, useInches);
-	var currentZCoord = toGcodeUnitsZ(currentZ, useInches);
-
-	// Retract to safe height
-	output += applyGcodeTemplate(profile.rapidTemplate, { z: safeZCoord, f: zfeed }) + '\n';
-	// Rapid to ramp start point (offset along path)
-	output += applyGcodeTemplate(profile.rapidTemplate, { x: rampMM.x, y: rampMM.y, f: feed }) + '\n';
-	// Plunge to previous pass depth
-	output += applyGcodeTemplate(profile.cutTemplate, { z: prevZCoord, f: zfeed }) + '\n';
-	// Ramp cut back to path start at current depth
-	output += applyGcodeTemplate(profile.cutTemplate, { x: startMM.x, y: startMM.y, z: currentZCoord, f: feed }) + '\n';
 
 	return output;
 }
@@ -950,45 +982,44 @@ function _generatePocketOperationGcode(toolpath, profile, useInches, settings) {
 		if (passComment) output += passComment + '\n';
 
 		var zCoord = toGcodeUnitsZ(z, useInches);
-		var firstInfillInPass = true;
+		var lastPathEnd = null;
+		var nearThresholdWorld = 2.0 * viewScale; // 2mm in world units
 
-		// Process INFILL chains first
+		// Process all paths in order (already geographically optimized).
+		// Raster and contour paths are interleaved so each region completes
+		// before the tool moves to the next, minimizing long rapids.
 		for (var k = 0; k < paths.length; k++) {
 			var pathObj = paths[k];
-			if (pathObj.isContour) continue;  // Skip contours for now
-
 			var path = pathObj.tpath;
+			if (!path || path.length === 0) continue;
 
-			if (path.length > 0) {
-				// Ramp-in: offset along path, plunge to previous depth, ramp to current depth
-				output += generateRampIn(path, toolpath.tool.diameter, z, toolStep, safeHeight, profile, useInches, feedXY, feedZ);
-				firstInfillInPass = false;
-
-				// Cut entire chain
-				for (var j = 1; j < path.length; j++) {
-					var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-					output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+			// Check if we can skip the retract (previous path ended near this one's start)
+			var skipRetract = false;
+			if (lastPathEnd !== null) {
+				var dx = path[0].x - lastPathEnd.x;
+				var dy = path[0].y - lastPathEnd.y;
+				var dist = Math.sqrt(dx * dx + dy * dy);
+				if (dist < nearThresholdWorld) {
+					skipRetract = true;
 				}
 			}
-		}
 
-		// Process CONTOUR lines last (finishing operation)
-		for (var k = 0; k < paths.length; k++) {
-			var pathObj = paths[k];
-			if (!pathObj.isContour) continue;  // Only process contours
-
-			var path = pathObj.tpath;
-
-			if (path.length > 0) {
-				// Ramp-in: offset along path, plunge to previous depth, ramp to current depth
+			if (skipRetract) {
+				// Feed directly to start of next path at cutting depth
+				var startP = toGcodeUnits(path[0].x, path[0].y, useInches);
+				output += applyGcodeTemplate(profile.cutTemplate, { x: startP.x, y: startP.y, z: zCoord, f: feedXY }) + '\n';
+			} else {
+				// Full ramp-in with retract
 				output += generateRampIn(path, toolpath.tool.diameter, z, toolStep, safeHeight, profile, useInches, feedXY, feedZ);
-
-				// Cut entire contour path
-				for (var j = 1; j < path.length; j++) {
-					var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-					output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-				}
 			}
+
+			// Cut entire path
+			for (var j = 1; j < path.length; j++) {
+				var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+				output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+			}
+
+			lastPathEnd = path[path.length - 1];
 		}
 	}
 
@@ -1050,7 +1081,7 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 
 			for (var j = 0; j < augmentedPath.length; j++) {
 				var pt = augmentedPath[j];
-				var p = toMM(pt.x, pt.y);
+				var p = toGcodeUnits(pt.x, pt.y, useInches);
 
 				if (j == 0) {
 					pass++;
@@ -1098,7 +1129,7 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 					}
 
 					// Ramp-in: retract, move to offset point, plunge to previous depth, ramp to current depth
-					output += generateRampInMM(augmentedPath, toolpath.tool.diameter, targetZ, toolStep, safeHeight, profile, useInches, feed, zfeed);
+					output += generateRampIn(augmentedPath, toolpath.tool.diameter, targetZ, toolStep, safeHeight, profile, useInches, feed, zfeed);
 					isFirstPass = false;
 				}
 				else {
@@ -1139,8 +1170,8 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 			// If we started lifted due to tab at path start, cut remaining material at end of pass
 			if (startedLifted && firstMarkerPos) {
 				var cleanupZCoord = toGcodeUnitsZ(z, useInches);
-				var markerMM = toMM(firstMarkerPos.x, firstMarkerPos.y);
-				output += applyGcodeTemplate(profile.cutTemplate, { x: markerMM.x, y: markerMM.y, z: cleanupZCoord, f: feed }) + '\n';
+				var markerCoord = toGcodeUnits(firstMarkerPos.x, firstMarkerPos.y, useInches);
+				output += applyGcodeTemplate(profile.cutTemplate, { x: markerCoord.x, y: markerCoord.y, z: cleanupZCoord, f: feed }) + '\n';
 			}
 		}
 	}
@@ -1261,7 +1292,11 @@ function toGcode() {
 		if (toolComment) output += toolComment + '\n';
 
 		// 4. DISPATCH TO OPERATION-SPECIFIC G-CODE GENERATOR
-		if (toolpath.operation === 'Pocket') {
+		// Inlay pocketing toolpaths (Socket, Plug) use the pocket generator for depth stepping;
+		// Inlay finishing profiles and cutouts use the profile generator.
+		var isInlayPocket = (toolpath.operation === 'Inlay') &&
+			(toolpath.name === 'Inlay Socket' || toolpath.name === 'Inlay Plug');
+		if (toolpath.operation === 'Pocket' || isInlayPocket) {
 			output += _generatePocketOperationGcode(toolpath, profile, useInches, settings);
 		} else if (toolpath.operation === 'Surfacing') {
 			output += _generateSurfacingOperationGcode(toolpath, profile, useInches, settings);

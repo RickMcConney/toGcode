@@ -43,6 +43,14 @@ class ToolpathPropertiesManager {
                 defaultStepover: 15,
                 applyButtonLabel: 'Generate 3D Profile',
                 applyButtonDescription: 'Generates raster toolpaths that follow the STL surface.'
+            },
+            'Inlay': {
+                compatibleBits: ['End Mill', 'Ball Nose'],
+                fields: ['inlayType', 'tool', 'finishingTool', 'depth', 'step', 'stepover', 'clearance', 'angle', 'direction', 'cutOut'],
+                description: 'Create male plug or female socket for inlay work',
+                toolLabel: 'Pocketing Tool:',
+                applyButtonLabel: 'Generate Inlay',
+                applyButtonDescription: 'Select paths then click to generate inlay toolpaths (pocket + finishing profile).'
             }
 
         };
@@ -98,7 +106,11 @@ class ToolpathPropertiesManager {
                 numLoops: 1,
                 overCut: 0,
                 restToolDiameter: 0,
-                strategy: 'raster'
+                strategy: 'raster',
+                inlayType: 'female',
+                clearance: 0.1,
+                finishingToolId: null,
+                cutOut: false
             };
         }
         return this.defaults[operationName];
@@ -165,8 +177,11 @@ class ToolpathPropertiesManager {
             selectedToolId = compatibleTools[0].recid;
         }
 
+        const config = this.operationConfigs[operationName];
+        const toolLabel = config?.toolLabel || 'Tool:';
+
         let html = '<div class="mb-3">';
-        html += '<label for="tool-select" class="form-label small"><strong>Tool:</strong></label>';
+        html += `<label for="tool-select" class="form-label small"><strong>${toolLabel}</strong></label>`;
         html += '<select class="form-select form-select-sm" id="tool-select" name="toolId">';
 
         compatibleTools.forEach(tool => {
@@ -394,6 +409,110 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Generate HTML for inlay type dropdown (Female Socket / Male Plug)
+     */
+    generateInlayTypeDropdownHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).inlayType || 'female';
+        }
+
+        const options = [
+            { value: 'female', label: 'Female Socket' },
+            { value: 'male', label: 'Male Plug' }
+        ];
+
+        let html = '<div class="mb-3">';
+        html += '<label for="inlay-type-select" class="form-label small"><strong>Inlay Type:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="inlay-type-select" name="inlayType">';
+
+        options.forEach(opt => {
+            const selected = value === opt.value ? 'selected' : '';
+            html += `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
+        });
+
+        html += '</select>';
+        html += '<div class="form-text">Socket: pockets inside the path. Plug: pockets outside the path.</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
+     * Generate HTML for clearance input
+     */
+    generateClearanceInputHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).clearance || 0.1;
+        }
+
+        let html = '<div class="mb-3">';
+        html += '<label for="clearance-input" class="form-label small"><strong>Clearance (mm):</strong></label>';
+        html += '<input type="number" class="form-control form-control-sm" id="clearance-input" name="clearance" ';
+        html += `value="${value}" step="0.01" min="0" required>`;
+        html += '<div class="form-text">Gap between male and female parts for fit</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
+     * Generate HTML for cut-out checkbox (male plug only)
+     */
+    generateCutOutCheckboxHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).cutOut || false;
+        }
+
+        let html = '<div class="mb-3 form-check">';
+        html += `<input type="checkbox" class="form-check-input" id="cutout-checkbox" name="cutOut" ${value ? 'checked' : ''}>`;
+        html += '<label class="form-check-label small" for="cutout-checkbox"><strong>Cut out plug</strong></label>';
+        html += '<div class="form-text">Profile around the plug at full material depth to separate it</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
+     * Generate HTML for finishing tool dropdown (End Mill or VBit)
+     */
+    generateFinishingToolDropdownHTML(operationName, selectedToolId = null) {
+        const finishingBits = ['End Mill', 'VBit', 'Ball Nose'];
+        const compatibleTools = (window.tools || []).filter(tool => finishingBits.includes(tool.bit));
+
+        if (compatibleTools.length === 0) {
+            return '<p class="text-danger">No compatible finishing tools available. Add an End Mill or V-Bit.</p>';
+        }
+
+        if (selectedToolId === null || selectedToolId === undefined) {
+            const defaults = this.getDefaults(operationName);
+            selectedToolId = defaults.finishingToolId;
+            if (selectedToolId === null && compatibleTools.length > 0) {
+                selectedToolId = compatibleTools[0].recid;
+            }
+        }
+
+        const toolExists = compatibleTools.some(tool => tool.recid === selectedToolId);
+        if (!toolExists && compatibleTools.length > 0) {
+            selectedToolId = compatibleTools[0].recid;
+        }
+
+        let html = '<div class="mb-3">';
+        html += '<label for="finishing-tool-select" class="form-label small"><strong>Finishing Tool:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="finishing-tool-select" name="finishingToolId">';
+
+        compatibleTools.forEach(tool => {
+            const selected = tool.recid === selectedToolId ? 'selected' : '';
+            html += `<option value="${tool.recid}" ${selected}>${tool.name} (${tool.diameter}mm ${tool.bit})</option>`;
+        });
+
+        html += '</select>';
+        html += '<div class="form-text">Tool for the finishing profile pass (End Mill or V-Bit)</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
      * Build a default name from depth + operation name, e.g. "2.0 mm Pocket"
      */
     getDefaultName(operationName, existingProperties) {
@@ -427,6 +546,12 @@ class ToolpathPropertiesManager {
         html += `<input type="text" class="form-control form-control-sm" id="toolpath-name-input" name="toolpathName" value="${defaultName.replace(/"/g, '&quot;')}">`;
         html += `</div>`;
 
+        // Inlay type dropdown
+        if (config.fields.includes('inlayType')) {
+            const inlayType = existingProperties?.inlayType || null;
+            html += this.generateInlayTypeDropdownHTML(operationName, inlayType);
+        }
+
         // Strategy dropdown (Raster / Contour)
         if (config.fields.includes('strategy')) {
             const strategy = existingProperties?.strategy || null;
@@ -437,6 +562,12 @@ class ToolpathPropertiesManager {
         if (config.fields.includes('tool')) {
             const toolId = existingProperties?.toolId || null;
             html += this.generateToolDropdownHTML(operationName, toolId);
+        }
+
+        // Finishing tool dropdown (for Inlay)
+        if (config.fields.includes('finishingTool')) {
+            const finishingToolId = existingProperties?.finishingToolId || null;
+            html += this.generateFinishingToolDropdownHTML(operationName, finishingToolId);
         }
 
         // Inside/Outside selection (for relevant operations)
@@ -478,6 +609,18 @@ class ToolpathPropertiesManager {
         if (config.fields.includes('stepover')) {
             const stepover = existingProperties?.stepover || null;
             html += this.generateStepoverInputHTML(operationName, stepover);
+        }
+
+        // Clearance input (for Inlay)
+        if (config.fields.includes('clearance')) {
+            const clearance = existingProperties?.clearance ?? null;
+            html += this.generateClearanceInputHTML(operationName, clearance);
+        }
+
+        // Cut out checkbox (for Inlay male plug)
+        if (config.fields.includes('cutOut')) {
+            const cutOut = existingProperties?.cutOut ?? null;
+            html += this.generateCutOutCheckboxHTML(operationName, cutOut);
         }
 
         // Angle input
@@ -554,6 +697,26 @@ class ToolpathPropertiesManager {
             data.overCut = parseDimension(overCutInput.value) || 0;
         }
 
+        const inlayTypeSelect = document.getElementById('inlay-type-select');
+        if (inlayTypeSelect) {
+            data.inlayType = inlayTypeSelect.value;
+        }
+
+        const clearanceInput = document.getElementById('clearance-input');
+        if (clearanceInput) {
+            data.clearance = parseFloat(clearanceInput.value) || 0;
+        }
+
+        const finishingToolSelect = document.getElementById('finishing-tool-select');
+        if (finishingToolSelect) {
+            data.finishingToolId = parseInt(finishingToolSelect.value);
+        }
+
+        const cutOutCheckbox = document.getElementById('cutout-checkbox');
+        if (cutOutCheckbox) {
+            data.cutOut = cutOutCheckbox.checked;
+        }
+
         const restToolSelect = document.getElementById('rest-tool-select');
         if (restToolSelect) {
             data.restToolDiameter = parseFloat(restToolSelect.value) || 0;
@@ -605,6 +768,16 @@ class ToolpathPropertiesManager {
         if (config.fields.includes('angle')) {
             if (data.angle === null || data.angle === undefined || data.angle < 0 || data.angle > 180) {
                 errors.push('Infill angle must be between 0 and 180°');
+            }
+        }
+
+        if (config.fields.includes('finishingTool') && !data.finishingToolId) {
+            errors.push('Please select a finishing tool');
+        }
+
+        if (config.fields.includes('clearance')) {
+            if (data.clearance === null || data.clearance === undefined || data.clearance < 0) {
+                errors.push('Clearance must be 0 or greater');
             }
         }
 
