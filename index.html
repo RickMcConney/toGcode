@@ -218,6 +218,41 @@
 
 <script type="text/javascript" src="js/paper-full.js"></script>
 <script type="text/javascript" src="js/lucide.js"></script>
+<script type="text/javascript">
+// Register custom inlay icons with Lucide
+(function() {
+    // Socket: wide short rectangle with a notch cut into the top center
+    // x: 1-23 (max width), y: 7-23 (shorter)
+    var InlaySocket = [
+        ["path", { d: "M3 7h5v4h8V7h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" }]
+    ];
+    // Plug: wide short rectangle with a tab protruding down from the bottom center
+    // x: 1-23 (max width), y: 3-17 (shorter)
+    var InlayPlug = [
+        ["path", { d: "M3 3h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5v4H8v-4H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" }]
+    ];
+    // Inlay: plug (top) above socket (bottom) with 4px gap between
+    // Full width x: 1-23, top y: 1-10, gap y: 10-14, bottom y: 14-23
+    var Inlay = [
+        ["path", { d: "M2 1h20a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-6v2H8V8H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" }],
+        ["path", { d: "M2 14h6v2h8v-2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z" }]
+    ];
+    // Build a mutable icons object including custom icons
+    var customIcons = Object.assign({}, lucide.icons, {
+        InlaySocket: InlaySocket,
+        InlayPlug: InlayPlug,
+        Inlay: Inlay
+    });
+    lucide.icons = customIcons;
+    // Wrap createIcons so it always uses our extended icons object
+    var _origCreateIcons = lucide.createIcons;
+    lucide.createIcons = function(opts) {
+        opts = opts || {};
+        if (!opts.icons) opts.icons = customIcons;
+        return _origCreateIcons(opts);
+    };
+})();
+</script>
 <script type="text/javascript" src="js/bootstrap-min.js"></script>
 <script type="text/javascript" src="js/gcodeView.js"></script>
 <script type="text/javascript" src="js/bootstrap-layout.js"></script>

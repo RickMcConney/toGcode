@@ -1460,16 +1460,19 @@ function doInlay() {
 	}
 
 	// Push accumulated toolpaths with optimized group ordering
+	const depthMM = pocketingTool.depth;
+	const typeName = inlayType === 'female' ? 'Socket' : 'Plug';
+
 	let allPocketPaths = optimizeGroupOrder(pocketGroups);
 	if (allPocketPaths.length > 0) {
 		window.currentTool = { ...pocketingTool };
-		pushToolPath(allPocketPaths, inlayType === 'female' ? 'Inlay Socket' : 'Inlay Plug', 'Inlay', null, selectedSvgIds);
+		pushToolPath(allPocketPaths, `Inlay ${typeName}`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName}`);
 	}
 
 	let allProfilePaths = optimizeGroupOrder(profileGroups);
 	if (allProfilePaths.length > 0) {
 		window.currentTool = { ...finishingTool, depth: pocketingTool.depth, step: pocketingTool.step };
-		pushToolPath(allProfilePaths, inlayType === 'female' ? 'Inlay Socket Profile' : 'Inlay Plug Profile', 'Inlay', null, selectedSvgIds);
+		pushToolPath(allProfilePaths, `Inlay ${typeName} Profile`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName} Profile`);
 	}
 
 	let allCutOutPaths = optimizeGroupOrder(cutOutGroups);
@@ -1477,7 +1480,7 @@ function doInlay() {
 		let materialDepth = allCutOutPaths[0].cutOutDepth;
 		let cleanCutOutPaths = allCutOutPaths.map(p => ({ tpath: p.tpath, isContour: p.isContour }));
 		window.currentTool = { ...pocketingTool, depth: materialDepth };
-		pushToolPath(cleanCutOutPaths, 'Inlay Plug Cutout', 'Inlay', null, selectedSvgIds);
+		pushToolPath(cleanCutOutPaths, 'Inlay Plug Cutout', 'Inlay', null, selectedSvgIds, `${depthMM}mm Plug Cutout`);
 	}
 
 	// Restore pocketing tool (generateToolpathForSelection will restore the original)

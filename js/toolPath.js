@@ -464,7 +464,7 @@ function addCircles(path, r) {
 }
 
 
-function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
+function pushToolPath(paths, name, operation, svgId = null, svgIds = null, label = null) {
 	addUndo(true, false, false);
 
 	// If we're updating existing toolpaths, update in-place instead of creating new ones.
@@ -481,6 +481,10 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 			if (window.currentToolpathProperties.toolpathName) {
 				existing.label = window.currentToolpathProperties.toolpathName;
 			}
+		}
+		// Caller-provided label overrides auto-generated default
+		if (label) {
+			existing.label = label;
 		}
 		redraw();
 		return;
@@ -504,6 +508,12 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null) {
 		if (window.currentToolpathProperties.toolpathName) {
 			toolpathData.label = window.currentToolpathProperties.toolpathName;
 		}
+	}
+
+	// Caller-provided label overrides the auto-generated default name
+	// (e.g. inlay generates multiple toolpaths each needing a distinct name)
+	if (label) {
+		toolpathData.label = label;
 	}
 
 	toolpaths.push(toolpathData);

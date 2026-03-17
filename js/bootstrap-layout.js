@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-15";
+var APP_VERSION = "Ver 2026-03-17";
 
 var mode = "Select";
 var options = [];
@@ -912,7 +912,7 @@ function createSidebar() {
                         <i data-lucide="star"></i>V-Carve
                     </div>
                     <div class="sidebar-item" data-operation="Inlay" data-bs-toggle="tooltip" data-bs-placement="right" title="Create male plug or female socket for inlay work">
-                        <i data-lucide="layers"></i>Inlay
+                        <i data-lucide="inlay"></i>Inlay
                     </div>
                     <div class="sidebar-item" data-operation="Surfacing" data-bs-toggle="tooltip" data-bs-placement="right" title="Surface the entire workpiece with parallel passes">
                         <i data-lucide="align-justify"></i>Surfacing
@@ -4788,12 +4788,12 @@ function getOperationIcon(operation) {
         case 'VCarve': return 'star';
         case 'Drill': return 'circle-plus';
         case 'HelicalDrill': return 'circle-plus';
-        case 'Inlay': return 'layers';
-        case 'Inlay Socket': return 'layers';
-        case 'Inlay Socket Profile': return 'layers';
-        case 'Inlay Plug': return 'layers';
-        case 'Inlay Plug Profile': return 'layers';
-        case 'Inlay Plug Cutout': return 'layers';
+        case 'Inlay': return 'inlay';
+        case 'Inlay Socket': return 'inlay-socket';
+        case 'Inlay Socket Profile': return 'inlay-socket';
+        case 'Inlay Plug': return 'inlay-plug';
+        case 'Inlay Plug Profile': return 'inlay-plug';
+        case 'Inlay Plug Cutout': return 'circle';
         case 'Surfacing': return 'align-justify';
         case '3dProfile': return 'mountain';
         default: return 'circle';
