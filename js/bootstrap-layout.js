@@ -2192,11 +2192,13 @@ function regenerateToolpathsForPaths(changedPathIds) {
         if (p.originalPath) savedOriginalPaths.set(p.id, p.originalPath);
     });
 
+    // Group affected toolpaths by operation + source SVG IDs so multi-output
+    // operations like Inlay (which produce Socket, Profile, Cutout) are regenerated
+    // together in a single call with all their update targets.
+    const regenGroups = new Map();
     for (const toolpath of affectedToolpaths) {
-        // Skip Drill — drill points aren't linked to svgpath geometry
         if (toolpath.operation === 'Drill') continue;
 
-        // Helical drill: re-detect circle from moved svgpath and regenerate
         if (toolpath.operation === 'HelicalDrill') {
             let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
             let sourcePath = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean)[0];
@@ -2220,11 +2222,19 @@ function regenerateToolpathsForPaths(changedPathIds) {
             continue;
         }
 
-        // Find source svgpaths
+        // Group key: operation + sorted source SVG IDs
         let sourceIds = toolpath.svgIds || (toolpath.svgId ? [toolpath.svgId] : []);
-        let sourcePaths = sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean);
+        let key = toolpath.operation + '|' + sourceIds.slice().sort().join(',');
+        if (!regenGroups.has(key)) {
+            regenGroups.set(key, { operation: toolpath.operation, sourceIds: sourceIds, toolpaths: [] });
+        }
+        regenGroups.get(key).toolpaths.push(toolpath);
+    }
+
+    for (const [key, group] of regenGroups) {
+        let sourcePaths = group.sourceIds.map(id => svgpaths.find(p => p.id === id)).filter(Boolean);
         // For unlinked 3dProfile, use the changed STL bounding box path
-        if (sourcePaths.length === 0 && toolpath.operation === '3dProfile') {
+        if (sourcePaths.length === 0 && group.operation === '3dProfile') {
             sourcePaths = changedPathIds
                 .map(id => svgpaths.find(p => p.id === id))
                 .filter(p => p && p.creationProperties && p.creationProperties.stlModelId);
@@ -2235,13 +2245,16 @@ function regenerateToolpathsForPaths(changedPathIds) {
         selectMgr.unselectAll();
         sourcePaths.forEach(p => selectMgr.selectPath(p));
 
-        // Reconstruct tool from stored snapshot
-        window.currentTool = { ...toolpath.tool };
-        window.currentToolpathProperties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : null;
-        window.toolpathUpdateTargets = [toolpath];
+        // Reconstruct tool from the first toolpath's stored snapshot
+        const firstTp = group.toolpaths[0];
+        window.currentTool = { ...firstTp.tool };
+        window.currentToolpathProperties = firstTp.toolpathProperties ? { ...firstTp.toolpathProperties } : null;
+        // Provide ALL toolpaths in the group as update targets so each pushToolPath
+        // call updates one in-place instead of creating duplicates
+        window.toolpathUpdateTargets = [...group.toolpaths];
 
         try {
-            handleOperationClick(toolpath.operation);
+            handleOperationClick(group.operation);
         } finally {
             window.toolpathUpdateTargets = null;
             window.currentToolpathProperties = null;

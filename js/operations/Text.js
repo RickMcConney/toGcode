@@ -345,9 +345,6 @@ class Text extends Operation {
     }
 
     createTextPath(font, text, x, y, sizeInMM, fontname, textGroupId) {
-        // Process each character separately
-        let currentX = x;
-
         // Calculate proper font size based on capital letter height
         const referenceChar = font.charToGlyph('H');
         const referenceBBox = referenceChar.getBoundingBox();
@@ -355,8 +352,12 @@ class Text extends Operation {
         const scaleFactor = font.unitsPerEm / referenceHeight;
         let fontSize = sizeInMM * viewScale * scaleFactor;
 
-        // Split text into individual characters
+        // Center the text horizontally on the click position
         const chars = text.split('');
+        let totalWidth = 0;
+        chars.forEach(char => { totalWidth += font.getAdvanceWidth(char, fontSize); });
+        let currentX = x - totalWidth / 2;
+
         addUndo(false, true, false);
         chars.forEach((char, index) => {
             // Create path for single character

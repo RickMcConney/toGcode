@@ -997,14 +997,17 @@ function computePathPerimeter(path) {
  * Filters out degenerate fragments (< 3 points or near-zero area slivers).
  */
 function generateConcentricContours(outerPath, islandPaths, stepover) {
-	let contours = [];
+	let contours = [];   // flat list of contour paths
+	let contourLevels = []; // parallel array: level index for each contour
 	let currentOuters = [outerPath];
 	let minArea = stepover * stepover * 0.1;
+	let level = 0;
 
 	while (currentOuters.length > 0) {
 		let nextOuters = [];
 		for (let outer of currentOuters) {
 			contours.push(outer);
+			contourLevels.push(level);
 			let co = new clipper.ClipperOffset(20, 0.025);
 			co.AddPath(outer, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
 			let result = [];
@@ -1033,8 +1036,9 @@ function generateConcentricContours(outerPath, islandPaths, stepover) {
 			}
 		}
 		currentOuters = nextOuters;
+		level++;
 	}
-	return contours;
+	return { contours, contourLevels, levelCount: level };
 }
 
 /**
@@ -1085,42 +1089,56 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 	}
 
 	// Generate concentric contour rings from the machined boundary inward
-	// allContours[0] = outermost, allContours[n] = innermost
-	let allContours = generateConcentricContours(machinedOuter, machinedIslands, stepover);
+	// Returns { contours, contourLevels, levelCount }
+	let contourData = generateConcentricContours(machinedOuter, machinedIslands, stepover);
+	let allContours = contourData.contours;
+	let contourLevels = contourData.contourLevels;
+	let totalLevels = contourData.levelCount;
 
-	// Decide where to switch from contour to raster by comparing actual travel distances.
-	// Keep contours while contour perimeter < raster travel for that ring's interior.
-	let switchIndex = allContours.length; // default: all contours, no raster
+	// Decide where to switch from contour to raster by comparing travel distances
+	// per LEVEL (not per fragment). Sum all fragment perimeters at each level.
+	let switchLevel = totalLevels; // default: all contours, no raster
 
-	for (let i = 1; i < allContours.length; i++) {
-		let contourPerimeter = computePathPerimeter(allContours[i]);
-		if (contourPerimeter <= 0) continue;
-
-		// Build raster boundaries for this ring's interior
-		let rasterBoundaries = [allContours[i]];
-		for (let island of machinedIslands) {
-			if (pathIn(allContours[i], island)) {
-				rasterBoundaries.push(island);
+	for (let lvl = 1; lvl < totalLevels; lvl++) {
+		// Sum perimeters of all fragments at this level
+		let levelPerimeter = 0;
+		for (let i = 0; i < allContours.length; i++) {
+			if (contourLevels[i] === lvl) {
+				levelPerimeter += computePathPerimeter(allContours[i]);
 			}
+		}
+		if (levelPerimeter <= 0) continue;
+
+		// Compute raster travel for this level's interior using machinedOuter
+		// offset inward by lvl stepovers
+		let rasterOuter = offsetPath(machinedOuter, lvl * stepover, false);
+		if (rasterOuter.length === 0) continue;
+		let rasterBoundaries = [rasterOuter[0]];
+		for (let island of machinedIslands) {
+			rasterBoundaries.push(island);
 		}
 
 		let rasterTravel = computeRasterTravel(rasterBoundaries, stepover, pocketRadius, angle);
-		if (rasterTravel > 0 && rasterTravel < contourPerimeter) {
-			switchIndex = i;
+		if (rasterTravel > 0 && rasterTravel < levelPerimeter) {
+			switchLevel = lvl;
 			break;
 		}
 	}
 
 	// Build contour paths: inside-to-outside so each pass only cuts one stepover width.
-	// Only skip outermost contour (index 0) if the finishing tool is large enough to cover it.
+	// Only skip outermost level (level 0) if the finishing tool is large enough to cover it.
 	let paths = [];
 	let skipOutermost = (finishingRadius >= pocketRadius);
-	let startIdx = skipOutermost ? 1 : 0;
+	let startLevel = skipOutermost ? 1 : 0;
 
-	for (let i = switchIndex - 1; i >= startIdx; i--) {
-		let contour = allContours[i].slice();
-		if (direction == "climb") contour = reversePath(contour);
-		paths.push({ tpath: contour, isContour: true, passStart: true });
+	// Emit contour fragments for levels switchLevel-1 down to startLevel (inside-to-outside)
+	for (let lvl = switchLevel - 1; lvl >= startLevel; lvl--) {
+		for (let i = 0; i < allContours.length; i++) {
+			if (contourLevels[i] !== lvl) continue;
+			let contour = allContours[i].slice();
+			if (direction == "climb") contour = reversePath(contour);
+			paths.push({ tpath: contour, isContour: true, passStart: true });
+		}
 	}
 
 	// Add island contours when outermost contour is not skipped
@@ -1132,18 +1150,16 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 		}
 	}
 
-	// Generate raster infill for the remaining interior (from switchIndex inward).
-	// Use the machined outer (offset inward past contour coverage) as the raster
-	// boundary so that all areas between islands get filled.
-	if (switchIndex < allContours.length) {
-		// Use the innermost kept contour as the raster boundary so raster only
-		// fills the interior that contour passes didn't already cover.
-		let rasterBoundary = allContours[switchIndex - 1];
-		let rasterBoundaries = [rasterBoundary];
+	// Generate raster infill for the remaining interior (from switchLevel inward).
+	// Compute the raster boundary by offsetting machinedOuter inward by the number
+	// of contour levels, so it covers exactly the area not handled by contour passes.
+	if (switchLevel < totalLevels) {
+		let rasterOffset = offsetPath(machinedOuter, (switchLevel - 1) * stepover, false);
+		if (rasterOffset.length === 0) rasterOffset = [machinedOuter];
+		let rasterBoundaries = [rasterOffset[0]];
+		// Always include all islands — ClipperJS EvenOdd fill correctly excludes their interior
 		for (let island of machinedIslands) {
-			if (pathIn(rasterBoundary, island)) {
-				rasterBoundaries.push(island);
-			}
+			rasterBoundaries.push(island);
 		}
 
 		let tpaths = generateClipperInfill(rasterBoundaries, stepover, pocketRadius, angle);
