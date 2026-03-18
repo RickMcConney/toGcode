@@ -996,7 +996,7 @@ function computePathPerimeter(path) {
  * Respects islands: uses ClipperJS difference to subtract island offsets.
  * Filters out degenerate fragments (< 3 points or near-zero area slivers).
  */
-function generateConcentricContours(outerPath, islandPaths, stepover) {
+function generateConcentricContours(outerPath, islandPaths, stepover, pocketRadius) {
 	let contours = [];   // flat list of contour paths
 	let contourLevels = []; // parallel array: level index for each contour
 	let currentOuters = [outerPath];
@@ -1012,8 +1012,10 @@ function generateConcentricContours(outerPath, islandPaths, stepover) {
 			co.AddPath(outer, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
 			let result = [];
 			co.Execute(result, -stepover);
+
+			// Subtract islands and collect valid fragments
+			let validFragments = [];
 			for (let r of result) {
-				// Subtract island regions using ClipperJS difference
 				let remaining = [r];
 				for (let island of islandPaths) {
 					let clpr = new ClipperLib.Clipper();
@@ -1026,14 +1028,46 @@ function generateConcentricContours(outerPath, islandPaths, stepover) {
 					remaining = diff;
 				}
 				for (let rem of remaining) {
-					// Filter degenerate fragments
 					if (rem.length < 3) continue;
 					let fragArea = Math.abs(ClipperLib.Clipper.Area(rem));
 					if (fragArea < minArea) continue;
 					rem.push(rem[0]); // close path
-					nextOuters.push(rem);
+					validFragments.push(rem);
 				}
 			}
+
+			// If the full stepover produced no valid children, check if there's
+			// uncovered area in the center. The tool at this contour covers
+			// pocketRadius inward; if shrinking by pocketRadius still leaves area,
+			// add a fill pass at a reduced offset to cover the gap.
+			if (validFragments.length === 0 && pocketRadius > 0 && stepover > pocketRadius) {
+				let fillCo = new clipper.ClipperOffset(20, 0.025);
+				fillCo.AddPath(outer, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+				let fillResult = [];
+				fillCo.Execute(fillResult, -pocketRadius);
+				for (let r of fillResult) {
+					let remaining = [r];
+					for (let island of islandPaths) {
+						let clpr = new ClipperLib.Clipper();
+						clpr.AddPaths(remaining, ClipperLib.PolyType.ptSubject, true);
+						clpr.AddPath(island, ClipperLib.PolyType.ptClip, true);
+						let diff = [];
+						clpr.Execute(ClipperLib.ClipType.ctDifference, diff,
+							ClipperLib.PolyFillType.pftEvenOdd,
+							ClipperLib.PolyFillType.pftEvenOdd);
+						remaining = diff;
+					}
+					for (let rem of remaining) {
+						if (rem.length < 3) continue;
+						let fragArea = Math.abs(ClipperLib.Clipper.Area(rem));
+						if (fragArea < minArea) continue;
+						rem.push(rem[0]);
+						validFragments.push(rem);
+					}
+				}
+			}
+
+			nextOuters.push(...validFragments);
 		}
 		currentOuters = nextOuters;
 		level++;
@@ -1090,7 +1124,7 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 
 	// Generate concentric contour rings from the machined boundary inward
 	// Returns { contours, contourLevels, levelCount }
-	let contourData = generateConcentricContours(machinedOuter, machinedIslands, stepover);
+	let contourData = generateConcentricContours(machinedOuter, machinedIslands, stepover, pocketRadius);
 	let allContours = contourData.contours;
 	let contourLevels = contourData.contourLevels;
 	let totalLevels = contourData.levelCount;
@@ -1126,9 +1160,10 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 	}
 
 	// Build contour paths: inside-to-outside so each pass only cuts one stepover width.
-	// Only skip outermost level (level 0) if the finishing tool is large enough to cover it.
+	// Only skip outermost level (level 0) if the finishing tool is large enough to cover it
+	// AND there are deeper levels or raster to actually clear the interior.
 	let paths = [];
-	let skipOutermost = (finishingRadius >= pocketRadius);
+	let skipOutermost = (finishingRadius >= pocketRadius) && (totalLevels > 1 || switchLevel < totalLevels);
 	let startLevel = skipOutermost ? 1 : 0;
 
 	// Emit contour fragments for levels switchLevel-1 down to startLevel (inside-to-outside)
