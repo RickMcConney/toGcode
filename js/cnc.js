@@ -1261,12 +1261,52 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 		const optimizedChains = optimizeChainOrder(infillPaths);
 		// Raster infill first (center), then contours (inside-to-outside toward boundary)
 		// Optimize the combined list so contours start near where the previous path ended
-		return optimizePathListOrder([...optimizedChains, ...paths]);
+		let result = optimizePathListOrder([...optimizedChains, ...paths]);
+		return eliminateUnnecessaryRetracts(result, machinedIslands, islandPaths);
 	}
 
 	// Pure contour mode (no raster needed for small/narrow pockets)
 	// Optimize contour order and start points for minimal travel
-	return optimizePathListOrder(paths);
+	let result = optimizePathListOrder(paths);
+	return eliminateUnnecessaryRetracts(result, machinedIslands, islandPaths);
+}
+
+/**
+ * Mark consecutive paths as passStart:false when the travel between them
+ * doesn't cross any island, allowing direct feed instead of retract/plunge.
+ */
+function eliminateUnnecessaryRetracts(paths, machinedIslands, originalIslands) {
+	if (paths.length <= 1) return paths;
+
+	// Combine all island obstacles for intersection testing
+	let obstacles = [];
+	if (machinedIslands) obstacles.push(...machinedIslands);
+	if (originalIslands) obstacles.push(...originalIslands);
+
+	for (let i = 1; i < paths.length; i++) {
+		if (!paths[i].passStart) continue;
+		let prevPath = paths[i - 1].tpath;
+		let currPath = paths[i].tpath;
+		if (!prevPath || !currPath || prevPath.length === 0 || currPath.length === 0) continue;
+
+		let endPt = prevPath[prevPath.length - 1];
+		let startPt = currPath[0];
+
+		// Check if travel crosses any island
+		let crosses = false;
+		for (let island of obstacles) {
+			if (lineIntersectsPath(endPt, startPt, island) > 0) {
+				crosses = true;
+				break;
+			}
+		}
+
+		if (!crosses) {
+			paths[i] = { ...paths[i], passStart: false };
+		}
+	}
+
+	return paths;
 }
 
 /**

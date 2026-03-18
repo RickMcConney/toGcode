@@ -993,9 +993,13 @@ function _generatePocketOperationGcode(toolpath, profile, useInches, settings) {
 			var path = pathObj.tpath;
 			if (!path || path.length === 0) continue;
 
-			// Check if we can skip the retract (previous path ended near this one's start)
+			// Check if we can skip the retract:
+			// 1. passStart === false means upstream analysis confirmed no island crossing
+			// 2. Otherwise, skip if previous path ended near this one's start (< 2mm)
 			var skipRetract = false;
-			if (lastPathEnd !== null) {
+			if (pathObj.passStart === false) {
+				skipRetract = true;
+			} else if (lastPathEnd !== null) {
 				var dx = path[0].x - lastPathEnd.x;
 				var dy = path[0].y - lastPathEnd.y;
 				var dist = Math.sqrt(dx * dx + dy * dy);
