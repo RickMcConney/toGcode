@@ -1,138 +1,142 @@
-# toGcode
+# FreazyKam
 
 <p align="center">
-  <img src="icons/logo.svg" alt="toGcode Logo" width="200">
+  <img src="icons/logo.svg" alt="FreazyKam Logo" width="200">
 </p>
 
-**🌐 [Launch toGcode](https://rickmcconney.github.io/toGcode/)**
+**[Launch FreazyKam](https://rickmcconney.github.io/toGcode/)**
 
-Turn your designs into CNC-ready instructions, right in your browser. No complicated software to install or learn. Import your designs, set up your project, and export G-code for your CNC machine.
+Free and easy browser-based CAM for CNC machines. Turn your designs into G-code — no software to install, no accounts, no cost. Import SVGs, set up your project, and export G-code ready for your router.
 
 ## Quick Start
 
-1. **Open toGcode** - Just click the link above and start using it (no installation needed)
-2. **Set up your wood** - Tell toGcode the size of your workpiece and the type of wood
-3. **Add your design** - Import an SVG file, or draw your design directly
-4. **Create toolpaths** - Choose what type of cut you want (profile, pocket, engraving, etc.)
+1. **Open FreazyKam** - Click the link above (no installation needed)
+2. **Set up your workpiece** - Enter dimensions and choose your wood species
+3. **Add your design** - Import an SVG or draw directly in the browser
+4. **Create toolpaths** - Choose your operation (profile, pocket, V-carve, inlay, etc.)
 5. **Export** - Save the G-code file for your CNC machine
 
-That's it! Everything happens in your web browser.
+Everything runs in your browser. Your files never leave your computer.
 
-## What You Can Do
+## Features
 
-- **Create from scratch** - Draw freehand, add shapes, or type text right in the browser
-- **Use designs from other software** - Import SVG files from Adobe Illustrator, Inkscape, or other design programs
-- **Try different materials** - Pre-loaded wood species help with cutting speeds and feeds
-- **See what it will look like** - Watch a 3D preview of your CNC cutting the design before you run the machine
-- **Manage your tools** - Keep track of your bits and their settings (diameter, speeds, feeds)
-- **No software to buy** - Completely free, works in any modern web browser
+### Design Tools
+- **SVG Import** - Load designs from Illustrator, Inkscape, or any vector editor
+- **Drawing Tools** - Freehand pen, geometric shapes, and text with font support
+- **AI Design** - Generate SVG designs with Google Gemini AI integration
+- **Parametric Shapes** - Create precise geometric patterns with Maker.js
 
-### Creating Toolpaths
-- **Profile Cuts** - Cut along the edges of your design (inside, outside or right on the line)
-- **Pocket Cuts** - Remove material from a closed area (useful for inlays or large areas)
-- **Drilling** - Create holes at specific locations
-- **V-Carving** - Use V-bits for decorative engraving and detail work
+### CNC Operations
+- **Profile Cuts** - Inside, outside, or center-line cuts along design edges
+- **Pocket Cuts** - Adaptive contour/raster clearing with island support
+- **V-Carving** - Decorative engraving with variable-depth V-bit cuts
+- **V-Bit Inlay** - Sharp-feature-preserving inlay with V-bit socket and plug generation
+- **End Mill Inlay** - Traditional inlay with rounded corners for end mill finishing
+- **Drilling** - Standard and helical drilling operations
+- **Surfacing** - Flatten your workpiece stock
+- **3D Profiling** - Surface-following cuts from imported STL models
 
-### Your Tools & Materials
-- **Tool Management** - Keep a library of your bits with their diameter and cutting speeds
-- **Built-in Wood Species** - Choose from common woods (Oak, Maple, Pine, etc.) and toGcode automatically adjusts cutting speeds
-- **Automatic Speed Calculation** - Let toGcode figure out the right speeds and feeds for your tool and wood
+### V-Bit Inlay
+The V-bit inlay mode preserves sharp design features that end mill inlay cannot reach:
+- Uses the inscribed circle (V-carve) algorithm to compute variable-depth toolpaths along design edges
+- **Socket (female)**: V-bit profiles inside the design boundary, end mill roughs the flat bottom
+- **Plug (male)**: V-bit profiles outside the design boundary with clearance offset, end mill clears surrounding material
+- Narrow features (star points, serifs) are handled automatically — the V-bit depth adapts to the local geometry
+- Configurable clearance, glue gap, and optional plug cutout
 
-### Your Workpiece
-- **Dimensions** - Tell toGcode how big your stock is (width, length, thickness)
-- **Wood Type** - Select your material for optimized cutting parameters
-- **Origin Point** - Choose where your design starts (corners, center, edges, etc.)
+### Visualization & Simulation
+- **2D Canvas** - Real-time view of design and toolpaths on your workpiece
+- **3D Simulation** - Watch a voxel-based material removal simulation before cutting
+- **Playback Controls** - Play, pause, speed up, and step through the simulation
 
-### Seeing What Will Happen
-- **2D View** - See your design on your workpiece layout
-- **3D Simulation** - Watch your CNC machine cut the design before running it on real wood
-- **Zoom & Pan** - Zoom in to see details, use middle mouse button to pan around
+### Tools & Materials
+- **Tool Library** - End mills, ball nose, V-bits, and drills with persistent settings
+- **Wood Species Database** - Automatic feed/speed calculation for common woods
+- **G-code Profiles** - Configurable post-processor profiles for different CNC controllers
 
+### Workpiece Setup
+- **Dimensions** - Width, length, and thickness in mm or inches
+- **Origin Point** - Configurable origin (corners, center, edges)
+- **Tab Support** - Holding tabs for profile cuts to prevent parts from moving
 
 ## Getting Started
 
-### Using toGcode Online (Easiest)
+### Using FreazyKam Online (Easiest)
 
-Just click here: **🌐 [Launch toGcode](https://rickmcconney.github.io/toGcode/)**
+Just click here: **[Launch FreazyKam](https://rickmcconney.github.io/toGcode/)**
 
-Open it in your web browser (Chrome, Firefox, Safari, or Edge). No installation needed.
+Works in any modern browser (Chrome, Firefox, Safari, Edge). No installation needed.
+
+### Running Locally
+
+```bash
+# Clone the repository
+git clone https://github.com/rickmcconney/toGcode.git
+cd toGcode
+
+# Start a local web server (required for ES6 modules)
+python -m http.server 8000
+# OR
+npx http-server
+
+# Open http://localhost:8000
+```
 
 ### Step-by-Step Workflow
 
 **Step 1: Set Up Your Workpiece**
 - Click the "Workpiece" button in the left panel
-- Enter your stock dimensions (width, length, thickness in millimeters)
-- Choose the type of wood you're using
-- Pick where your design should start (usually center)
+- Enter your stock dimensions (width, length, thickness)
+- Choose your wood species
+- Pick your origin point
 
 **Step 2: Create or Import Your Design**
-- **Import**: Click "Import SVG" to load a design from Adobe Illustrator, Inkscape, or other software
-- **Draw**: Use the drawing tools (pen, shapes, text) to create directly in toGcode
+- **Import**: Click "Import SVG" to load a vector design
+- **Draw**: Use the pen, shapes, or text tools to create directly
 
 **Step 3: Set Up Your Tools**
-- Add your CNC bits with their diameter and cutting speeds in the tools tab
+- Add your CNC bits with diameter, speeds, and feeds in the tools tab
 
 **Step 4: Create Toolpaths**
 - Select your design on the canvas
-- Choose the operation you want:
-  - **Profile** - Cut around the edge
-  - **Pocket** - Cut out a filled area
-  - **Drill** - Make holes
-  - **V-Carve** - Decorative engraving with a V-bit
-- Adjust the depth and other settings in the panel on the right
-- Watch the preview to see what will happen
+- Choose the operation (Profile, Pocket, V-Carve, Inlay, Drill, etc.)
+- Adjust depth, stepover, and other settings
+- For inlay: select pocketing tool and finishing tool (V-bit for sharp features, end mill for rounded)
 
 **Step 5: Check Your Work**
-- Look at the 3D tab to watch a simulation of your CNC cutting the design
-- Use play/pause to slow it down or speed it up
-- If something doesn't look right, go back and adjust
+- Switch to the 3D tab to watch the cutting simulation
+- Use playback controls to review
 
-**Step 6: Export Your G-code**
-- Click the export button
-- Save the G-code file to your computer
-- Load it into your CNC machine's controller
+**Step 6: Export**
+- Click export and save the G-code file
+- Load it into your CNC controller
 
 ## Limitations
 
-- Works best with modern web browsers (Chrome, Firefox, Safari, Edge)
-- Very large or complex designs may slow down your browser
-- Limited to flat 2.5D cuts (no full 3D machining)
-- You may need to adjust the G-code settings for your specific CNC machine
+- Very large or complex designs may slow down the browser
+- 2.5D cuts (no full 3D sculptural machining beyond STL surface following)
+- G-code settings may need adjustment for your specific CNC machine
 
-## Notes for Users
+## Notes
 
-**Feed Rate Limits**: toGcode caps automatic feed rate calculations at 1000 mm/min. If your machine can go faster, you can:
-- Adjust the limit in the options
-- You can also turn off automatic feed rate calculation and set speeds manually for each tool
+**Feed Rate Limits**: Automatic feed rate calculation caps at 1000 mm/min by default. Adjust in options or set speeds manually per tool.
 
-**Your Data is Safe**: Everything runs in your browser. No files are uploaded anywhere. Your projects are saved locally on your computer.
+**Your Data is Safe**: Everything runs locally in your browser. No files are uploaded anywhere.
 
 ## Contributing
 
-This project welcomes contributions! Areas where help is especially needed:
+This project welcomes contributions:
 
-### Development
-- Feature implementations and enhancements
-- Bug fixes and performance improvements
-- Code refactoring and optimization
-- Documentation improvements
-
-### Testing
-- Testing with various SVG files from different software
-- Testing G-code output on different CNC machines, if you create a post processor profile I can add it to the default list.
-- Cross-browser compatibility testing
-- Performance testing with complex paths
-
-### Feedback
+- Feature implementations and bug fixes
+- Testing with different SVG sources, CNC machines, and browsers
+- Post-processor profiles for additional CNC controllers
 - Bug reports with reproduction steps
 - Feature requests with use case descriptions
-- User experience feedback and suggestions
-- Documentation gaps and unclear instructions
 
 ## Support
 
-- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/rickmcconney/toGcode/issues)
-- **Discussions**: Ask questions or share projects in [GitHub Discussions](https://github.com/rickmcconney/toGcode/discussions)
+- **Issues**: [GitHub Issues](https://github.com/rickmcconney/toGcode/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/rickmcconney/toGcode/discussions)
 
 ## License
 
@@ -140,4 +144,4 @@ This project is open source. Please check the repository for specific license te
 
 ---
 
-*toGcode - Making CNC accessible for makers, woodworkers, and hobbyists*
+*FreazyKam - Free and easy CAM for makers, woodworkers, and hobbyists*
