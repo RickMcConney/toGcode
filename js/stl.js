@@ -26,6 +26,12 @@ window.importSTLFile = function(file) {
 
             const model = createSTLModel(geometry, file.name);
             positionSTLModel(model);
+
+            // Save undo point before modifying svgpaths
+            if (typeof window.addUndo === 'function') {
+                window.addUndo(false, true, false);
+            }
+
             window.stlModels.push(model);
 
             // Add to 3D view
@@ -481,18 +487,95 @@ window.loadSTLModels = function(savedModels) {
 };
 
 /**
- * Remove STL mesh from 3D scene
+ * Stash for STL models removed by undo, keyed by model ID.
+ * Allows redo to restore them without re-parsing the STL file.
+ */
+const stlUndoStash = {};
+
+/**
+ * Reconcile stlModels with current svgpaths state.
+ * Removes any STL model whose bounding svgpath no longer exists (e.g. after undo),
+ * stashing it so redo can restore it. Re-adds stashed models whose svgpath reappears.
+ */
+window.syncSTLWithSvgPaths = function() {
+    const scene = window.threeScene;
+    const currentSvgPaths = window.svgpaths || [];
+
+    // Find STL model IDs referenced by current svgpaths
+    const activeStlIds = new Set();
+    for (const sp of currentSvgPaths) {
+        if (sp.creationProperties && sp.creationProperties.stlModelId) {
+            activeStlIds.add(sp.creationProperties.stlModelId);
+        }
+    }
+
+    // Remove models whose svgpath is gone, stash for redo
+    let changed = false;
+    for (let i = window.stlModels.length - 1; i >= 0; i--) {
+        const model = window.stlModels[i];
+        if (!activeStlIds.has(model.id)) {
+            // Clean up 3D mesh
+            if (model.mesh && scene) {
+                scene.remove(model.mesh);
+                model.mesh.geometry.dispose();
+                model.mesh.material.dispose();
+                model.mesh = null;
+            }
+            // Stash model (keeps geometry and height map) for redo
+            stlUndoStash[model.id] = model;
+            window.stlModels.splice(i, 1);
+            changed = true;
+        }
+    }
+
+    // Restore stashed models whose svgpath has reappeared (redo)
+    for (const stlId of activeStlIds) {
+        if (stlUndoStash[stlId] && !window.stlModels.find(m => m.id === stlId)) {
+            const model = stlUndoStash[stlId];
+            delete stlUndoStash[stlId];
+            window.stlModels.push(model);
+            // Re-add 3D mesh and regenerate height map
+            addSTLMesh3D(model);
+            if (!model.heightMap) {
+                generateHeightMap(model, 0.5);
+            }
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        if (typeof window.requestThreeRender === 'function') {
+            window.requestThreeRender();
+        }
+    }
+};
+
+/**
+ * Fully remove an STL model: 3D mesh, geometry, and height map.
+ * Called when the user deletes the STL's svgpath.
  */
 window.removeSTLMesh3D = function(modelId) {
     const scene = window.threeScene;
-    if (!scene) return;
-
     const model = window.stlModels.find(m => m.id === modelId);
-    if (model && model.mesh) {
+    if (!model) return;
+
+    // Remove 3D mesh
+    if (model.mesh && scene) {
         scene.remove(model.mesh);
         model.mesh.geometry.dispose();
         model.mesh.material.dispose();
         model.mesh = null;
+    }
+
+    // Dispose geometry and clear height map
+    if (model.geometry) {
+        model.geometry.dispose();
+        model.geometry = null;
+    }
+    model.heightMap = null;
+
+    if (typeof window.requestThreeRender === 'function') {
+        window.requestThreeRender();
     }
 };
 

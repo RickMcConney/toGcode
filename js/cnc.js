@@ -389,13 +389,14 @@ function onPathsChanged(changedPathIds) {
 	if (changedPathIds && changedPathIds.length > 0 && typeof regenerateToolpathsForPaths === 'function') {
 		regenerateToolpathsForPaths(changedPathIds);
 	}
-	// Sync STL models to match current svgpath positions
+	// Remove STL models whose svgpath was removed (e.g. by undo)
+	if (typeof window.syncSTLWithSvgPaths === 'function') window.syncSTLWithSvgPaths();
+	// Sync surviving STL models to match current svgpath positions
 	if (typeof window.syncSTLModels === 'function') window.syncSTLModels();
 	// Refresh transform handles if Move tool is active
 	var currentOp = cncController.operationManager.getCurrentOperation();
 	if (currentOp && currentOp.name === 'Move') {
 		if (currentOp.hasSelectedPaths()) {
-			currentOp.pivotCenter = null;
 			currentOp.setupTransformBox();
 			currentOp.recoverTotalsFromHistory();
 		} else {
@@ -1109,7 +1110,9 @@ function computeRasterTravel(boundaries, stepover, pocketRadius, angle) {
  *   separate profile pass (world units). If >= pocketRadius the outermost contour
  *   is skipped. Pass 0 when there is no finishing pass.
  */
-function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, angle, direction, finishingRadius) {
+function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, angle, direction, finishingRadius, strategy) {
+	if (!strategy) strategy = 'adaptive';
+
 	// First offset inward/outward by tool radius to get the machinable boundaries
 	let outerOffset = offsetPath(outerPath, pocketRadius, false);
 	if (outerOffset.length === 0) return [];
@@ -1129,33 +1132,42 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 	let contourLevels = contourData.contourLevels;
 	let totalLevels = contourData.levelCount;
 
-	// Decide where to switch from contour to raster by comparing travel distances
-	// per LEVEL (not per fragment). Sum all fragment perimeters at each level.
-	let switchLevel = totalLevels; // default: all contours, no raster
+	// Decide where to switch from contour to raster based on strategy
+	let switchLevel;
+	if (strategy === 'raster') {
+		// Switch to raster immediately after the first contour level (boundary pass)
+		switchLevel = 1;
+	} else if (strategy === 'contour') {
+		// Never switch to raster — use contours all the way
+		switchLevel = totalLevels;
+	} else {
+		// Adaptive: compare travel distances per level to find optimal switch point
+		switchLevel = totalLevels; // default: all contours, no raster
 
-	for (let lvl = 1; lvl < totalLevels; lvl++) {
-		// Sum perimeters of all fragments at this level
-		let levelPerimeter = 0;
-		for (let i = 0; i < allContours.length; i++) {
-			if (contourLevels[i] === lvl) {
-				levelPerimeter += computePathPerimeter(allContours[i]);
+		for (let lvl = 1; lvl < totalLevels; lvl++) {
+			// Sum perimeters of all fragments at this level
+			let levelPerimeter = 0;
+			for (let i = 0; i < allContours.length; i++) {
+				if (contourLevels[i] === lvl) {
+					levelPerimeter += computePathPerimeter(allContours[i]);
+				}
 			}
-		}
-		if (levelPerimeter <= 0) continue;
+			if (levelPerimeter <= 0) continue;
 
-		// Compute raster travel for this level's interior using machinedOuter
-		// offset inward by lvl stepovers
-		let rasterOuter = offsetPath(machinedOuter, lvl * stepover, false);
-		if (rasterOuter.length === 0) continue;
-		let rasterBoundaries = [rasterOuter[0]];
-		for (let island of machinedIslands) {
-			rasterBoundaries.push(island);
-		}
+			// Compute raster travel for this level's interior using machinedOuter
+			// offset inward by lvl stepovers
+			let rasterOuter = offsetPath(machinedOuter, lvl * stepover, false);
+			if (rasterOuter.length === 0) continue;
+			let rasterBoundaries = [rasterOuter[0]];
+			for (let island of machinedIslands) {
+				rasterBoundaries.push(island);
+			}
 
-		let rasterTravel = computeRasterTravel(rasterBoundaries, stepover, pocketRadius, angle);
-		if (rasterTravel > 0 && rasterTravel < levelPerimeter) {
-			switchLevel = lvl;
-			break;
+			let rasterTravel = computeRasterTravel(rasterBoundaries, stepover, pocketRadius, angle);
+			if (rasterTravel > 0 && rasterTravel < levelPerimeter) {
+				switchLevel = lvl;
+				break;
+			}
 		}
 	}
 
@@ -1382,21 +1394,24 @@ function doInlay() {
 	inputPaths = normalizeWindingOrder(inputPaths);
 	const selectedSvgIds = selected.map(p => p.id);
 
-	// Identify outer paths and islands.
-	// An island is any path fully contained inside another selected path.
-	let allOuters = [];
-	let allIslands = [];
+	// Compute nesting depth for each path using even-odd rule.
+	// Even-depth paths (0, 2, ...) are outer boundaries, odd-depth (1, 3, ...) are islands.
+	let depths = [];
 	for (let i = 0; i < inputPaths.length; i++) {
-		let isIsland = false;
+		let depth = 0;
 		for (let j = 0; j < inputPaths.length; j++) {
 			if (i === j) continue;
 			if (pathIn(inputPaths[j], inputPaths[i])) {
-				isIsland = true;
-				break;
+				depth++;
 			}
 		}
-		if (isIsland) allIslands.push(inputPaths[i]);
-		else allOuters.push(inputPaths[i]);
+		depths.push(depth);
+	}
+	let allOuters = [];
+	let allIslands = [];
+	for (let i = 0; i < inputPaths.length; i++) {
+		if (depths[i] % 2 === 0) allOuters.push(inputPaths[i]);
+		else allIslands.push(inputPaths[i]);
 	}
 
 	if (allOuters.length === 0) {
@@ -1410,14 +1425,23 @@ function doInlay() {
 	let profileGroups = []; // each entry: array of profile paths for one shape
 	let cutOutGroups = [];  // each entry: array of cutout paths for one shape
 
-	for (let outerPath of allOuters) {
-		// Find islands contained in this specific outer path
-		let islandPaths = allIslands.filter(isl => pathIn(outerPath, isl));
+	for (let oi = 0; oi < allOuters.length; oi++) {
+		let outerPath = allOuters[oi];
+		// Find the nesting depth of this outer path
+		let outerIdx = inputPaths.indexOf(outerPath);
+		let outerDepth = depths[outerIdx];
+		// Find direct child islands (one nesting level deeper)
+		let islandPaths = [];
+		for (let j = 0; j < inputPaths.length; j++) {
+			if (depths[j] === outerDepth + 1 && pathIn(outerPath, inputPaths[j])) {
+				islandPaths.push(inputPaths[j]);
+			}
+		}
 
 		if (inlayType === 'female') {
-			// Female socket: pocket inside the path with rounded concave corners
-			let roundedOuter = roundConcaveCorners(outerPath, finishRadius);
-			let roundedIslands = islandPaths.map(p => roundConvexCorners(p, finishRadius));
+			// Female socket: pocket inside the path with all corners rounded to finishing bit radius
+			let roundedOuter = roundConvexCorners(roundConcaveCorners(outerPath, finishRadius), finishRadius);
+			let roundedIslands = islandPaths.map(p => roundConcaveCorners(roundConvexCorners(p, finishRadius), finishRadius));
 
 			// Generate pocket with adaptive contour/raster; skip outermost contour only if finishing tool covers it
 			let pocketPaths = generatePocketPaths(roundedOuter, roundedIslands, pocketRadius, stepover, angle, direction, finishRadius);
@@ -1453,87 +1477,75 @@ function doInlay() {
 	if (inlayType === 'male') {
 		let expand = 2 * pocketingTool.diameter * viewScale;
 
-		// Build clearance-adjusted shapes for all outers and islands
-		let allClearanceOuters = [];
-		let allClearanceIslands = [];
-
-		for (let outerPath of allOuters) {
-			let islandPaths = allIslands.filter(isl => pathIn(outerPath, isl));
-			let roundedOuter = roundConvexCorners(outerPath, finishRadius);
-			let roundedIslands = islandPaths.map(p => roundConcaveCorners(p, finishRadius));
-
-			// Apply clearance: shrink the plug path
-			let clearanceOuter = roundedOuter;
+		// Build clearance-adjusted paths for every input path.
+		// Even-depth paths are raised (shrink by clearance), odd-depth are pocketed (expand by clearance).
+		let clearancePaths = [];
+		for (let i = 0; i < inputPaths.length; i++) {
+			let isRaised = (depths[i] % 2 === 0);
+			let rounded = isRaised
+				? roundConcaveCorners(roundConvexCorners(inputPaths[i], finishRadius), finishRadius)
+				: roundConvexCorners(roundConcaveCorners(inputPaths[i], finishRadius), finishRadius);
+			let adjusted = rounded;
 			if (clearance > 0) {
-				let clearanceOffset = new clipper.ClipperOffset(20, 0.25);
-				clearanceOffset.AddPath(roundedOuter, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
-				let clearanceResult = [];
-				clearanceOffset.Execute(clearanceResult, -clearance);
-				if (clearanceResult.length > 0) {
-					clearanceResult[0].push(clearanceResult[0][0]); // close
-					clearanceOuter = clearanceResult[0];
-				}
-			}
-
-			allClearanceOuters.push(clearanceOuter);
-
-			// Expand islands by clearance
-			for (let p of roundedIslands) {
-				if (clearance <= 0) { allClearanceIslands.push(p); continue; }
 				let co = new clipper.ClipperOffset(20, 0.25);
-				co.AddPath(p, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+				co.AddPath(rounded, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
 				let cr = [];
-				co.Execute(cr, clearance);
-				if (cr.length > 0) { cr[0].push(cr[0][0]); allClearanceIslands.push(cr[0]); }
-				else allClearanceIslands.push(p);
+				co.Execute(cr, isRaised ? -clearance : clearance);
+				if (cr.length > 0) { cr[0].push(cr[0][0]); adjusted = cr[0]; }
 			}
+			clearancePaths.push({ path: adjusted, depth: depths[i], idx: i });
 		}
 
-		// Compute convex hull of all clearance shapes, then expand outward
+		// Depth-0 shapes form the hull islands
+		let allClearanceOuters = clearancePaths.filter(c => c.depth === 0).map(c => c.path);
+
+		// Compute convex hull of depth-0 shapes, then expand outward
 		let allPts = [];
 		for (let co of allClearanceOuters) {
-			for (let pt of co) {
-				allPts.push({ x: pt.x, y: pt.y });
-			}
+			for (let pt of co) allPts.push({ x: pt.x, y: pt.y });
 		}
 		let hull = convexHull(allPts);
 		let expanded = offsetPath(hull, expand, true);
 		let outerBoundary = expanded[0];
-		// Close the path
 		if (outerBoundary.length > 0 &&
 			(outerBoundary[0].x !== outerBoundary[outerBoundary.length - 1].x ||
 			 outerBoundary[0].y !== outerBoundary[outerBoundary.length - 1].y)) {
 			outerBoundary.push({ x: outerBoundary[0].x, y: outerBoundary[0].y });
 		}
 
-		// Generate pocket: convex hull is the boundary, all letter shapes are islands
+		// Generate pocket: hull boundary with depth-0 shapes as islands
 		let pocketPaths = generatePocketPaths(outerBoundary, allClearanceOuters, pocketRadius, stepover, angle, direction, finishRadius);
 
-		// Also pocket inside any design islands (holes like in O, A, B)
-		for (let island of allClearanceIslands) {
-			let islandPocket = generatePocketPaths(island, [], pocketRadius, stepover, angle, direction, finishRadius);
+		// Pocket inside each odd-depth shape, with its direct even-depth children as sub-islands
+		for (let cp of clearancePaths) {
+			if (cp.depth % 2 !== 1) continue; // only pocket odd-depth shapes
+			let subIslands = [];
+			for (let cp2 of clearancePaths) {
+				if (cp2.depth === cp.depth + 1 && pathIn(inputPaths[cp.idx], inputPaths[cp2.idx])) {
+					subIslands.push(cp2.path);
+				}
+			}
+			let islandPocket = generatePocketPaths(cp.path, subIslands, pocketRadius, stepover, angle, direction, finishRadius);
 			pocketPaths.push(...islandPocket);
 		}
 
 		if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
 
-		// Generate finishing profile around each letter shape (outside offset)
+		// Generate finishing profiles
 		let shapeProfPaths = [];
-		for (let co of allClearanceOuters) {
-			let profileOffset = offsetPath(co, finishRadius, true);
+		for (let cp of clearancePaths) {
+			let isRaised = (cp.depth % 2 === 0);
+			// Raised shapes: profile outside; pocketed shapes: profile inside
+			let profileOffset = offsetPath(cp.path, finishRadius, isRaised);
 			if (profileOffset.length > 0) {
 				let profileContour = profileOffset[0].slice();
-				if (direction != "climb") profileContour = reversePath(profileContour);
+				// Raised outside profile: reverse for non-climb; pocketed inside profile: reverse for climb
+				if (isRaised) {
+					if (direction != "climb") profileContour = reversePath(profileContour);
+				} else {
+					if (direction == "climb") profileContour = reversePath(profileContour);
+				}
 				shapeProfPaths.push({ tpath: profileContour, isContour: true });
-			}
-		}
-		// Profile inside design islands
-		for (let island of allClearanceIslands) {
-			let islandProfileOffset = offsetPath(island, finishRadius, false);
-			if (islandProfileOffset.length > 0) {
-				let islandContour = islandProfileOffset[0].slice();
-				if (direction == "climb") islandContour = reversePath(islandContour);
-				shapeProfPaths.push({ tpath: islandContour, isContour: true });
 			}
 		}
 		if (shapeProfPaths.length > 0) profileGroups.push(shapeProfPaths);
@@ -1589,6 +1601,7 @@ function doPocket() {
 	var stepover = 2 * radius * currentTool.stepover / 100;
 	var name = 'Pocket';
 	var angle = window.currentToolpathProperties?.angle || 0;
+	var strategy = window.currentToolpathProperties?.strategy || 'adaptive';
 	var inputPaths = [];
 
 	var selected = selectMgr.selectedPaths();
@@ -1599,31 +1612,38 @@ function doPocket() {
 	var direction = currentTool.direction || 'climb';
 	const selectedSvgIds = selectMgr.selectedPaths().map(p => p.id);
 
-	// Separate paths into outer boundaries and islands.
-	// An island is any path fully contained inside another path.
-	let outers = [];
-	let islands = [];
+	// Compute nesting depth for each path using even-odd rule.
+	// Depth 0 = outermost boundary (pocket inside it)
+	// Depth 1 = island (avoid)
+	// Depth 2 = hole in island (pocket inside it)
+	// etc.
+	let depths = [];
 	for (let i = 0; i < inputPaths.length; i++) {
-		let isIsland = false;
+		let depth = 0;
 		for (let j = 0; j < inputPaths.length; j++) {
 			if (i === j) continue;
 			if (pathIn(inputPaths[j], inputPaths[i])) {
-				isIsland = true;
-				break;
+				depth++;
 			}
 		}
-		if (isIsland) islands.push(inputPaths[i]);
-		else outers.push(inputPaths[i]);
+		depths.push(depth);
 	}
 
-	// Union overlapping outer paths
-	let unionOuters = outers.length > 1 ? getUnionOfPaths(outers) : outers;
-
-	// Generate pocket for each outer boundary with its contained islands
+	// Even-depth paths are pocket boundaries, odd-depth paths are islands.
+	// Each pocket boundary's islands are the odd-depth paths directly inside it
+	// (one nesting level deeper).
 	let pocketGroups = [];
-	for (let outerPath of unionOuters) {
-		let containedIslands = islands.filter(isl => pathIn(outerPath, isl));
-		let paths = generatePocketPaths(outerPath, containedIslands, radius, stepover, angle, direction, 0);
+	for (let i = 0; i < inputPaths.length; i++) {
+		if (depths[i] % 2 !== 0) continue; // skip islands
+		let outerPath = inputPaths[i];
+		let directIslands = [];
+		for (let j = 0; j < inputPaths.length; j++) {
+			if (i === j) continue;
+			if (depths[j] === depths[i] + 1 && pathIn(outerPath, inputPaths[j])) {
+				directIslands.push(inputPaths[j]);
+			}
+		}
+		let paths = generatePocketPaths(outerPath, directIslands, radius, stepover, angle, direction, 0, strategy);
 		if (paths.length > 0) pocketGroups.push(paths);
 	}
 

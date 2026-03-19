@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-17";
+var APP_VERSION = "Ver 2026-03-18";
 
 var mode = "Select";
 var options = [];

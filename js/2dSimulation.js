@@ -1097,7 +1097,20 @@ function stopSimulation2D() {
     simulation2D.gcode = '';
     simulation2D.gcodeLines = [];
 
-    updateSimulation2DDisplay();
+    // Reset status line displays to zero
+    const stepDisplay = document.getElementById('2d-step-display');
+    if (stepDisplay) stepDisplay.textContent = '0 / 0';
+    const feedDisplay = document.getElementById('2d-feed-rate-display');
+    if (feedDisplay) feedDisplay.textContent = '0';
+    const timeElapsed = document.getElementById('2d-simulation-time');
+    if (timeElapsed) timeElapsed.textContent = '0:00';
+    const timeTotal = document.getElementById('2d-total-time');
+    if (timeTotal) timeTotal.textContent = '0:00';
+    const zDepth = document.getElementById('2d-z-depth-display');
+    if (zDepth) zDepth.textContent = '0.00';
+    const progressSlider = document.getElementById('simulation-step');
+    if (progressSlider) { progressSlider.value = 0; progressSlider.max = 100; }
+
     redrawImmediate();
 }
 

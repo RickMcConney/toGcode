@@ -19,7 +19,7 @@ class ToolpathPropertiesManager {
             },
             'Pocket': {
                 compatibleBits: ['End Mill', 'Ball Nose'],
-                fields: ['tool', 'depth', 'step', 'stepover', 'angle', 'direction'],
+                fields: ['tool', 'strategy', 'depth', 'step', 'stepover', 'angle', 'direction'],
                 description: 'Remove all material inside the path'
             },
             'VCarve': {
@@ -106,7 +106,7 @@ class ToolpathPropertiesManager {
                 numLoops: 1,
                 overCut: 0,
                 restToolDiameter: 0,
-                strategy: 'raster',
+                strategy: operationName === 'Pocket' ? 'adaptive' : 'raster',
                 inlayType: 'female',
                 clearance: 0.1,
                 finishingToolId: null,
@@ -357,10 +357,22 @@ class ToolpathPropertiesManager {
             value = this.getDefaults(operationName).strategy || 'raster';
         }
 
-        const options = [
-            { value: 'raster', label: 'Raster', desc: 'Parallel lines across surface' },
-            { value: 'contour', label: 'Contour (Waterline)', desc: 'Horizontal contour loops at each depth' }
-        ];
+        let options;
+        let helpText;
+        if (operationName === 'Pocket') {
+            options = [
+                { value: 'adaptive', label: 'Adaptive' },
+                { value: 'raster', label: 'Raster' },
+                { value: 'contour', label: 'Contour' }
+            ];
+            helpText = 'Adaptive combines contour and raster for optimal clearing';
+        } else {
+            options = [
+                { value: 'raster', label: 'Raster', desc: 'Parallel lines across surface' },
+                { value: 'contour', label: 'Contour (Waterline)', desc: 'Horizontal contour loops at each depth' }
+            ];
+            helpText = 'Raster for curved surfaces, Contour for vertical walls';
+        }
 
         let html = '<div class="mb-3">';
         html += '<label for="strategy-select" class="form-label small"><strong>Strategy:</strong></label>';
@@ -372,7 +384,7 @@ class ToolpathPropertiesManager {
         });
 
         html += '</select>';
-        html += '<div class="form-text">Raster for curved surfaces, Contour for vertical walls</div>';
+        html += `<div class="form-text">${helpText}</div>`;
         html += '</div>';
 
         return html;
@@ -552,16 +564,16 @@ class ToolpathPropertiesManager {
             html += this.generateInlayTypeDropdownHTML(operationName, inlayType);
         }
 
-        // Strategy dropdown (Raster / Contour)
-        if (config.fields.includes('strategy')) {
-            const strategy = existingProperties?.strategy || null;
-            html += this.generateStrategyDropdownHTML(operationName, strategy);
-        }
-
         // Tool selection dropdown
         if (config.fields.includes('tool')) {
             const toolId = existingProperties?.toolId || null;
             html += this.generateToolDropdownHTML(operationName, toolId);
+        }
+
+        // Strategy dropdown
+        if (config.fields.includes('strategy')) {
+            const strategy = existingProperties?.strategy || null;
+            html += this.generateStrategyDropdownHTML(operationName, strategy);
         }
 
         // Finishing tool dropdown (for Inlay)

@@ -10,19 +10,17 @@ class CncController {
     let select = Select.getInstance();
     this.operationManager.registerOperation(select);
     this.operationManager.registerOperation(new Workpiece());
-    //this.operationManager.registerOperation(new Origin());
-    // Pan tool removed - use middle mouse button to pan
+    this.operationManager.registerOperation(new Shape());
+    this.operationManager.registerOperation(new Text());
+    this.operationManager.registerOperation(new Pen());
     this.operationManager.registerOperation(new Transform());
     this.operationManager.registerOperation(new PathEdit());
     this.operationManager.registerOperation(new BooleanOpp());
-    this.operationManager.registerOperation(new Gemini())
-    this.operationManager.registerOperation(new Pen());
-    this.operationManager.registerOperation(new Shape());
-    this.operationManager.registerOperation(new Text());
-    this.operationManager.registerOperation(new Drill());
     this.operationManager.registerOperation(new OffsetOpp());
     this.operationManager.registerOperation(new PatternOpp());
     this.operationManager.registerOperation(new TabEditor());
+    this.operationManager.registerOperation(new Gemini());
+    this.operationManager.registerOperation(new Drill());
 
     // Set default operation to Select
     this.operationManager.setCurrentOperation('Select');
