@@ -4,7 +4,7 @@
   <img src="icons/logo.svg" alt="FreazyKam Logo" width="200">
 </p>
 
-**[Launch FreazyKam](https://rickmcconney.github.io/toGcode/)**
+**[Launch FreazyKam](https://rickmcconney.github.io/FreazyKam/)**
 
 Free and easy browser-based CAM for CNC machines. Turn your designs into G-code — no software to install, no accounts, no cost. Import SVGs, set up your project, and export G-code ready for your router.
 
@@ -63,7 +63,7 @@ The V-bit inlay mode preserves sharp design features that end mill inlay cannot 
 
 ### Using FreazyKam Online (Easiest)
 
-Just click here: **[Launch FreazyKam](https://rickmcconney.github.io/toGcode/)**
+Just click here: **[Launch FreazyKam](https://rickmcconney.github.io/FreazyKam/)**
 
 Works in any modern browser (Chrome, Firefox, Safari, Edge). No installation needed.
 
@@ -71,7 +71,7 @@ Works in any modern browser (Chrome, Firefox, Safari, Edge). No installation nee
 
 ```bash
 # Clone the repository
-git clone https://github.com/rickmcconney/toGcode.git
+git clone https://github.com/rickmcconney/FreazyKam.git
 cd toGcode
 
 # Start a local web server (required for ES6 modules)
@@ -135,8 +135,8 @@ This project welcomes contributions:
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/rickmcconney/toGcode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rickmcconney/toGcode/discussions)
+- **Issues**: [GitHub Issues](https://github.com/rickmcconney/FreazyKam/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/rickmcconney/FreazyKam/discussions)
 
 ## License
 
