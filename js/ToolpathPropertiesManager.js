@@ -46,7 +46,7 @@ class ToolpathPropertiesManager {
             },
             'Inlay': {
                 compatibleBits: ['End Mill', 'Ball Nose'],
-                fields: ['inlayType', 'tool', 'finishingTool', 'depth', 'step', 'stepover', 'clearance', 'angle', 'direction', 'cutOut'],
+                fields: ['inlayType', 'tool', 'finishingTool', 'depth', 'step', 'stepover', 'clearance', 'glueGap', 'angle', 'direction', 'cutOut'],
                 description: 'Create male plug or female socket for inlay work',
                 toolLabel: 'Pocketing Tool:',
                 applyButtonLabel: 'Generate Inlay',
@@ -109,6 +109,7 @@ class ToolpathPropertiesManager {
                 strategy: operationName === 'Pocket' ? 'adaptive' : 'raster',
                 inlayType: 'female',
                 clearance: 0.1,
+                glueGap: 0.5,
                 finishingToolId: null,
                 cutOut: false
             };
@@ -468,6 +469,24 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Generate HTML for glue gap input (V-bit inlay)
+     */
+    generateGlueGapInputHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).glueGap || 0.5;
+        }
+
+        let html = '<div class="mb-3">';
+        html += '<label for="glue-gap-input" class="form-label small"><strong>Glue Gap (mm):</strong></label>';
+        html += '<input type="number" class="form-control form-control-sm" id="glue-gap-input" name="glueGap" ';
+        html += `value="${value}" step="0.1" min="0" required>`;
+        html += '<div class="form-text">Vertical clearance between plug and socket bottom for glue (V-bit inlay)</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
      * Generate HTML for cut-out checkbox (male plug only)
      */
     generateCutOutCheckboxHTML(operationName, value = null) {
@@ -629,6 +648,12 @@ class ToolpathPropertiesManager {
             html += this.generateClearanceInputHTML(operationName, clearance);
         }
 
+        // Glue gap input (for Inlay with V-bit finishing)
+        if (config.fields.includes('glueGap')) {
+            const glueGap = existingProperties?.glueGap ?? null;
+            html += this.generateGlueGapInputHTML(operationName, glueGap);
+        }
+
         // Cut out checkbox (for Inlay male plug)
         if (config.fields.includes('cutOut')) {
             const cutOut = existingProperties?.cutOut ?? null;
@@ -717,6 +742,11 @@ class ToolpathPropertiesManager {
         const clearanceInput = document.getElementById('clearance-input');
         if (clearanceInput) {
             data.clearance = parseFloat(clearanceInput.value) || 0;
+        }
+
+        const glueGapInput = document.getElementById('glue-gap-input');
+        if (glueGapInput) {
+            data.glueGap = parseFloat(glueGapInput.value) || 0;
         }
 
         const finishingToolSelect = document.getElementById('finishing-tool-select');

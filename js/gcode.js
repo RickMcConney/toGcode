@@ -1297,10 +1297,14 @@ function toGcode() {
 
 		// 4. DISPATCH TO OPERATION-SPECIFIC G-CODE GENERATOR
 		// Inlay pocketing toolpaths (Socket, Plug) use the pocket generator for depth stepping;
+		// Inlay V-carve profiles use the V-carve generator (per-point variable Z depth);
 		// Inlay finishing profiles and cutouts use the profile generator.
+		var isInlayVcarve = (toolpath.operation === 'Inlay') && toolpath.name.includes('VCarve');
 		var isInlayPocket = (toolpath.operation === 'Inlay') &&
 			(toolpath.name === 'Inlay Socket' || toolpath.name === 'Inlay Plug');
-		if (toolpath.operation === 'Pocket' || isInlayPocket) {
+		if (isInlayVcarve) {
+			output += _generateVcarveOperationGcode(toolpath, profile, useInches, settings);
+		} else if (toolpath.operation === 'Pocket' || isInlayPocket) {
 			output += _generatePocketOperationGcode(toolpath, profile, useInches, settings);
 		} else if (toolpath.operation === 'Surfacing') {
 			output += _generateSurfacingOperationGcode(toolpath, profile, useInches, settings);

@@ -1357,6 +1357,324 @@ function optimizeGroupOrder(groups) {
 	return ordered;
 }
 
+/**
+ * Compute a V-bit profile along a path using the inscribed circle (V-carve) algorithm.
+ * Returns {path: circles, tpath: simplified} with per-point .r for variable-depth G-code,
+ * or null if no valid profile could be computed.
+ *
+ * @param {Array} path - The design path to profile
+ * @param {Array} allPaths - All design paths (used as boundaries for inscribed circle computation)
+ * @param {number} maxRadius - Maximum inscribed circle radius (= reach at flat depth) in world units
+ * @param {boolean} outside - true for outside profile (plug outers), false for inside (socket outers)
+ * @param {string} direction - 'climb' or 'conventional'
+ */
+function computeVbitInlayProfile(path, allPaths, maxRadius, outside, direction) {
+	// Set up nearbypaths global for inscribed circle computation
+	nearbypaths = allPaths.map(p => ({ path: p }));
+
+	var subpath = subdividePath(path, 2);
+	var cw = isClockwise(path);
+	if (outside) cw = !cw;
+
+	var norms = makeNorms(subpath, path, cw, 1, outside);
+
+	if (norms.length === 0) return null;
+
+	// Add fan normals at sharp convex corners for outside profiling only,
+	// so the V-bit traces around outside corners (e.g. star tips on the plug)
+	// instead of cutting across them. Inside profiling doesn't need this —
+	// the bisector normal naturally reaches into narrow features.
+	if (outside) {
+		norms = addCornerFanNormals(norms, subpath, outside);
+	}
+
+	var circles = largestEmptyCircles(norms, maxRadius, subpath);
+
+	if (circles.length === 0) return null;
+
+	var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
+
+	// Apply direction (same logic as computeVcarve)
+	if (outside) {
+		if (direction != "climb") {
+			circles = reversePath(circles);
+			tpath = reversePath(tpath);
+		}
+	} else {
+		if (direction == "climb") {
+			circles = reversePath(circles);
+			tpath = reversePath(tpath);
+		}
+	}
+
+	return { path: circles, tpath: tpath };
+}
+
+/**
+ * At sharp corners, makeNorms generates only one normal (the bisector),
+ * which causes the V-bit path to cut across the corner rather than tracing
+ * around it. This function inserts additional "fan" normals that sweep
+ * between the two edge normals at each sharp corner.
+ */
+function addCornerFanNormals(norms, subpath, outside) {
+	if (norms.length < 3) return norms;
+
+	var augmented = [];
+	var fanThreshold = Math.PI / 6; // 30° — add fans for corners sharper than this
+	var fanStep = Math.PI / 18;     // 10° per fan normal
+
+	for (var i = 0; i < norms.length; i++) {
+		augmented.push(norms[i]);
+
+		var next = norms[(i + 1) % norms.length];
+		var n1 = norms[i];
+
+		// Angle between consecutive normals
+		var dot = n1.dx * next.dx + n1.dy * next.dy;
+		dot = Math.max(-1, Math.min(1, dot));
+		var angle = Math.acos(dot);
+
+		if (angle <= fanThreshold) continue;
+
+		// Determine turn direction using cross product
+		var cross = n1.dx * next.dy - n1.dy * next.dx;
+
+		// For outside profiling: fan convex corners (cross > 0 for CCW paths)
+		// For inside profiling: fan concave corners (cross < 0 for CCW paths)
+		// In both cases, the fan fills the gap in the V-bit path
+		var steps = Math.ceil(angle / fanStep);
+
+		// Corner point: midpoint between the two norm origins
+		var cx = (n1.x1 + next.x1) / 2;
+		var cy = (n1.y1 + next.y1) / 2;
+		// If the origins are very close (same corner point), use the exact position
+		var dist = Math.sqrt((next.x1 - n1.x1) * (next.x1 - n1.x1) + (next.y1 - n1.y1) * (next.y1 - n1.y1));
+		if (dist < 4) { // Close enough to be the same corner
+			cx = next.x1;
+			cy = next.y1;
+		}
+
+		for (var s = 1; s < steps; s++) {
+			var t = s / steps;
+
+			// Spherical linear interpolation of the normal direction
+			var sinAngle = Math.sin(angle);
+			if (sinAngle < 0.001) continue;
+			var w1 = Math.sin((1 - t) * angle) / sinAngle;
+			var w2 = Math.sin(t * angle) / sinAngle;
+			var dx = w1 * n1.dx + w2 * next.dx;
+			var dy = w1 * n1.dy + w2 * next.dy;
+			var len = Math.sqrt(dx * dx + dy * dy);
+			if (len < 0.001) continue;
+			dx /= len;
+			dy /= len;
+
+			// Interpolate the origin position along the path
+			var ox = n1.x1 * (1 - t) + next.x1 * t;
+			var oy = n1.y1 * (1 - t) + next.y1 * t;
+			// For tight corners, use the corner point
+			if (dist < 4) { ox = cx; oy = cy; }
+
+			var pt = { x: ox + dx, y: oy + dy };
+			var valid = outside ? !pointInPolygon(pt, subpath) : pointInPolygon(pt, subpath);
+
+			if (valid) {
+				augmented.push({
+					x1: ox, y1: oy,
+					x2: pt.x, y2: pt.y,
+					dx: dx, dy: dy
+				});
+			}
+		}
+	}
+
+	return augmented;
+}
+
+/**
+ * V-bit inlay: generates socket or plug toolpaths using V-carve algorithm
+ * to preserve sharp design features. The V-bit's variable depth naturally
+ * handles narrow features (star points, serifs) where an end mill can't reach.
+ */
+function doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketingTool, finishingTool, selectedSvgIds) {
+	const inlayType = props?.inlayType || 'female';
+	const clearanceMM = props?.clearance || 0.1;
+	const clearance = clearanceMM * viewScale;
+	const cutOut = props?.cutOut || false;
+	const glueGapMM = props?.glueGap || 0.5;
+	const direction = pocketingTool.direction || 'climb';
+
+	const pocketRadius = pocketingTool.diameter / 2 * viewScale;
+	const stepover = 2 * pocketRadius * pocketingTool.stepover / 100;
+	const rasterAngle = props?.angle || 0;
+
+	// V-bit geometry
+	const vbitAngle = finishingTool.angle || 60;
+	const halfAngleRad = (vbitAngle / 2) * Math.PI / 180;
+	const flatDepthMM = pocketingTool.depth;
+	const flatDepth = flatDepthMM * viewScale;
+	const fullReach = flatDepth * Math.tan(halfAngleRad); // max V-bit offset at flat depth (world units)
+
+	// For plug: reduce reach to account for glue gap (shallower effective depth)
+	const plugDepthMM = Math.max(0.1, flatDepthMM - glueGapMM);
+	const plugDepth = plugDepthMM * viewScale;
+	const plugReach = plugDepth * Math.tan(halfAngleRad);
+
+	let pocketGroups = [];
+	let vcarveGroups = [];
+	let cutOutGroups = [];
+
+	if (inlayType === 'female') {
+		// === SOCKET (Female): V-carve inside + end mill pocket ===
+		for (let oi = 0; oi < allOuters.length; oi++) {
+			let outerPath = allOuters[oi];
+			let outerIdx = inputPaths.indexOf(outerPath);
+			let outerDepth = depths[outerIdx];
+			let islandPaths = [];
+			for (let j = 0; j < inputPaths.length; j++) {
+				if (depths[j] === outerDepth + 1 && pathIn(outerPath, inputPaths[j])) {
+					islandPaths.push(inputPaths[j]);
+				}
+			}
+
+			// V-bit profile inside the outer boundary (creates angled walls into the pocket)
+			let outerProfile = computeVbitInlayProfile(outerPath, inputPaths, fullReach, false, direction);
+			if (outerProfile) vcarveGroups.push([outerProfile]);
+
+			// V-bit profile outside each island (creates angled walls around raised islands)
+			for (let island of islandPaths) {
+				let islandProfile = computeVbitInlayProfile(island, inputPaths, fullReach, true, direction);
+				if (islandProfile) vcarveGroups.push([islandProfile]);
+			}
+
+			// End mill roughing: pocket the flat bottom area, inset by fullReach from design edges
+			let pocketOuter = offsetPath(outerPath, fullReach, false); // inset outer boundary
+			let pocketIslands = islandPaths.map(p => {
+				let off = offsetPath(p, fullReach, true); // outset islands
+				return off.length > 0 ? off[0] : null;
+			}).filter(p => p);
+
+			if (pocketOuter.length > 0) {
+				let pocketPaths = generatePocketPaths(pocketOuter[0], pocketIslands, pocketRadius, stepover, rasterAngle, direction, 0);
+				if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+			}
+		}
+	} else {
+		// === PLUG (Male): V-carve outside + end mill clearing ===
+		let expand = 2 * pocketingTool.diameter * viewScale;
+
+		// Build clearance-adjusted paths (shrink outers, expand islands)
+		let clearancePaths = [];
+		for (let i = 0; i < inputPaths.length; i++) {
+			let isRaised = (depths[i] % 2 === 0);
+			let adjusted = inputPaths[i];
+			if (clearance > 0) {
+				let co = new clipper.ClipperOffset(20, 0.25);
+				co.AddPath(inputPaths[i], ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+				let cr = [];
+				co.Execute(cr, isRaised ? -clearance : clearance);
+				if (cr.length > 0) { cr[0].push(cr[0][0]); adjusted = cr[0]; }
+			}
+			clearancePaths.push({ path: adjusted, depth: depths[i], idx: i });
+		}
+
+		let allClearanceOuters = clearancePaths.filter(c => c.depth === 0).map(c => c.path);
+		let allAdjustedPaths = clearancePaths.map(c => c.path);
+
+		// V-bit profile outside each raised shape (creates angled plug walls)
+		for (let cp of clearancePaths) {
+			let isRaised = (cp.depth % 2 === 0);
+			let profile = computeVbitInlayProfile(cp.path, allAdjustedPaths, plugReach, isRaised, direction);
+			if (profile) vcarveGroups.push([profile]);
+		}
+
+		// Convex hull for outer boundary (same as end mill inlay)
+		let allPts = [];
+		for (let co of allClearanceOuters) {
+			for (let pt of co) allPts.push({ x: pt.x, y: pt.y });
+		}
+		let hull = convexHull(allPts);
+		let expanded = offsetPath(hull, expand, true);
+		let outerBoundary = expanded[0];
+		if (outerBoundary.length > 0 &&
+			(outerBoundary[0].x !== outerBoundary[outerBoundary.length - 1].x ||
+			 outerBoundary[0].y !== outerBoundary[outerBoundary.length - 1].y)) {
+			outerBoundary.push({ x: outerBoundary[0].x, y: outerBoundary[0].y });
+		}
+
+		// End mill roughing: clear area between hull and design shapes
+		// Outset each raised shape by plugReach so end mill doesn't damage V-bit walls
+		let pocketIslands = allClearanceOuters.map(p => {
+			let off = offsetPath(p, plugReach, true);
+			return off.length > 0 ? off[0] : null;
+		}).filter(p => p);
+
+		let pocketPaths = generatePocketPaths(outerBoundary, pocketIslands, pocketRadius, stepover, rasterAngle, direction, 0);
+
+		// Also pocket inside each odd-depth (island) shape
+		for (let cp of clearancePaths) {
+			if (cp.depth % 2 !== 1) continue;
+			let subIslands = [];
+			for (let cp2 of clearancePaths) {
+				if (cp2.depth === cp.depth + 1 && pathIn(inputPaths[cp.idx], inputPaths[cp2.idx])) {
+					// Inset the sub-island by plugReach
+					let off = offsetPath(cp2.path, plugReach, false);
+					if (off.length > 0) subIslands.push(off[0]);
+				}
+			}
+			// Inset the island pocket boundary by plugReach
+			let islandBoundary = offsetPath(cp.path, plugReach, false);
+			if (islandBoundary.length > 0) {
+				let islandPocket = generatePocketPaths(islandBoundary[0], subIslands, pocketRadius, stepover, rasterAngle, direction, 0);
+				pocketPaths.push(...islandPocket);
+			}
+		}
+
+		if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+
+		// Optional cutout
+		if (cutOut) {
+			let materialDepth = (typeof getOption === 'function' ? getOption('workpieceThickness') : null) || pocketingTool.depth;
+			let cutOutOffset = offsetPath(outerBoundary, pocketRadius, false);
+			if (cutOutOffset.length > 0) {
+				let cutOutContour = cutOutOffset[0].slice();
+				if (direction == "climb") cutOutContour = reversePath(cutOutContour);
+				cutOutGroups.push([{ tpath: cutOutContour, isContour: true, cutOutDepth: materialDepth }]);
+			}
+		}
+	}
+
+	// Push toolpaths
+	const depthMM = pocketingTool.depth;
+	const typeName = inlayType === 'female' ? 'Socket' : 'Plug';
+
+	// V-carve profile toolpaths (use V-bit finishing tool, tagged for V-carve G-code generation)
+	let allVcarvePaths = optimizeGroupOrder(vcarveGroups);
+	if (allVcarvePaths.length > 0) {
+		window.currentTool = { ...finishingTool, depth: inlayType === 'female' ? flatDepthMM : plugDepthMM };
+		pushToolPath(allVcarvePaths, `Inlay ${typeName} VCarve`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName} VCarve`);
+	}
+
+	// End mill pocket toolpaths
+	let allPocketPaths = optimizeGroupOrder(pocketGroups);
+	if (allPocketPaths.length > 0) {
+		window.currentTool = { ...pocketingTool };
+		pushToolPath(allPocketPaths, `Inlay ${typeName}`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName}`);
+	}
+
+	// Cutout toolpaths
+	let allCutOutPaths = optimizeGroupOrder(cutOutGroups);
+	if (allCutOutPaths.length > 0) {
+		let materialDepth = allCutOutPaths[0].cutOutDepth;
+		let cleanCutOutPaths = allCutOutPaths.map(p => ({ tpath: p.tpath, isContour: p.isContour }));
+		window.currentTool = { ...pocketingTool, depth: materialDepth };
+		pushToolPath(cleanCutOutPaths, 'Inlay Plug Cutout', 'Inlay', null, selectedSvgIds, `${depthMM}mm Plug Cutout`);
+	}
+
+	// Restore pocketing tool
+	window.currentTool = pocketingTool;
+}
+
 function doInlay() {
 	setMode("Inlay");
 	if (selectMgr.noSelection()) {
@@ -1416,6 +1734,12 @@ function doInlay() {
 
 	if (allOuters.length === 0) {
 		notify('Unable to determine outer boundary for inlay');
+		return;
+	}
+
+	// V-bit finishing tool: use V-carve algorithm for sharp feature preservation
+	if (finishingTool.bit === 'VBit') {
+		doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketingTool, finishingTool, selectedSvgIds);
 		return;
 	}
 
