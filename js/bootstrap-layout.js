@@ -3082,7 +3082,7 @@ function createModals() {
                     <div class="modal-header bg-info bg-opacity-10">
                         <h5 class="modal-title text-info-emphasis">
                             <i data-lucide="help-circle"></i>
-                            toGcode Help
+                            FreazyKam Help
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
