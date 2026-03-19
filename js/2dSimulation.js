@@ -434,9 +434,9 @@ function getToolCircleRadius(depth, tool) {
         // Distance from sphere center to current Z
         const distFromCenter = Math.abs(depth + toolRadius);  // How far below the center we are
 
-        // If we're below the sphere, radius = 0
+        // If we're below the sphere, the cylindrical shaft engages at full diameter
         if (distFromCenter > toolRadius) {
-            return 0;
+            return toolRadius;
         }
 
         // Sphere equation: distXY² + distFromCenter² = toolRadius²
