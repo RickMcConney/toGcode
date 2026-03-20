@@ -162,16 +162,53 @@ class Operation {
         return this.snapToGrid(worldCoords.x, worldCoords.y);
     }
 
+        /**
+         * Check if any edge of a path intersects the edges of a selection box
+         */
+        pathIntersectsRect(path, box) {
+            const corners = [
+                {x: box.minx, y: box.miny}, {x: box.maxx, y: box.miny},
+                {x: box.maxx, y: box.maxy}, {x: box.minx, y: box.maxy}
+            ];
+            for (var j = 0; j < path.length; j++) {
+                var k = (j + 1) % path.length;
+                for (var e = 0; e < 4; e++) {
+                    if (lineIntersects(path[j], path[k], corners[e], corners[(e + 1) % 4])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         highlightPathsInRect(selectBox) {
+        const containMode = selectBox.rl; // left-to-right = contain, right-to-left = touch
         for (var i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
+            var path = svgpaths[i].path;
 
-            for (var j = 0; j < svgpaths[i].path.length; j++) {
+            if (containMode) {
+                // Path must be fully inside: all points inside, OR edges cross the box
+                // but every point must be contained
+                var allInside = path.length > 0;
+                for (var j = 0; j < path.length; j++) {
+                    if (!pointInBoundingBox(path[j], selectBox)) {
+                        allInside = false;
+                        break;
+                    }
+                }
+                svgpaths[i].highlight = allInside;
+            } else {
+                // Any point inside OR any edge crossing the box selects the path
                 svgpaths[i].highlight = false;
-                var pt = svgpaths[i].path[j];
-                if (pointInBoundingBox(pt, selectBox)) {
-                    svgpaths[i].highlight = true;
-                    break;
+                for (var j = 0; j < path.length; j++) {
+                    if (pointInBoundingBox(path[j], selectBox)) {
+                        svgpaths[i].highlight = true;
+                        break;
+                    }
+                }
+                if (!svgpaths[i].highlight) {
+                    svgpaths[i].highlight = this.pathIntersectsRect(path, selectBox);
                 }
             }
         }

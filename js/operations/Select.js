@@ -131,20 +131,41 @@ class Select extends Operation {
      */
 
     selectPathsInRect(selectBox, addToSelection) {
-        const selectedInThisBox = new Set();  // Track which paths we've processed
+        const containMode = selectBox.rl; // left-to-right = contain, right-to-left = touch
 
         for (let i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
             if (!addToSelection)
                 this.unselectPath(svgpaths[i]);
 
-            for (let j = 0; j < svgpaths[i].path.length; j++) {
-                const pt = svgpaths[i].path[j];
-                if (pointInBoundingBox(pt, selectBox)) {
-                    if (!selectedInThisBox.has(svgpaths[i].id)) {
-                        this.selectPath(svgpaths[i]);
-                        selectedInThisBox.add(svgpaths[i].id);
+            const path = svgpaths[i].path;
+
+            if (containMode) {
+                // All points must be inside the selection box
+                let allInside = path.length > 0;
+                for (let j = 0; j < path.length; j++) {
+                    if (!pointInBoundingBox(path[j], selectBox)) {
+                        allInside = false;
+                        break;
                     }
+                }
+                if (allInside) {
+                    this.selectPath(svgpaths[i]);
+                }
+            } else {
+                // Any point inside OR any edge crossing the box selects the path
+                let touched = false;
+                for (let j = 0; j < path.length; j++) {
+                    if (pointInBoundingBox(path[j], selectBox)) {
+                        touched = true;
+                        break;
+                    }
+                }
+                if (!touched) {
+                    touched = this.pathIntersectsRect(path, selectBox);
+                }
+                if (touched) {
+                    this.selectPath(svgpaths[i]);
                 }
             }
         }
@@ -192,7 +213,7 @@ class Select extends Operation {
         // Capture the path to potentially drag:
         // If a path is highlighted and mouse is inside its bounding box, use that path
         // This ensures the visually highlighted shape is the one that gets dragged
-        if (highlightedPath && pointInBoundingBox(mouse, highlightedPath.bbox)) {
+        if (highlightedPath && this.isNearEdge(mouse, highlightedPath)) {
             this.potentialDragPath = highlightedPath;
             // Keep it highlighted
             highlightedPath.highlight = true;
@@ -219,19 +240,54 @@ class Select extends Operation {
     }
 
     /**
-     * Find a path that contains the given point within its bounding box
+     * Check if a point is near any edge of a specific path
      * @param {Object} pt - Point {x, y}
-     * @returns {Object|null} The path if found, null otherwise
+     * @param {Object} svgpath - The path to check against
+     * @returns {Boolean} True if point is near an edge
+     */
+    isNearEdge(pt, svgpath) {
+        const maxDistSquared = 100;
+        const path = svgpath.path;
+        for (let j = 0; j < path.length; j++) {
+            const k = (j + 1) % path.length;
+            if (distToSegmentSquared(pt, path[j], path[k]) < maxDistSquared) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Find a path whose edge is near the given point
+     * Uses distance-to-edge test so the mouse must be close to a path segment
+     * @param {Object} pt - Point {x, y}
+     * @returns {Object|null} The nearest path if within threshold, null otherwise
      */
     pointInPath(pt) {
+        const maxDistSquared = 100; // Same threshold as closestPath
+        const bboxMargin = 10;
+        let bestPath = null;
+        let bestDist = Infinity;
+
         for (let i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;
             const bbox = svgpaths[i].bbox;
-            if (pointInBoundingBox(pt, bbox)) {
-                return svgpaths[i];
+            // Quick bounding box reject with margin
+            if (pt.x < bbox.minx - bboxMargin || pt.x > bbox.maxx + bboxMargin ||
+                pt.y < bbox.miny - bboxMargin || pt.y > bbox.maxy + bboxMargin) {
+                continue;
+            }
+            const path = svgpaths[i].path;
+            for (let j = 0; j < path.length; j++) {
+                const k = (j + 1) % path.length;
+                const dist = distToSegmentSquared(pt, path[j], path[k]);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestPath = svgpaths[i];
+                }
             }
         }
-        return null;
+        return bestDist < maxDistSquared ? bestPath : null;
     }
 
     onMouseMove(canvas, evt) {
@@ -503,17 +559,27 @@ class Select extends Operation {
 
     draw(ctx) {
         if (this.selectBox) {
-            ctx.strokeStyle = selectionBoxColor;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]); // Dashed line
             let topLeft = worldToScreen(this.selectBox.minx, this.selectBox.miny);
             let bottomRight = worldToScreen(this.selectBox.maxx, this.selectBox.maxy);
-            ctx.strokeRect(
-                topLeft.x,
-                topLeft.y,
-                bottomRight.x - topLeft.x,
-                bottomRight.y - topLeft.y
-            );
+            let w = bottomRight.x - topLeft.x;
+            let h = bottomRight.y - topLeft.y;
+
+            if (this.selectBox.rl) {
+                // Left-to-right: contain mode — solid blue
+                ctx.strokeStyle = 'blue';
+                ctx.fillStyle = 'rgba(0, 0, 255, 0.05)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+            } else {
+                // Right-to-left: touch mode — dashed green
+                ctx.strokeStyle = 'green';
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.05)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+            }
+
+            ctx.fillRect(topLeft.x, topLeft.y, w, h);
+            ctx.strokeRect(topLeft.x, topLeft.y, w, h);
             ctx.setLineDash([]);
         }
     }
