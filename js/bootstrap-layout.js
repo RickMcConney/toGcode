@@ -12,6 +12,26 @@ var tools = [];
 var currentTool = null;
 var currentFileName = "none";
 
+function traceImageToSvg(dataUrl, filename) {
+    ImageTracer.imageToSVG(dataUrl, function(svgString) {
+        var cleanedSvg = removeBoundaryPaths(svgString);
+        parseSvgContent(cleanedSvg, filename);
+        center();
+        redraw();
+    }, {
+        numberofcolors: 4,
+        colorsampling: 0,
+        pathomit: 40,
+        blurradius: 3,
+        blurdelta: 20,
+        ltres: 1,
+        qtres: 1,
+        strokewidth: 1,
+        linefilter: true,
+        rightangleenhance: true
+    });
+}
+
 function setProjectName(name) {
     const el = document.getElementById('project-name-display');
     if (el) el.textContent = name || '';
@@ -329,23 +349,7 @@ fileInput.addEventListener('change', function (e) {
     if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
         var reader = new FileReader();
         reader.onload = function (event) {
-            ImageTracer.imageToSVG(event.target.result, function(svgString) {
-                var cleanedSvg = removeBoundaryPaths(svgString);
-                parseSvgContent(cleanedSvg, file.name);
-                center();
-                redraw();
-            }, {
-                numberofcolors: 4,
-                colorsampling: 0,
-                pathomit: 40,
-                blurradius: 3,
-                blurdelta: 20,
-                ltres: 1,
-                qtres: 1,
-                strokewidth: 1,
-                linefilter: true,
-                rightangleenhance: true
-            });
+            traceImageToSvg(event.target.result, file.name);
         };
         reader.readAsDataURL(file);
         fileInput.value = "";
@@ -394,30 +398,7 @@ pngFileInput.addEventListener('change', function (e) {
 
     var reader = new FileReader();
     reader.onload = function (event) {
-        var dataUrl = event.target.result;
-
-        // Use ImageTracer to convert PNG to SVG
-        ImageTracer.imageToSVG(dataUrl, function(svgString) {
-            // Remove boundary/corner paths before importing
-            var cleanedSvg = removeBoundaryPaths(svgString);
-
-            // Parse the cleaned SVG and import it
-            parseSvgContent(cleanedSvg, file.name);
-            center();
-            redraw();
-        }, {
-            // ImageTracer options for cleaner line tracing
-            numberofcolors: 4,      // Reduce to 2 colors for simpler tracing
-            colorsampling: 0,       // No color sampling for more consistent results
-            pathomit: 40,           // Ignore small artifacts (triangles)
-            blurradius: 3,          // Blur to smooth edges and reduce noise
-            blurdelta: 20,          // Threshold for selective blur
-            ltres: 1,               // Line threshold
-            qtres: 1,               // Quad threshold
-            strokewidth: 1,         // No stroke - use fills only to avoid double paths
-            linefilter: true,       // Enable line filtering for cleaner output
-            rightangleenhance: true // Enhance right angles for cleaner geometry
-        });
+        traceImageToSvg(event.target.result, file.name);
     };
     reader.readAsDataURL(file);
     pngFileInput.value = "";
@@ -554,15 +535,6 @@ function collectFormData(form) {
  * @param {Object} options - Optional event listener options
  * @returns {HTMLElement} The new cloned element
  */
-function replaceEventListener(element, eventType, handler, options = {}) {
-    const newElement = element.cloneNode(true);
-    element.parentNode.replaceChild(newElement, element);
-    if (handler) {
-        newElement.addEventListener(eventType, handler, options);
-    }
-    return newElement;
-}
-
 /**
  * Create a generic context menu
  * @param {Event} event - The contextmenu event
@@ -4604,17 +4576,6 @@ function addPatternGroup(groupId, groupName, icon, paths, creationTool) {
     groupContainer.appendChild(collapseContainer);
     section.appendChild(groupContainer);
     lucide.createIcons();
-}
-
-// Get operation priority for sorting (same as cnc.js)
-function getOperationPriority(operation) {
-    if (operation === 'Surfacing') return 0;
-    if (operation === '3dProfile') return 0;
-    if (operation === 'Drill' || operation === 'HelicalDrill') return 1;
-    if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
-    if (operation === 'Pocket') return 3;
-    // All profile operations (Inside, Outside, Center) come last
-    return 4;
 }
 
 function addToolPath(id, name, operation, toolName) {

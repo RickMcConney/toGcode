@@ -302,16 +302,6 @@ function formatComment(text, profile) {
 	return commentChar + text + closingChar;
 }
 
-// Get operation priority for sorting (lower number = earlier in sequence)
-// Order: Surfacing (0), Drill (1), VCarve (2), Pocket (3), Profiles (4)
-function getOperationPriority(operation) {
-	if (operation === 'Surfacing') return 0;
-	if (operation === 'Drill' || operation === 'HelicalDrill') return 1;
-	if (operation === 'VCarve In' || operation === 'VCarve Out') return 2;
-	if (operation === 'Pocket') return 3;
-	// All profile operations (Inside, Outside, Center) come last
-	return 4;
-}
 
 // Helper function: Get start point of a path
 function getPathStartPoint(pathObj) {
@@ -427,25 +417,6 @@ function optimizePathOrder(paths) {
 	return optimized;
 }
 
-// Sort toolpaths by operation priority to ensure safe machining order
-function getSortedToolpaths(toolpaths) {
-	// Create a copy to avoid modifying the original array
-	var sorted = toolpaths.slice();
-
-	sorted.sort(function (a, b) {
-		var priorityA = getOperationPriority(a.operation);
-		var priorityB = getOperationPriority(b.operation);
-
-		// If same priority, maintain original order
-		if (priorityA === priorityB) {
-			return 0;
-		}
-
-		return priorityA - priorityB;
-	});
-
-	return sorted;
-}
 
 // Tab avoidance helper functions for G-code generation
 function getTabLiftAmount(z, tabs, workpieceThickness, tabHeight) {

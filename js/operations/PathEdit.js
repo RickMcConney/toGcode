@@ -415,24 +415,7 @@ class PathEdit extends Select {
 
     // Helper function: Calculate closest point on a line segment to a given point
     closestPointOnSegment(point, segStart, segEnd) {
-        const dx = segEnd.x - segStart.x;
-        const dy = segEnd.y - segStart.y;
-        const lengthSquared = dx * dx + dy * dy;
-
-        if (lengthSquared === 0) {
-            // Segment is a point
-            return { x: segStart.x, y: segStart.y };
-        }
-
-        // Calculate parameter t that represents position along the segment
-        let t = ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t)); // Clamp to [0, 1]
-
-        // Calculate the closest point
-        return {
-            x: segStart.x + t * dx,
-            y: segStart.y + t * dy
-        };
+        return closestPointOnSegment(point, segStart, segEnd);
     }
 
     // Helper function: Find the closest segment to the mouse cursor

@@ -39,17 +39,6 @@ var simulationFillCut2 = 'rgba(160, 82, 45, 0.2)';           // Cutting move alt
 var simulationFillCut3 = 'rgba(101, 67, 33, 0.2)';           // Cutting move alt (dark brown)
 
 // Material/Wood Colors (used in bootstrap-layout.js)
-var materialWheat = '#F5DEB3';          // Pine, Birch
-var materialBurlywood = '#DEB887';      // Cedar
-var materialKhaki = '#F0E68C';          // Poplar
-var materialLightPink = '#FFB6C1';      // Cherry
-var materialTan = '#D2B48C';            // Walnut
-var materialCornsilk = '#FFF8DC';       // Maple
-var materialPaleGreen = '#e6f7c1';      // Ash
-var materialPeach = '#f8d091';          // Mahogany
-var materialLemonChiffon = '#FFFACD';   // Spruce
-var materialPaleOrange = '#f5c373';     // Oak
-
 // Operation Tool Colors (used in PathEdit, Transform, Polygon, etc.)
 var handleActiveColor = '#ff0000';      // Active/dragged handle (red)
 var handleActiveStroke = '#ff0000';     // Active handle stroke (red)
@@ -64,9 +53,6 @@ var penLineColor = '#000000';           // Pen tool line color
 var penCloseLineColor = '#00AA00';      // Pen tool closing line (green)
 var penFirstPointColor = '#00AA00';     // Pen tool first point (green)
 
-// Debug visualization for tab markers
-var debugTabMarkers = [];
-var showDebugMarkers = false;
 
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
@@ -189,16 +175,6 @@ function clear() {
 	ctx.fill();
 }
 
-function drawMarker(x, y) {
-	ctx.beginPath();
-	var pt = worldToScreen(x, y);
-	ctx.rect(pt.x - 2, pt.y - 2, 4, 4);
-	ctx.fillStyle = pointFillColor;
-	ctx.fill();
-	ctx.strokeStyle = pointStrokeColor;
-	ctx.stroke();
-}
-
 function drawLine(norm, color) {
 	ctx.beginPath();
 	var p1 = worldToScreen(norm.x1, norm.y1);
@@ -289,153 +265,6 @@ function drawPathTabs(svgpath) {
  * DEBUG VISUALIZATION: Draw tab bounding boxes on the canvas
  * Shows exactly what the tab detection algorithm sees
  */
-function drawTabBoundingBoxes() {
-	// Get all tabs from all SVG paths
-	const allTabs = [];
-	for (let pathIdx = 0; pathIdx < svgpaths.length; pathIdx++) {
-		const path = svgpaths[pathIdx];
-		if (path.creationProperties && path.creationProperties.tabs) {
-			const tabLength = path.creationProperties.tabLength || 0;
-			for (let tabIdx = 0; tabIdx < path.creationProperties.tabs.length; tabIdx++) {
-				const tab = path.creationProperties.tabs[tabIdx];
-				allTabs.push({
-					tab: tab,
-					tabLength: tabLength,
-					pathName: path.name,
-					pathIdx: pathIdx,
-					tabIdx: tabIdx
-				});
-			}
-		}
-	}
-
-	if (allTabs.length === 0) return; // No tabs to draw
-
-	ctx.save();
-
-	// Get tool radius for box width calculation
-	// Get the first visible tool to get the radius
-	let toolRadius = 3; // Default fallback
-	for (let i = 0; i < toolpaths.length; i++) {
-		if (toolpaths[i].visible && toolpaths[i].tool && toolpaths[i].tool.diameter) {
-			toolRadius = toolpaths[i].tool.diameter / 2;
-			break;
-		}
-	}
-
-	// Calculate box width - 2 × tool radius on each side
-	const boxWidth = 4 * toolRadius * viewScale; // Convert MM to world units
-
-	for (let i = 0; i < allTabs.length; i++) {
-		const { tab, tabLength, pathName, tabIdx } = allTabs[i];
-		const tabLengthWorld = tabLength * viewScale;
-
-		// Convert tab center to screen coordinates
-		const centerScreen = worldToScreen(tab.x, tab.y);
-
-		// Save context for rotation
-		ctx.save();
-		ctx.translate(centerScreen.x, centerScreen.y);
-
-		// Rotate to segment direction (tab.angle is now the segment angle directly)
-		ctx.rotate(tab.angle);
-
-		// Draw the bounding box
-		const boxLengthScreen = tabLengthWorld * zoomLevel;
-		const boxWidthScreen = boxWidth * zoomLevel;
-
-		// Draw box fill with transparency
-		ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
-		ctx.fillRect(-boxLengthScreen / 2, -boxWidthScreen / 2, boxLengthScreen, boxWidthScreen);
-
-		// Draw cyan SIDE edges (long edges parallel to path direction)
-		ctx.strokeStyle = '#00FFFF';
-		ctx.lineWidth = 2;
-		// Top side
-		ctx.beginPath();
-		ctx.moveTo(-boxLengthScreen / 2, boxWidthScreen / 2);
-		ctx.lineTo(boxLengthScreen / 2, boxWidthScreen / 2);
-		ctx.stroke();
-		// Bottom side
-		ctx.beginPath();
-		ctx.moveTo(-boxLengthScreen / 2, -boxWidthScreen / 2);
-		ctx.lineTo(boxLengthScreen / 2, -boxWidthScreen / 2);
-		ctx.stroke();
-
-		// Draw RED END edges (short edges perpendicular to path direction)
-		ctx.strokeStyle = '#FF0000';
-		ctx.lineWidth = 3;
-		// Left end
-		ctx.beginPath();
-		ctx.moveTo(-boxLengthScreen / 2, -boxWidthScreen / 2);
-		ctx.lineTo(-boxLengthScreen / 2, boxWidthScreen / 2);
-		ctx.stroke();
-		// Right end
-		ctx.beginPath();
-		ctx.moveTo(boxLengthScreen / 2, -boxWidthScreen / 2);
-		ctx.lineTo(boxLengthScreen / 2, boxWidthScreen / 2);
-		ctx.stroke();
-
-		// Draw angle indicator (line showing the angle)
-		ctx.strokeStyle = '#00FF00';
-		ctx.lineWidth = 2;
-		ctx.beginPath();
-		ctx.moveTo(0, 0);
-		ctx.lineTo(boxLengthScreen / 2, 0);
-		ctx.stroke();
-
-		ctx.restore();
-
-		// Draw tab center point
-		const dotRadius = 4 / zoomLevel;
-		ctx.fillStyle = '#FF00FF';
-		ctx.beginPath();
-		ctx.arc(centerScreen.x, centerScreen.y, dotRadius, 0, Math.PI * 2);
-		ctx.fill();
-
-		// Draw tab label
-		ctx.fillStyle = '#FFFF00';
-		ctx.font = `${12 / zoomLevel}px Arial`;
-		ctx.fillText(`T${tabIdx}`, centerScreen.x + 10, centerScreen.y - 10);
-	}
-
-	// Draw debug markers if enabled
-	if (showDebugMarkers && debugTabMarkers.length > 0) {
-		ctx.save();
-
-		for (let mIdx = 0; mIdx < debugTabMarkers.length; mIdx++) {
-			const marker = debugTabMarkers[mIdx];
-			const markerScreen = worldToScreen(marker.x, marker.y);
-
-			// Draw colored circle for marker
-			if (marker.type === 'lift') {
-				ctx.fillStyle = '#FF0000';  // Red for lift
-				ctx.strokeStyle = '#FF0000';
-			} else if (marker.type === 'lower') {
-				ctx.fillStyle = '#00FF00';  // Green for lower
-				ctx.strokeStyle = '#00FF00';
-			}
-
-			ctx.lineWidth = 2;
-			ctx.beginPath();
-			ctx.arc(markerScreen.x, markerScreen.y, 8, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.stroke();
-
-			// Draw label
-			ctx.fillStyle = '#FFFF00';
-			ctx.font = `${12 / zoomLevel}px Arial`;
-			ctx.fillText(`M${mIdx}`, markerScreen.x + 12, markerScreen.y - 5);
-			ctx.font = `${10 / zoomLevel}px Arial`;
-			ctx.fillText(`seg${marker.segmentIndex}`, markerScreen.x + 12, markerScreen.y + 10);
-		}
-
-		ctx.restore();
-	}
-
-	ctx.restore();
-}
-
 function drawPath(path, color, lineWidth, isMultiSegment) {
 	ctx.beginPath();
 	ctx.lineCap = 'round';
@@ -469,24 +298,6 @@ function drawPath(path, color, lineWidth, isMultiSegment) {
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
 	ctx.stroke();
-}
-
-
-
-function drawDebug() {
-	for (var i = 0; i < debug.length; i++) {
-		ctx.beginPath();
-		var p = worldToScreen(debug[i].p.x, debug[i].p.y);
-		var s = worldToScreen(debug[i].s.x, debug[i].s.y);
-		ctx.moveTo(p.x, p.y);
-		ctx.lineTo(s.x, s.y);
-		ctx.moveTo(p.x, p.y);
-		var e = worldToScreen(debug[i].e.x, debug[i].e.y);
-		ctx.lineTo(e.x, e.y);
-		ctx.strokeStyle = debugCyanColor;
-		ctx.lineWidth = 1;
-		ctx.stroke();
-	}
 }
 
 

@@ -133,14 +133,6 @@ class VoxelMaterialRemover {
     this.toolRadiusSq = null;
     this.vbitTangent = null;
   }
-
-  /**
-   * Get total voxels removed in current session
-   * @returns {number} Total voxels removed
-   */
-  getTotalVoxelsRemoved() {
-    return this.totalVoxelsRemoved;
-  }
 }
 
 export { VoxelMaterialRemover };

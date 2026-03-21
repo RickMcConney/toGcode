@@ -27,8 +27,6 @@ class Operation {
         var path = closestPath(mouse,true);
     }
     onMouseUp(evt) { }
-    onMouseWheel(evt) { }
-    onClick(evt) { }
 
     // Drawing
     draw(ctx) { }
@@ -72,11 +70,6 @@ class Operation {
         ctx.strokeStyle = color;
         ctx.lineWidth = lineWidth || 1;
         ctx.stroke();
-    }
-
-    // Optional helper methods
-    isActive() {
-        return false;
     }
 
     // Properties Editor Interface
@@ -125,16 +118,6 @@ class Operation {
             x: Math.round(x / snapInterval) * snapInterval,
             y: Math.round(y / snapInterval) * snapInterval
         };
-    }
-
-    oldNormalizeEvent(target, e) {
-        if (!e) { e = self.event; }
-        var x = 0;
-        var y = 0;
-        var rect = canvas.getBoundingClientRect();
-        x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
-        y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
-        return { x: (x - target.offsetLeft - offsetX) / scaleFactor, y: (y - target.offsetTop - offsetY) / scaleFactor };
     }
 
     normalizeEvent(target, e) {

@@ -84,7 +84,7 @@ function applyGemini() {
             const match = generatedText.match(regex);
 
             // If a match is found, return the first one. Otherwise, return null.
-            svgText =  match ? match[0] : null;
+            var svgText =  match ? match[0] : null;
             console.log("Generated Text:", svgText);
             try {
                     parseSvgContent(svgText,"Gemini");
@@ -110,10 +110,6 @@ function applyGemini() {
 class Gemini extends Operation {
     constructor() {
         super('Gemini', 'brain', 'Generate SVG paths from text prompt using Gemini AI');
-    }
-
-        getEditPropertiesHTML(path) {
-        return this.getPropertiesHTML(path);
     }
 
     getPropertiesHTML(path) {
@@ -154,12 +150,6 @@ class Gemini extends Operation {
                 </button>
                 <div class="form-text small">Select paths Click Apply to apply operation</div>
         </div>
-            ${this.isDrawing ? `
-            <div class="alert alert-warning">
-                <i data-lucide="mouse"></i>
-                Drag to set radius, then release to create polygon
-            </div>
-            ` : ''}
         `;
 
 

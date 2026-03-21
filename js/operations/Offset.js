@@ -169,10 +169,6 @@ class OffsetOpp extends Select {
         }
     }
 
-    getEditPropertiesHTML(path) {
-        return this.getPropertiesHTML(path);
-    }
-
     getPropertiesHTML(path) {
         var dist = formatDimension(this.properties.distance, true);
         var dir = this.properties.direction || 'outside';

@@ -196,52 +196,30 @@ class ToolpathPropertiesManager {
         return html;
     }
 
-    generateInsideOutsideDropdownHTML(operationName, value = null) {
-
-        if (value === null) {
-            value = this.getDefaults(operationName).inside;
-        }
-
-        const options = ['Inside', 'Outside', 'Center'];
-
-
+    generateDropdownHTML(id, name, label, options, value, helpText = '') {
         let html = '<div class="mb-3">';
-        html += '<label for="inside-select" class="form-label small"><strong>Cutting Side:</strong></label>';
-        html += '<select class="form-select form-select-sm" id="inside-select" name="inside">';
-
-        options.forEach(option => {
-            const selected = option.toLowerCase() === value.toLowerCase() ? 'selected' : '';
-            html += `<option value="${option.toLowerCase()}" ${selected}>${option}</option>`;
+        html += `<label for="${id}" class="form-label small"><strong>${label}</strong></label>`;
+        html += `<select class="form-select form-select-sm" id="${id}" name="${name}">`;
+        options.forEach(opt => {
+            const optValue = typeof opt === 'string' ? opt.toLowerCase() : opt.value;
+            const optLabel = typeof opt === 'string' ? opt : opt.label;
+            const selected = optValue === value.toLowerCase() ? 'selected' : '';
+            html += `<option value="${optValue}" ${selected}>${optLabel}</option>`;
         });
-
         html += '</select>';
+        if (helpText) html += `<div class="form-text">${helpText}</div>`;
         html += '</div>';
-
         return html;
     }
 
+    generateInsideOutsideDropdownHTML(operationName, value = null) {
+        if (value === null) value = this.getDefaults(operationName).inside;
+        return this.generateDropdownHTML('inside-select', 'inside', 'Cutting Side:', ['Inside', 'Outside', 'Center'], value);
+    }
+
     generateDirectionDropdownHTML(operationName, value = null) {
-
-        if (value === null) {
-            value = this.getDefaults(operationName).direction;
-        }
-
-        const options = ['Climb', 'Conventional'];
-
-        let html = '<div class="mb-3">';
-        html += '<label for="direction-select" class="form-label small"><strong>Direction:</strong></label>';
-        html += '<select class="form-select form-select-sm" id="direction-select" name="direction">';
-
-
-        options.forEach(option => {
-            const selected = option.toLowerCase() === value.toLowerCase() ? 'selected' : '';
-            html += `<option value="${option.toLowerCase()}" ${selected}>${option}</option>`;
-        });
-
-        html += '</select>';
-        html += '</div>';
-
-        return html;
+        if (value === null) value = this.getDefaults(operationName).direction;
+        return this.generateDropdownHTML('direction-select', 'direction', 'Direction:', ['Climb', 'Conventional'], value);
     }
 
     generateNumLoopsInputHTML(operationName, value = null) {
@@ -354,12 +332,9 @@ class ToolpathPropertiesManager {
      * Generate HTML for strategy dropdown (Raster vs Contour).
      */
     generateStrategyDropdownHTML(operationName, value = null) {
-        if (value === null) {
-            value = this.getDefaults(operationName).strategy || 'raster';
-        }
+        if (value === null) value = this.getDefaults(operationName).strategy || 'raster';
 
-        let options;
-        let helpText;
+        let options, helpText;
         if (operationName === 'Pocket') {
             options = [
                 { value: 'adaptive', label: 'Adaptive' },
@@ -369,26 +344,12 @@ class ToolpathPropertiesManager {
             helpText = 'Adaptive combines contour and raster for optimal clearing';
         } else {
             options = [
-                { value: 'raster', label: 'Raster', desc: 'Parallel lines across surface' },
-                { value: 'contour', label: 'Contour (Waterline)', desc: 'Horizontal contour loops at each depth' }
+                { value: 'raster', label: 'Raster' },
+                { value: 'contour', label: 'Contour (Waterline)' }
             ];
             helpText = 'Raster for curved surfaces, Contour for vertical walls';
         }
-
-        let html = '<div class="mb-3">';
-        html += '<label for="strategy-select" class="form-label small"><strong>Strategy:</strong></label>';
-        html += '<select class="form-select form-select-sm" id="strategy-select" name="strategy">';
-
-        options.forEach(opt => {
-            const selected = value === opt.value ? 'selected' : '';
-            html += `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
-        });
-
-        html += '</select>';
-        html += `<div class="form-text">${helpText}</div>`;
-        html += '</div>';
-
-        return html;
+        return this.generateDropdownHTML('strategy-select', 'strategy', 'Strategy:', options, value, helpText);
     }
 
     /**
@@ -425,29 +386,10 @@ class ToolpathPropertiesManager {
      * Generate HTML for inlay type dropdown (Female Socket / Male Plug)
      */
     generateInlayTypeDropdownHTML(operationName, value = null) {
-        if (value === null) {
-            value = this.getDefaults(operationName).inlayType || 'female';
-        }
-
-        const options = [
-            { value: 'female', label: 'Female Socket' },
-            { value: 'male', label: 'Male Plug' }
-        ];
-
-        let html = '<div class="mb-3">';
-        html += '<label for="inlay-type-select" class="form-label small"><strong>Inlay Type:</strong></label>';
-        html += '<select class="form-select form-select-sm" id="inlay-type-select" name="inlayType">';
-
-        options.forEach(opt => {
-            const selected = value === opt.value ? 'selected' : '';
-            html += `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
-        });
-
-        html += '</select>';
-        html += '<div class="form-text">Socket: pockets inside the path. Plug: pockets outside the path.</div>';
-        html += '</div>';
-
-        return html;
+        if (value === null) value = this.getDefaults(operationName).inlayType || 'female';
+        return this.generateDropdownHTML('inlay-type-select', 'inlayType', 'Inlay Type:',
+            [{ value: 'female', label: 'Female Socket' }, { value: 'male', label: 'Male Plug' }],
+            value, 'Socket: pockets inside the path. Plug: pockets outside the path.');
     }
 
     /**

@@ -16,7 +16,6 @@ class Select extends Operation {
     constructor() {
         super('Select', null);
         this.unselectOnMouseDown = true;
-        this.selectionId = 2;
     }
 
     static getInstance() {
@@ -85,17 +84,6 @@ class Select extends Operation {
     }
 
     /**
-     * Get the first selected path
-     * @returns {Object|null} The first selected path, or null if none selected
-     */
-    firstSelected() {
-        if (Select.selected.size > 0) {
-            return [...Select.selected][0];
-        }
-        return null;
-    }
-
-    /**
      * Get the last selected path
      * @returns {Object|null} The last selected path, or null if none selected
      */
@@ -124,53 +112,6 @@ class Select extends Operation {
             }
         }
     }
-    /**
-     * Select paths that have points within the given bounding box
-     * @param {Object} selectBox - Bounding box {minx, miny, maxx, maxy, rl}
-     * @param {Boolean} addToSelection - If true, add to existing selection; if false, replace selection
-     */
-
-    selectPathsInRect(selectBox, addToSelection) {
-        const containMode = selectBox.rl; // left-to-right = contain, right-to-left = touch
-
-        for (let i = 0; i < svgpaths.length; i++) {
-            if (!svgpaths[i].visible) continue;
-            if (!addToSelection)
-                this.unselectPath(svgpaths[i]);
-
-            const path = svgpaths[i].path;
-
-            if (containMode) {
-                // All points must be inside the selection box
-                let allInside = path.length > 0;
-                for (let j = 0; j < path.length; j++) {
-                    if (!pointInBoundingBox(path[j], selectBox)) {
-                        allInside = false;
-                        break;
-                    }
-                }
-                if (allInside) {
-                    this.selectPath(svgpaths[i]);
-                }
-            } else {
-                // Any point inside OR any edge crossing the box selects the path
-                let touched = false;
-                for (let j = 0; j < path.length; j++) {
-                    if (pointInBoundingBox(path[j], selectBox)) {
-                        touched = true;
-                        break;
-                    }
-                }
-                if (!touched) {
-                    touched = this.pathIntersectsRect(path, selectBox);
-                }
-                if (touched) {
-                    this.selectPath(svgpaths[i]);
-                }
-            }
-        }
-    }
-
     toggleSelection(path, evt) {
         if (path) {
             if (this.isSelected(path)) {

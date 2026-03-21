@@ -299,7 +299,7 @@ function getCachedDistance(node1, node2) {
 function findBestPath(jspolySegments) {
     const startTime = performance.now();
     if (!jspolySegments || jspolySegments.length === 0) {
-        return { toolpath: [], travelDistance: bestCost };
+        return { toolpath: [], travelDistance: 0 };
     }
 
     distanceCache.clear();

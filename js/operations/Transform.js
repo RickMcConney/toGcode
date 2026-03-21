@@ -258,7 +258,7 @@ class Transform extends Select {
             if (Select.state == Select.DRAGGING) {
                 Transform.state = Transform.DRAGGING;
             } else if (Select.state == Select.SELECTING) {
-                Transform.state = Transform.SElECTING;
+                Transform.state = Transform.SELECTING;
             }
         }
     }
@@ -386,7 +386,6 @@ class Transform extends Select {
         this.scaleX = scaleX;
         this.scaleY = scaleY;
         this.scale(scaleX, scaleY);
-        this.updateCreationProperties();
         this.transformBox = this.createTransformBox(svgpaths);
         this.updateCenterDisplay();
     }
@@ -411,7 +410,6 @@ class Transform extends Select {
         // Convert to degrees and apply rotation
         this.rotation = rotationDelta * 180 / Math.PI;
         this.rotate(this.rotation);
-        this.updateCreationProperties();
         this.transformBox = this.createTransformBox(svgpaths);
         this.updateCenterDisplay();
     }
@@ -445,7 +443,6 @@ class Transform extends Select {
         }
 
         this.skew(this.skewX, this.skewY);
-        this.updateCreationProperties();
         this.transformBox = this.createTransformBox(svgpaths);
         this.updateCenterDisplay();
     }
@@ -1258,13 +1255,13 @@ class Transform extends Select {
             const widthMM = parseDimension(data.width, useInches);
             const originalWidth = this.transformBox.width / viewScale;
             this.scaleX = originalWidth > 0 ? widthMM / originalWidth : 1;
-            this.scaleX = this.scaleX.toFixed(2);
+            this.scaleX = parseFloat(this.scaleX.toFixed(2));
         }
         if (data.height !== undefined && this.transformBox) {
             const heightMM = parseDimension(data.height, useInches);
             const originalHeight = this.transformBox.height / viewScale;
             this.scaleY = originalHeight > 0 ? heightMM / originalHeight : 1;
-            this.scaleY = this.scaleY.toFixed(2);
+            this.scaleY = parseFloat(this.scaleY.toFixed(2));
         }
 
         if (data.rotation !== undefined) this.rotation = (parseFloat(data.rotation) || 0) - this.totalRotation;
@@ -1430,7 +1427,7 @@ class Transform extends Select {
                     }
                     // 3. Translate
                     if (this.deltaX !== 0 || this.deltaY !== 0) {
-                        this.transformTabsTranslate(path, this.deltaX, this.deltaY);
+                        this.translateTabs(path, this.deltaX, this.deltaY);
                     }
                 }
             }
@@ -1485,37 +1482,13 @@ class Transform extends Select {
         redraw();
     }
 
-    updateCreationProperties() {
-        // No longer overwrite creationProperties position/center with bbox values.
-        // Transform history is stored separately and replayed after regeneration.
-    }
-
     /**
      * Transform tabs during translation (moving) operation
      * @param {Object} svgpath - Path object containing tabs
      * @param {Number} deltaX - Translation in X direction
      * @param {Number} deltaY - Translation in Y direction
      */
-    transformTabsTranslate(svgpath, deltaX, deltaY) {
-        if (!svgpath.creationProperties || !svgpath.creationProperties.tabs) return;
-
-        svgpath.creationProperties.tabs.forEach(tab => {
-            // Move tab position
-            tab.x += deltaX;
-            tab.y += deltaY;
-
-            // Move edge points
-            if (tab.edgeP1) {
-                tab.edgeP1.x += deltaX;
-                tab.edgeP1.y += deltaY;
-            }
-            if (tab.edgeP2) {
-                tab.edgeP2.x += deltaX;
-                tab.edgeP2.y += deltaY;
-            }
-            // Angle remains unchanged during translation
-        });
-    }
+    // transformTabsTranslate removed — use inherited translateTabs() from Select
 
     /**
      * Transform tabs during scaling operation

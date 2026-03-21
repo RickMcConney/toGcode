@@ -103,10 +103,6 @@ class BooleanOpp extends Select {
         this.tooltip = 'Perform boolean operations (union, intersect, subtract) on selected paths';
     }
 
-    getEditPropertiesHTML(path) {
-        return this.getPropertiesHTML(path);
-    }
-
     getPropertiesHTML(path) {
         // Get current values from UI if available, otherwise use properties
         let type = this.properties.type;
@@ -132,12 +128,6 @@ class BooleanOpp extends Select {
                 <div class="form-text small">Select paths Click Apply to apply operation</div>
         </div>
 
-            ${this.isDrawing ? `
-            <div class="alert alert-warning">
-                <i data-lucide="mouse"></i>
-                Drag to set radius, then release to create polygon
-            </div>
-            ` : ''}
         `;
 
 

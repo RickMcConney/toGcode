@@ -161,77 +161,6 @@ function bitFits(point, r) {
 	return true;
 }
 
-function bitFitsSubpath(point, r, subpath) {
-
-	var dist = isPointInCircle(point, subpath, r);
-	if (dist < r)
-		return false;
-
-	return true;
-}
-
-function bitFitsTool(point, r) {
-	for (var j = 0; j < toolpaths.length; j++) {
-		var paths = toolpaths[j].paths;
-		for (var p = 0; p < paths.length; p++) {
-			var path = paths[p].tpath;
-			var dist = isPointInCircle(point, path, r);
-			if (dist < r)
-				return false;
-		}
-	}
-	return true;
-}
-
-function bitPos(start, end) {
-	var x1 = start.x;
-	var x2 = end.x;
-	var y1 = -start.y;
-	var y2 = -end.y;
-	var r = -1;
-
-	if (Math.abs(x1 - x2) < 0.1) // vertical case
-	{
-		r = x1;
-		if (r < y1 && r > y2)
-			return r;
-		else
-			return -1;
-	}
-	else if (Math.abs(y1 - y2) < 0.1) // horizontal case
-	{
-		if (y1 > 0) {
-			r = y1 / 2;
-			if (x1 < 0 && x2 > 0)
-				return r;
-		}
-		return -1;
-	}
-	else // general case
-	{
-		var m = (y2 - y1) / (x2 - x1);
-		var b = y1 - (m * x1);
-		var l = m + 1 / m;
-
-		var A = 1 + m * m - 2 * m * l;
-		var B = -2 * l * b;
-		var C = -(b * b);
-		var quad = B * B - 4 * A * C;
-		if (quad > 0) {
-			var Xp = (-B + Math.sqrt(quad)) / 2 * A;
-			var Xn = (-B - Math.sqrt(quad)) / 2 * A;
-			if (Math.min(x1, x2) <= Xp && Xp <= Math.max(x1, x2))
-				return Math.abs(Xp * l + b);
-			else if (Math.min(x1, x2) <= Xn && Xn <= Math.max(x1, x2))
-				return Math.abs(Xn * l + b);
-		}
-
-		return r;
-
-	}
-
-}
-
 function vbitRadius(tool) {
 	var toolRadius = tool.diameter / 2;
 	var depth = tool.depth || 1;
@@ -353,75 +282,8 @@ function offsetPath(svgpath, radius, outside) {
 	return sol;
 }
 
-function offset(path, r, outside) {
-	var offsetPath = [];
-	var cw = isClockwise(path);
-	if (!outside) cw = !cw;
-
-	for (var i = 0; i < path.length - 1; i++) {
-		var j = (i + 1) % (path.length - 1);
-		var k = (i + 2) % (path.length - 1);
-		var pi = path[i];
-		var pj = path[j];
-		var pk = path[k];
-
-		var dx = pi.x - pj.x;
-		var dy = pi.y - pj.y;
-
-		var dx2 = pj.x - pk.x;
-		var dy2 = pj.y - pk.y;
-
-		var dnorm = Math.sqrt(dx * dx + dy * dy);
-		var dnorm2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-
-
-		if (dnorm != 0 && dnorm2 != 0) {
-			dx = dx / dnorm;
-			dy = dy / dnorm;
-
-			dx2 = dx2 / dnorm2;
-			dy2 = dy2 / dnorm2;
-
-			var t = dx;
-			var t2 = dx2;
-			if (cw) {
-				dx = dy;
-				dy = -t;
-				dx2 = dy2;
-				dy2 = -t2;
-			}
-			else {
-				dx = -dy;
-				dy = t;
-				dx2 = -dy2;
-				dy2 = t2;
-			}
-
-			var p1 = { x: pi.x + dx * r, y: pi.y + dy * r };
-			var p2 = { x: pj.x + dx * r, y: pj.y + dy * r };
-			var p3 = { x: pj.x + dx2 * r, y: pj.y + dy2 * r };
-			var p4 = { x: pk.x + dx2 * r, y: pk.y + dy2 * r };
-
-			if (p2.x == p3.x && p2.y == p3.y) {
-				offsetPath.push(p2);
-			}
-			else {
-				var point = checkLineIntersection(p1, p2, p3, p4);
-				offsetPath.push(point);
-			}
-		}
-	}
-	if (offsetPath.length > 0) {
-		var first = offsetPath[0];
-		offsetPath.push(first);
-	}
-
-
-	return offsetPath;
-}
-
 function checkPath(path, r) {
-	circles = [];
+	var circles = [];
 	for (var i = 0; i < path.length; i++) {
 		var point = path[i];
 		if (bitFits(point, r)) {
@@ -436,24 +298,8 @@ function checkPath(path, r) {
 	return circles;
 }
 
-function checkPathTool(path, r, stepover) {
-	circles = [];
-	for (var i = 0; i < path.length; i++) {
-		var point = path[i];
-		if (bitFits(point, stepover)) {
-			point.r = r;
-			circles.push(point);
-		}
-	}
-	if (circles.length > 0) {
-		var first = circles[0];
-		circles.push(first);
-	}
-	return circles;
-}
-
 function addCircles(path, r) {
-	circles = [];
+	var circles = [];
 	for (var i = 0; i < path.length; i++) {
 		var point = path[i];
 		point.r = r;
@@ -535,145 +381,81 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null, label
 	redraw();
 }
 
-function makeHole(pt) {
-	var name = 'Drill';
+// Temporarily apply tool from properties panel, run callback, then restore.
+// Returns true if properties panel was used, false to fall through to default.
+function withDrillProperties(callback) {
+	if (!window.toolpathPropertiesManager || !window.toolpathPropertiesManager.hasOperation('Drill')) return false;
+	try {
+		const data = window.toolpathPropertiesManager.collectFormData();
+		window.toolpathPropertiesManager.updateDefaults('Drill', data);
+		const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+		if (!selectedTool) return false;
 
-	// Check if we should read from properties panel
-	if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation('Drill')) {
-		// Try to collect form data from the properties panel
+		const originalTool = window.currentTool;
+		window.currentTool = {
+			...selectedTool,
+			depth: data.depth || selectedTool.depth,
+			step: data.step || selectedTool.step
+		};
+		window.currentToolpathProperties = { ...data };
 		try {
-			const data = window.toolpathPropertiesManager.collectFormData();
-			// Save drill properties to localStorage for persistence between sessions
-			window.toolpathPropertiesManager.updateDefaults('Drill', data);
-			const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
-
-			if (selectedTool) {
-				// Temporarily set current tool and properties
-				const originalTool = window.currentTool;
-				window.currentTool = {
-					...selectedTool,
-					depth: data.depth || selectedTool.depth,
-					step: data.step || selectedTool.step
-				};
-
-				// Store properties for pushToolPath
-				window.currentToolpathProperties = { ...data };
-
-				var radius = toolRadius();
-				var paths = [];
-				paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
-
-				// Track toolpath count before creation
-				const beforeCount = toolpaths.length;
-
-				pushToolPath(paths, name, 'Drill', null);
-
-				// Mark the newly created drill path as active
-				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
-					const newToolpath = toolpaths[toolpaths.length - 1];
-					setActiveToolpaths([newToolpath]);
-				}
-
-				// Restore original tool and clear properties
-				window.currentTool = originalTool;
-				window.currentToolpathProperties = null;
-				return;
-			}
-		} catch (e) {
-			// If properties panel not available or form incomplete, fall through to default
+			callback();
+		} finally {
+			window.currentTool = originalTool;
+			window.currentToolpathProperties = null;
 		}
-	}
-
-	// Fallback to default behavior (using currentTool directly)
-	var radius = toolRadius();
-	var paths = [];
-	paths.push({ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] });
-
-	// Track toolpath count before creation
-	const beforeCount = toolpaths.length;
-
-	pushToolPath(paths, name, 'Drill', null);
-
-	// Mark the newly created drill path as active
-	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
-		const newToolpath = toolpaths[toolpaths.length - 1];
-		setActiveToolpaths([newToolpath]);
+		return true;
+	} catch (e) {
+		return false;
 	}
 }
 
-function makeHelicalHole(circle, svgId) {
-	var name = 'Helical Drill';
-
-	if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation('Drill')) {
-		try {
-			const data = window.toolpathPropertiesManager.collectFormData();
-			window.toolpathPropertiesManager.updateDefaults('Drill', data);
-			const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
-
-			if (selectedTool) {
-				const originalTool = window.currentTool;
-				window.currentTool = {
-					...selectedTool,
-					depth: data.depth || selectedTool.depth,
-					step: data.step || selectedTool.step
-				};
-				window.currentToolpathProperties = { ...data };
-
-				var radius_tool = toolRadius();
-
-				// Check if tool fits the circle
-				if (circle.radius <= radius_tool) {
-					var circleDiaMM = (circle.radius * 2 / viewScale).toFixed(2);
-					var toolDiaMM = (radius_tool * 2 / viewScale).toFixed(2);
-					notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
-					window.currentTool = originalTool;
-					window.currentToolpathProperties = null;
-					return;
-				}
-
-				// Generate helix points in world coordinates
-				var helixPath = generateHelixPath(circle, window.currentTool.depth, window.currentTool.step, radius_tool);
-				var paths = [];
-				paths.push({ tpath: helixPath, path: helixPath });
-
-				const beforeCount = toolpaths.length;
-				pushToolPath(paths, name, 'HelicalDrill', svgId);
-
-				if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
-					const newToolpath = toolpaths[toolpaths.length - 1];
-					setActiveToolpaths([newToolpath]);
-				}
-
-				window.currentTool = originalTool;
-				window.currentToolpathProperties = null;
-				return;
-			}
-		} catch (e) {
-			// Fall through to default
-		}
+function pushAndActivateToolpath(paths, name, operation, svgId) {
+	const beforeCount = toolpaths.length;
+	pushToolPath(paths, name, operation, svgId);
+	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
+		setActiveToolpaths([toolpaths[toolpaths.length - 1]]);
 	}
+}
 
-	// Fallback
+function makeHole(pt) {
+	var used = withDrillProperties(function() {
+		var radius = toolRadius();
+		var paths = [{ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] }];
+		pushAndActivateToolpath(paths, 'Drill', 'Drill', null);
+	});
+	if (used) return;
+
+	var radius = toolRadius();
+	var paths = [{ tpath: [{ x: pt.x, y: pt.y, r: radius }], path: [{ x: pt.x, y: pt.y, r: radius }] }];
+	pushAndActivateToolpath(paths, 'Drill', 'Drill', null);
+}
+
+function makeHelicalHole(circle, svgId) {
+	var used = withDrillProperties(function() {
+		var radius_tool = toolRadius();
+		if (circle.radius <= radius_tool) {
+			var circleDiaMM = (circle.radius * 2 / viewScale).toFixed(2);
+			var toolDiaMM = (radius_tool * 2 / viewScale).toFixed(2);
+			notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
+			return;
+		}
+		var helixPath = generateHelixPath(circle, window.currentTool.depth, window.currentTool.step, radius_tool);
+		var paths = [{ tpath: helixPath, path: helixPath }];
+		pushAndActivateToolpath(paths, 'Helical Drill', 'HelicalDrill', svgId);
+	});
+	if (used) return;
+
 	var radius_tool = toolRadius();
-
 	if (circle.radius <= radius_tool) {
 		var circleDiaMM = (circle.radius * 2 / viewScale).toFixed(2);
 		var toolDiaMM = (radius_tool * 2 / viewScale).toFixed(2);
 		notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
 		return;
 	}
-
 	var helixPath = generateHelixPath(circle, currentTool.depth, currentTool.step, radius_tool);
-	var paths = [];
-	paths.push({ tpath: helixPath, path: helixPath });
-
-	const beforeCount = toolpaths.length;
-	pushToolPath(paths, name, 'HelicalDrill', svgId);
-
-	if (toolpaths.length > beforeCount && typeof setActiveToolpaths === 'function') {
-		const newToolpath = toolpaths[toolpaths.length - 1];
-		setActiveToolpaths([newToolpath]);
-	}
+	var paths = [{ tpath: helixPath, path: helixPath }];
+	pushAndActivateToolpath(paths, 'Helical Drill', 'HelicalDrill', svgId);
 }
 
 /**
@@ -1294,78 +1076,6 @@ function optimizePathListOrder(paths) {
 	return optimized;
 }
 
-function optimizePocketInfillOrder(paths) {
-	// Separate contour and infill paths
-	const contours = paths.filter(p => p.isContour);
-	const infill = paths.filter(p => !p.isContour);
-
-	// Alternate infill direction: reverse every other line
-	const optimizedInfill = infill.map((line, index) => {
-		if (index % 2 === 1) {
-			// Reverse entire path (including all segments if multi-segment)
-			return { ...line, tpath: reversePath(line.tpath) };
-		}
-		return line;
-	});
-
-	// Reassemble: infill first, contour last
-	// Clear the original array and repopulate it
-	paths.length = 0;
-	paths.push(...optimizedInfill, ...contours);
-}
-
-function detectMultiSegment(path) {
-	// Detect if path has gaps (islands) by checking for large jumps
-	const totalLength = calculatePathLength(path);
-	const pointCount = path.length;
-	const avgSegmentLength = totalLength / Math.max(pointCount - 1, 1);
-
-	for (let i = 0; i < path.length - 1; i++) {
-		const segmentLength = Math.hypot(
-			path[i + 1].x - path[i].x,
-			path[i + 1].y - path[i].y
-		);
-		if (segmentLength > avgSegmentLength * 2) {
-			return true;  // Large gap detected
-		}
-	}
-	return false;
-}
-
-function calculatePathLength(path) {
-	let length = 0;
-	for (let i = 0; i < path.length - 1; i++) {
-		length += Math.hypot(
-			path[i + 1].x - path[i].x,
-			path[i + 1].y - path[i].y
-		);
-	}
-	return length;
-}
-
-function getUnionOfPaths(inputPaths) {
-
-	// Create a Clipper instance
-	const clipper = new ClipperLib.Clipper();
-
-	// Add all paths to the Clipper object as subjects.
-	clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptSubject, true);
-
-	// Create a container for the result
-	const solutionPaths = new ClipperLib.Paths();
-
-	// Execute the union operation
-	clipper.Execute(
-		ClipperLib.ClipType.ctUnion, // Perform a union operation
-		solutionPaths,
-		ClipperLib.PolyFillType.pftNonZero,
-		ClipperLib.PolyFillType.pftNonZero
-	);
-
-	// Scale the result back down
-	return solutionPaths;
-}
-
 function medialAxis(name, path, holes, svgId, holeSvgIds) {
 
 	let descritize_threshold = 1e-1;
@@ -1379,11 +1089,11 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 	};
 	let intermediate_debug_data = null;
 
-	maxRadius = vbitRadius(currentTool) * viewScale;
+	var maxRadius = vbitRadius(currentTool) * viewScale;
 
 	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
 	var circles = [];
-	for (seg in segments) {
+	for (var seg in segments) {
 		seg = segments[seg];
 		var p = { x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) };
 		//if (pointInPolygon(p, path))
@@ -1440,7 +1150,7 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 	tpath = tpathWithTransitions;
 
 	// Now clamp all radii to maxRadius
-	for (p of tpath) {
+	for (var p of tpath) {
 		p.r = Math.min(p.r, maxRadius)
 	}
 	var paths = [{ path: circles, tpath: tpath }];

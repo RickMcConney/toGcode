@@ -268,10 +268,6 @@ class PatternOpp extends Select {
         this.properties.rotateItems = cp.rotateItems !== false;
     }
 
-    getEditPropertiesHTML(path) {
-        return this.getPropertiesHTML(path);
-    }
-
     getPropertiesHTML(path) {
         var type = this.properties.type || 'linear';
         var rows = this.properties.rows || 1;

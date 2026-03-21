@@ -6,8 +6,8 @@ var AVAILABLE_SHAPES = [
     { value: 'Ellipse', label: "Ellipse" },
     { value: 'Heart', label: "Heart" },
     { value: 'Polygon', label: "Polygon" },
-    { value: 'Rectangle', label: "Rentangle" },
-    { value: 'RoundRectangle', label: "Round Rentangle" },
+    { value: 'Rectangle', label: "Rectangle" },
+    { value: 'RoundRectangle', label: "Round Rectangle" },
     { value: 'Sign', label: "Sign" },
     { value: 'Star', label: "Star" }
 ]
@@ -371,9 +371,6 @@ class Shape extends Operation {
     }
 
 
-    getEditPropertiesHTML(path) {
-        return this.getPropertiesHTML(path);
-    }
 
 
 

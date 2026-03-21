@@ -42,9 +42,6 @@ class VoxelGrid {
     // Single Three.js mesh for rendering
     this.mesh = null;
 
-    // Instance colors for per-voxel coloring (colors all faces of each voxel)
-    this.instanceColors = null;  // THREE.InstancedBufferAttribute
-
     // Debug tracking
     this.frameNumber = 0;
 
@@ -394,12 +391,6 @@ class VoxelGrid {
    * Flat endmill: cylindrical shape with flat bottom
    * @private
    */
-  getFlatEndmillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, toolRadiusSq) {
-    // Voxel is guaranteed to be within tool radius (checked before this call)
-    // Flat endmill cuts straight down to tool Z depth
-    return toolZ;
-  }
-
   /**
    * Get penetration depth for ball nose at voxel position
    * Ball nose is a sphere: tip at toolZ, extends upward
@@ -439,18 +430,6 @@ class VoxelGrid {
     const penetrationZ = toolZ + (distXY / vbitTangent);
 
     return penetrationZ;
-  }
-
-  /**
-   * Get penetration depth for drill bit at voxel XY position
-   * Simplified: Distance boundary check already done before calling this function
-   * Drill: cylindrical cutting within diameter, tip geometry handled by plunge
-   * @private
-   */
-  getDrillPenetration(voxelPos, toolX, toolY, toolZ, toolRadius, toolRadiusSq) {
-    // Voxel is guaranteed to be within tool radius (checked before this call)
-    // Drill cuts straight down to tool Z depth within its diameter
-    return toolZ;
   }
 
   /**
@@ -518,52 +497,6 @@ class VoxelGrid {
   }
 
   /**
-   * Get average cut depth across all voxels
-   * @returns {number} Average depth in mm (positive value)
-   */
-  getAverageCutDepth() {
-    let totalDepth = 0;
-    for (let i = 0; i < this.maxVoxels; i++) {
-      totalDepth += Math.abs(this.voxelTopZ[i]);
-    }
-    return totalDepth / this.maxVoxels;
-  }
-
-  /**
-   * Get percentage of voxels that have been cut
-   * @returns {number} Percentage (0-100)
-   */
-  getVoxelsCutPercentage() {
-    let cutCount = 0;
-    for (let i = 0; i < this.maxVoxels; i++) {
-      if (this.voxelTopZ[i] < 0) {
-        cutCount++;
-      }
-    }
-    return (cutCount / this.maxVoxels) * 100;
-  }
-
-  /**
-   * Get statistics about the voxel grid
-   * @returns {Object} Statistics object
-   */
-  getStats() {
-    return {
-      totalVoxels: this.maxVoxels,
-      cutVoxels: this.voxelHeightChanged.size,
-      cutPercentage: this.getVoxelsCutPercentage(),
-      averageCutDepth: this.getAverageCutDepth(),
-      gridDimensions: {
-        width: this.gridWidth,
-        length: this.gridLength
-      },
-      voxelSize: this.voxelSize,
-      materialThickness: this.workpieceThickness,
-      memoryEstimate: `~${(this.maxVoxels * 32 / 1024 / 1024).toFixed(2)} MB` // ~32 bytes per voxel
-    };
-  }
-
-  /**
    * Dispose of Three.js resources
    */
   dispose() {
@@ -573,7 +506,6 @@ class VoxelGrid {
       this.mesh = null;
     }
     this.voxelTopZ = null;
-    this.instanceColors = null;
     this.voxelHeightChanged.clear();
   }
 }

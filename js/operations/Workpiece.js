@@ -3,12 +3,6 @@ class Workpiece extends Operation {
         super('Workpiece', 'box', 'Configure your workpiece dimensions and material properties');
     }
 
-    // Origin position calculation function
-    calculateOriginPosition(position, width, length) {
-        // Use the shared global function
-        return calculateOriginFromPosition(position, width, length);
-    }
-
     // No mouse interactions needed for workpiece tool
     onMouseDown(canvas, evt) {
         // No canvas interaction needed
@@ -333,7 +327,7 @@ class Workpiece extends Operation {
             const length = getOption("workpieceLength") * (typeof viewScale !== 'undefined' ? viewScale : 10);
             const position = getOption("originPosition") || 'middle-center';
 
-            const newOrigin = this.calculateOriginPosition(position, width, length);
+            const newOrigin = calculateOriginFromPosition(position, width, length);
 
 
             if (typeof origin !== 'undefined') {

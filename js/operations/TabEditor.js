@@ -249,21 +249,7 @@ class TabEditor extends Select {
     }
 
     closestPointOnSegment(point, segStart, segEnd) {
-        const dx = segEnd.x - segStart.x;
-        const dy = segEnd.y - segStart.y;
-        const lengthSquared = dx * dx + dy * dy;
-
-        if (lengthSquared === 0) {
-            return { x: segStart.x, y: segStart.y };
-        }
-
-        let t = ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t));
-
-        return {
-            x: segStart.x + t * dx,
-            y: segStart.y + t * dy
-        };
+        return closestPointOnSegment(point, segStart, segEnd);
     }
 
     calculatePathPerimeter() {

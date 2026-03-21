@@ -32,6 +32,36 @@ function initPaperJS() {
 }
 
 // New robust SVG parsing using Paper.js library
+function parseSvgPointsElements(svgElement, tagName, label, closePath) {
+	var results = [];
+	var elements = svgElement.getElementsByTagName(tagName);
+	for (var i = 0; i < elements.length; i++) {
+		var points = elements[i].getAttribute('points');
+		if (!points) continue;
+		try {
+			var paperPath = new paper.Path();
+			var pointValues = points.trim().split(/[\s,]+/);
+			for (var j = 0; j < pointValues.length; j += 2) {
+				if (j + 1 < pointValues.length) {
+					var rawX = parseFloat(pointValues[j]);
+					var rawY = parseFloat(pointValues[j + 1]);
+					if (j === 0) {
+						paperPath.moveTo(rawX, rawY);
+					} else {
+						paperPath.lineTo(rawX, rawY);
+					}
+				}
+			}
+			if (closePath) paperPath.closePath();
+			var convertedPaths = newTransformFromPaperPath(paperPath, label);
+			results = results.concat(convertedPaths);
+		} catch (e) {
+			console.error('Error creating ' + tagName + ':', e);
+		}
+	}
+	return results;
+}
+
 function parseSvgContent(data, name) {
 	try {
 
@@ -104,65 +134,8 @@ function parseSvgContent(data, name) {
 		}
 
 		// Parse polygon elements
-		var polygonElements = svgElement.getElementsByTagName('polygon');
-		for (var i = 0; i < polygonElements.length; i++) {
-			var polygonEl = polygonElements[i];
-			var points = polygonEl.getAttribute('points');
-			if (points) {
-				try {
-
-					var paperPolygon = new paper.Path();
-
-					// Handle both comma-separated and space-separated coordinate formats
-					var pointValues = points.trim().split(/[\s,]+/);
-					for (var j = 0; j < pointValues.length; j += 2) {
-						if (j + 1 < pointValues.length) {
-							var rawX = parseFloat(pointValues[j]);
-							var rawY = parseFloat(pointValues[j + 1]);
-
-							if (j === 0) {
-								paperPolygon.moveTo(rawX, rawY);
-							} else {
-								paperPolygon.lineTo(rawX, rawY);
-							}
-						}
-					}
-					paperPolygon.closePath();
-
-					var convertedPaths = newTransformFromPaperPath(paperPolygon, "Poly");
-					paths = paths.concat(convertedPaths);
-				} catch (polygonError) {
-					console.error('Error creating polygon:', polygonError);
-				}
-			}
-		}
-
-		// Parse polyline elements
-		var polylineElements = svgElement.getElementsByTagName('polyline');
-		for (var i = 0; i < polylineElements.length; i++) {
-			var polylineEl = polylineElements[i];
-			var points = polylineEl.getAttribute('points');
-			if (points) {
-				var paperPolyline = new paper.Path();
-
-				// Handle both comma-separated and space-separated coordinate formats
-				var pointValues = points.trim().split(/[\s,]+/);
-				for (var j = 0; j < pointValues.length; j += 2) {
-					if (j + 1 < pointValues.length) {
-						var rawX = parseFloat(pointValues[j]);
-						var rawY = parseFloat(pointValues[j + 1]);
-
-						if (j === 0) {
-							paperPolyline.moveTo(rawX, rawY);
-						} else {
-							paperPolyline.lineTo(rawX, rawY);
-						}
-					}
-				}
-				var convertedPaths = newTransformFromPaperPath(paperPolyline, "PolyLine");
-				paths = paths.concat(convertedPaths);
-			}
-		}
+		paths = paths.concat(parseSvgPointsElements(svgElement, 'polygon', 'Poly', true));
+		paths = paths.concat(parseSvgPointsElements(svgElement, 'polyline', 'PolyLine', false));
 
 		// Parse line elements
 		var lineElements = svgElement.getElementsByTagName('line');
@@ -248,17 +221,6 @@ function parseSvgContent(data, name) {
 			}
 		}
 
-		// Handle transforms on elements
-		var allElements = svgElement.querySelectorAll('*');
-		for (var i = 0; i < allElements.length; i++) {
-			var element = allElements[i];
-			var transform = element.getAttribute('transform');
-			if (transform) {
-				// Apply transform to the element's path if it exists
-				// This is a simplified approach - in a full implementation,
-				// you'd want to parse and apply the transform matrix
-		}
-		}
 		addUndo(false, true, false);
 
 		// Generate unique group ID for this SVG import

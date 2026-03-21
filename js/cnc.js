@@ -239,144 +239,91 @@ function addUndo(toolPathschanged = false, svgPathsChanged = false, originChange
 			origin: originChanged ? origin : null,
 			selectedIds: currentSelectedIds.length > 0 ? currentSelectedIds : null
 		};
-		if (undoList.length < MAX_UNDO) {
-			undoList.push(JSON.stringify(project));
-		}
-		else {
-			undoList.shift();
-			undoList.push(JSON.stringify(project));
-		}
+		pushToStack(undoList, JSON.stringify(project));
 		// Clear redo list when a new action is performed
 		redoList = [];
 	}
 
 }
 
-function doUndo() {
-	if (undoList.length == 0) return;
+function pushToStack(stack, item) {
+	if (stack.length >= MAX_UNDO) stack.shift();
+	stack.push(item);
+}
 
-	// Save current state to redo list before undoing
-	var currentProject = {
+function saveCurrentState() {
+	return JSON.stringify({
 		toolpaths: toolpaths,
 		svgpaths: svgpaths,
 		origin: origin,
 		selectedIds: selectMgr.selectedPaths().map(p => p.id)
-	};
-	if (redoList.length < MAX_UNDO) {
-		redoList.push(JSON.stringify(currentProject));
-	} else {
-		redoList.shift();
-		redoList.push(JSON.stringify(currentProject));
-	}
+	});
+}
 
-	var project = JSON.parse(undoList.pop());
-
-	if (project.origin) origin = project.origin;
-	if (project.toolpaths) {
-		clearToolPaths();
-		toolpaths = project.toolpaths;
-		toolpathId = 1;
-		for (var i in toolpaths) {
-			toolpaths[i].id = 'T' + toolpathId;
-			addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
-			toolpathId++;
-		}
+function restoreToolpaths(projectToolpaths) {
+	clearToolPaths();
+	toolpaths = projectToolpaths;
+	toolpathId = 1;
+	for (var i in toolpaths) {
+		toolpaths[i].id = 'T' + toolpathId;
+		addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
+		toolpathId++;
 	}
-	if (project.svgpaths) {
-		clearSvgPaths();
-		selectMgr.unselectAll();
-		svgpaths = project.svgpaths;
-		svgpathId = 1;
-		var addedTextGroups = {};
-		for (var i in svgpaths) {
-			var sp = svgpaths[i];
-			if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
-				var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
-				var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
-				addTextGroup(sp.textGroupId, text, groupPaths);
-				addedTextGroups[sp.textGroupId] = true;
-			} else if (!sp.textGroupId) {
-				addSvgPath(sp.id, sp.name);
-			}
-			svgpathId++;
+}
+
+function restoreSvgpaths(projectSvgpaths, selectedIds) {
+	clearSvgPaths();
+	selectMgr.unselectAll();
+	svgpaths = projectSvgpaths;
+	svgpathId = 1;
+	var addedTextGroups = {};
+	for (var i in svgpaths) {
+		var sp = svgpaths[i];
+		if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
+			var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
+			var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
+			addTextGroup(sp.textGroupId, text, groupPaths);
+			addedTextGroups[sp.textGroupId] = true;
+		} else if (!sp.textGroupId) {
+			addSvgPath(sp.id, sp.name);
 		}
-		// Re-select paths if the undo entry stored selected IDs
-		if (project.selectedIds) {
-			for (var i = 0; i < svgpaths.length; i++) {
-				if (project.selectedIds.indexOf(svgpaths[i].id) >= 0) {
-					selectMgr.selectPath(svgpaths[i]);
-				}
+		svgpathId++;
+	}
+	if (selectedIds) {
+		for (var i = 0; i < svgpaths.length; i++) {
+			if (selectedIds.indexOf(svgpaths[i].id) >= 0) {
+				selectMgr.selectPath(svgpaths[i]);
 			}
 		}
 	}
-	// Clear PathEdit's cached original so corner operations work fresh after undo
+}
+
+function clearPathEditCache() {
 	var editOp = cncController && cncController.operationManager && cncController.operationManager.getOperation('Edit');
 	if (editOp) {
 		editOp.originalPathBeforeRadius = null;
 		editOp.originalPathBeforeRadiusId = null;
 	}
+}
 
+function restoreProject(project) {
+	if (project.origin) origin = project.origin;
+	if (project.toolpaths) restoreToolpaths(project.toolpaths);
+	if (project.svgpaths) restoreSvgpaths(project.svgpaths, project.selectedIds);
+	clearPathEditCache();
 	onPathsChanged(null);
+}
+
+function doUndo() {
+	if (undoList.length == 0) return;
+	pushToStack(redoList, saveCurrentState());
+	restoreProject(JSON.parse(undoList.pop()));
 }
 
 function doRedo() {
 	if (redoList.length == 0) return;
-
-	// Save current state to undo list before redoing
-	var currentProject = {
-		toolpaths: toolpaths,
-		svgpaths: svgpaths,
-		origin: origin,
-		selectedIds: selectMgr.selectedPaths().map(p => p.id)
-	};
-	if (undoList.length < MAX_UNDO) {
-		undoList.push(JSON.stringify(currentProject));
-	} else {
-		undoList.shift();
-		undoList.push(JSON.stringify(currentProject));
-	}
-
-	var project = JSON.parse(redoList.pop());
-
-	if (project.origin) origin = project.origin;
-	if (project.toolpaths) {
-		clearToolPaths();
-		toolpaths = project.toolpaths;
-		toolpathId = 1;
-		for (var i in toolpaths) {
-			toolpaths[i].id = 'T' + toolpathId;
-			addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
-			toolpathId++;
-		}
-	}
-	if (project.svgpaths) {
-		clearSvgPaths();
-		selectMgr.unselectAll();
-		svgpaths = project.svgpaths;
-		svgpathId = 1;
-		var addedTextGroups = {};
-		for (var i in svgpaths) {
-			var sp = svgpaths[i];
-			if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
-				var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
-				var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
-				addTextGroup(sp.textGroupId, text, groupPaths);
-				addedTextGroups[sp.textGroupId] = true;
-			} else if (!sp.textGroupId) {
-				addSvgPath(sp.id, sp.name);
-			}
-			svgpathId++;
-		}
-		// Re-select paths if the redo entry stored selected IDs
-		if (project.selectedIds) {
-			for (var i = 0; i < svgpaths.length; i++) {
-				if (project.selectedIds.indexOf(svgpaths[i].id) >= 0) {
-					selectMgr.selectPath(svgpaths[i]);
-				}
-			}
-		}
-	}
-	onPathsChanged(null);
+	pushToStack(undoList, saveCurrentState());
+	restoreProject(JSON.parse(redoList.pop()));
 }
 
 /**
@@ -520,26 +467,8 @@ function loadProject(json) {
 		}
 	}
 
-	svgpathId = 1;
-	var addedTextGroups = {};
-	for (var i in svgpaths) {
-		var sp = svgpaths[i];
-		if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
-			var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
-			var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
-			addTextGroup(sp.textGroupId, text, groupPaths);
-			addedTextGroups[sp.textGroupId] = true;
-		} else if (!sp.textGroupId) {
-			addSvgPath(sp.id, sp.name);
-		}
-		svgpathId++;
-	}
-	toolpathId = 1;
-	for (var i in toolpaths) {
-		toolpaths[i].id = 'T' + toolpathId;
-		addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
-		toolpathId++;
-	}
+	restoreSvgpaths(svgpaths, null);
+	restoreToolpaths(toolpaths);
 
 	// Restore STL models from saved data
 	if (project.stlModels && typeof window.loadSTLModels === 'function') {
@@ -620,45 +549,7 @@ function doProfile() {
 }
 
 function doOutside() {
-	if (selectMgr.noSelection()) {
-		notify('Select a path to Profile');
-		return;
-	}
-
-	setMode("Outside");
-	var radius = vbitRadius(currentTool) * viewScale;
-	var numLoops = Math.max(1, Math.floor(currentTool.numLoops || 1));
-	var overCutWorld = (currentTool.overCut || 0) * viewScale;
-	var name = 'Outside';
-
-	let selectedPaths = selectMgr.selectedPaths();
-	for (var i = 0; i < selectedPaths.length; i++) {
-		var paths = [];
-		var svgpath = selectedPaths[i];
-		var srcPath = svgpath.path;
-
-		// Generate loops from outermost (roughing) to innermost (finishing pass at design line)
-		for (var loop = numLoops - 1; loop >= 0; loop--) {
-			var offsetAmount = radius + overCutWorld + loop * radius;
-			if (offsetAmount <= 0) continue;
-
-			var offsetPaths = offsetPath(srcPath, offsetAmount, true);
-
-			for (var p = 0; p < offsetPaths.length; p++) {
-				var opath = offsetPaths[p];
-				var subpath = subdividePath(opath, 2);
-				var circles = checkPath(subpath, radius - 1);
-				var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
-
-				if (currentTool.direction != "climb") {
-					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
-				} else {
-					paths.push({ path: circles, tpath: tpath });
-				}
-			}
-		}
-		pushToolPath(paths, name, 'Profile', svgpath.id);
-	}
+	doProfile(true);
 }
 
 function reversePath(path) {
@@ -666,16 +557,25 @@ function reversePath(path) {
 }
 
 function doInside() {
+	doProfile(false);
+}
+
+function doProfile(outside) {
 	if (selectMgr.noSelection()) {
 		notify('Select a path to Profile');
 		return;
 	}
-	setMode("Inside");
 
+	var name = outside ? 'Outside' : 'Inside';
+	setMode(name);
 	var radius = vbitRadius(currentTool) * viewScale;
 	var numLoops = Math.max(1, Math.floor(currentTool.numLoops || 1));
 	var overCutWorld = (currentTool.overCut || 0) * viewScale;
-	var name = 'Inside';
+	// For outside: climb = normal direction, conventional = reversed
+	// For inside: climb = reversed, conventional = normal direction
+	var reverseDirection = outside
+		? (currentTool.direction != "climb")
+		: (currentTool.direction == "climb");
 
 	let selectedPaths = selectMgr.selectedPaths();
 	for (var i = 0; i < selectedPaths.length; i++) {
@@ -683,12 +583,11 @@ function doInside() {
 		var svgpath = selectedPaths[i];
 		var srcPath = svgpath.path;
 
-		// Generate loops from most inward (roughing) to design edge (finishing pass)
 		for (var loop = numLoops - 1; loop >= 0; loop--) {
 			var offsetAmount = radius + overCutWorld + loop * radius;
 			if (offsetAmount <= 0) continue;
 
-			var offsetPaths = offsetPath(srcPath, offsetAmount, false);
+			var offsetPaths = offsetPath(srcPath, offsetAmount, outside);
 
 			for (var p = 0; p < offsetPaths.length; p++) {
 				var opath = offsetPaths[p];
@@ -696,7 +595,7 @@ function doInside() {
 				var circles = checkPath(subpath, radius - 1);
 				var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
-				if (currentTool.direction == "climb") {
+				if (reverseDirection) {
 					paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
 				} else {
 					paths.push({ path: circles, tpath: tpath });
@@ -1675,6 +1574,23 @@ function doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketing
 	window.currentTool = pocketingTool;
 }
 
+// Compute nesting depth for each path using even-odd rule.
+// Depth 0 = outermost boundary, depth 1 = island, depth 2 = hole in island, etc.
+function computeNestingDepths(inputPaths) {
+	let depths = [];
+	for (let i = 0; i < inputPaths.length; i++) {
+		let depth = 0;
+		for (let j = 0; j < inputPaths.length; j++) {
+			if (i === j) continue;
+			if (pathIn(inputPaths[j], inputPaths[i])) {
+				depth++;
+			}
+		}
+		depths.push(depth);
+	}
+	return depths;
+}
+
 function doInlay() {
 	setMode("Inlay");
 	if (selectMgr.noSelection()) {
@@ -1712,19 +1628,7 @@ function doInlay() {
 	inputPaths = normalizeWindingOrder(inputPaths);
 	const selectedSvgIds = selected.map(p => p.id);
 
-	// Compute nesting depth for each path using even-odd rule.
-	// Even-depth paths (0, 2, ...) are outer boundaries, odd-depth (1, 3, ...) are islands.
-	let depths = [];
-	for (let i = 0; i < inputPaths.length; i++) {
-		let depth = 0;
-		for (let j = 0; j < inputPaths.length; j++) {
-			if (i === j) continue;
-			if (pathIn(inputPaths[j], inputPaths[i])) {
-				depth++;
-			}
-		}
-		depths.push(depth);
-	}
+	let depths = computeNestingDepths(inputPaths);
 	let allOuters = [];
 	let allIslands = [];
 	for (let i = 0; i < inputPaths.length; i++) {
@@ -1936,22 +1840,7 @@ function doPocket() {
 	var direction = currentTool.direction || 'climb';
 	const selectedSvgIds = selectMgr.selectedPaths().map(p => p.id);
 
-	// Compute nesting depth for each path using even-odd rule.
-	// Depth 0 = outermost boundary (pocket inside it)
-	// Depth 1 = island (avoid)
-	// Depth 2 = hole in island (pocket inside it)
-	// etc.
-	let depths = [];
-	for (let i = 0; i < inputPaths.length; i++) {
-		let depth = 0;
-		for (let j = 0; j < inputPaths.length; j++) {
-			if (i === j) continue;
-			if (pathIn(inputPaths[j], inputPaths[i])) {
-				depth++;
-			}
-		}
-		depths.push(depth);
-	}
+	let depths = computeNestingDepths(inputPaths);
 
 	// Even-depth paths are pocket boundaries, odd-depth paths are islands.
 	// Each pocket boundary's islands are the odd-depth paths directly inside it

@@ -1,3 +1,21 @@
+function closestPointOnSegment(point, segStart, segEnd) {
+	const dx = segEnd.x - segStart.x;
+	const dy = segEnd.y - segStart.y;
+	const lengthSquared = dx * dx + dy * dy;
+
+	if (lengthSquared === 0) {
+		return { x: segStart.x, y: segStart.y };
+	}
+
+	let t = ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared;
+	t = Math.max(0, Math.min(1, t));
+
+	return {
+		x: segStart.x + t * dx,
+		y: segStart.y + t * dy
+	};
+}
+
 function worldToScreen(x, y) {
 	return {
 		x: (x * zoomLevel + panX),
@@ -176,15 +194,6 @@ function parseDimension(value) {
 	return totalInches * MM_PER_INCH;
 }
 
-// Simple conversions
-function mmToInches(mm) {
-	return mm / MM_PER_INCH;
-}
-
-function inchesToMm(inches) {
-	return inches * MM_PER_INCH;
-}
-
 function closestPath(pt, clear) {
 	var svgpath = null;
 	var maxDistSquared = 100; // Maximum distance threshold for highlighting
@@ -324,13 +333,7 @@ function boundingBox(path) {
 }
 
 function isClockwise(path) {
-	var area = 0;
-	for (var i = 0; i < path.length; i++) {
-		var j = (i + 1) % path.length;
-		area += path[i].x * path[j].y;
-		area -= path[j].x * path[i].y;
-	}
-	return (area < 0);
+	return getSignedArea(path) > 0;
 }
 
 function sqr(x) {
@@ -398,7 +401,7 @@ function pointInBoundingBox(point, bbox) {
 }
 
 function nearbyPaths(svgpath, radius) {
-	nearbypaths = [];
+	var nearbypaths = [];
 	var bbox = {};
 	var d = 2 * radius;
 
@@ -570,13 +573,16 @@ function normalizeWindingOrder(inputPaths) {
 	}
 
 	// Multiple paths - identify outer (largest) vs inner (islands)
-	const pathsWithArea = inputPaths.map((path, idx) => ({
-		path: path,
-		area: Math.abs(getSignedArea(path)),
-		signedArea: getSignedArea(path),
-		isClockwise: getSignedArea(path) < 0,
-		index: idx
-	}));
+	const pathsWithArea = inputPaths.map((path, idx) => {
+		const signed = getSignedArea(path);
+		return {
+			path: path,
+			area: Math.abs(signed),
+			signedArea: signed,
+			isClockwise: signed < 0,
+			index: idx
+		};
+	});
 
 	// Largest area path is the outer boundary
 	const outerPathData = pathsWithArea.reduce((max, p) =>
