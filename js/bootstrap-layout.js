@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-20";
+var APP_VERSION = "Ver 2026-03-21";
 
 var mode = "Select";
 var options = [];
@@ -3794,39 +3794,53 @@ function handleOperationClick(operation) {
         case 'Pattern':
             doPattern();
             break;
-        // Machining Operations
+        // Machining Operations — batch all generated toolpaths into a single undo step
         case 'Drill':
+            beginUndoBatch();
             doDrill();
+            endUndoBatch();
             break;
 
         case 'Profile':
+            beginUndoBatch();
             doProfile();
+            endUndoBatch();
             selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'Pocket':
+            beginUndoBatch();
             doPocket();
+            endUndoBatch();
             selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'VCarve':
+            beginUndoBatch();
             doVcarve();
+            endUndoBatch();
             selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'Inlay':
+            beginUndoBatch();
             doInlay();
+            endUndoBatch();
             selectMgr.unselectAll();
             setMode("Select");
             break;
         case 'Surfacing':
+            beginUndoBatch();
             doSurfacing();
+            endUndoBatch();
             setMode("Select");
             break;
         case '3dProfile':
+            beginUndoBatch();
             if (typeof window.do3dProfile === 'function') {
                 window.do3dProfile();
             }
+            endUndoBatch();
             selectMgr.unselectAll();
             setMode("Select");
             break;

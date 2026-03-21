@@ -464,8 +464,19 @@ function addCircles(path, r) {
 }
 
 
-function pushToolPath(paths, name, operation, svgId = null, svgIds = null, label = null) {
+var _undoBatching = false;
+
+function beginUndoBatch() {
 	addUndo(true, false, false);
+	_undoBatching = true;
+}
+
+function endUndoBatch() {
+	_undoBatching = false;
+}
+
+function pushToolPath(paths, name, operation, svgId = null, svgIds = null, label = null) {
+	if (!_undoBatching) addUndo(true, false, false);
 
 	// If we're updating existing toolpaths, update in-place instead of creating new ones.
 	// This preserves the toolpath's name, id, and position in the list.
@@ -1446,6 +1457,11 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 function computeWithMedialAxis(outside, name) {
 	var selected = selectMgr.selectedPaths();
 	var paths = [];
+
+	// Clear hole flags from any previous computation
+	for (var i in selected) {
+		delete selected[i].hole;
+	}
 
 	for (var i in selected) {
 		if (selected[i].hole) continue;
