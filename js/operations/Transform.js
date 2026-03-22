@@ -447,8 +447,49 @@ class Transform extends Select {
         this.updateCenterDisplay();
     }
 
+    updatePivotAfterTransform(prevCenter) {
+        const newCenter = { x: this.transformBox.centerX, y: this.transformBox.centerY };
+
+        if (prevCenter && this.pivotCenter) {
+            // Move pivot by the amount the transform box moved
+            const dx = newCenter.x - prevCenter.x;
+            const dy = newCenter.y - prevCenter.y;
+            this.pivotCenter.x += dx;
+            this.pivotCenter.y += dy;
+            this.originalPivot.x += dx;
+            this.originalPivot.y += dy;
+        } else if (!prevCenter || prevCenter.x !== newCenter.x || prevCenter.y !== newCenter.y) {
+            this.pivotCenter = { ...newCenter };
+            this.originalPivot = { ...newCenter };
+        }
+    }
+
+    recordTransformHistory() {
+        const isIdentity = this.deltaX === 0 && this.deltaY === 0 &&
+            this.scaleX === 1 && this.scaleY === 1 &&
+            this.rotation === 0 && this.skewX === 0 && this.skewY === 0;
+        if (isIdentity) return;
+
+        const cx = this.initialTransformBox.centerX;
+        const cy = this.initialTransformBox.centerY;
+        selectMgr.selectedPaths().forEach(path => {
+            if (path.creationProperties) {
+                if (!path.transformHistory) path.transformHistory = [];
+                path.transformHistory.push({
+                    centerX: cx, centerY: cy,
+                    scaleX: this.scaleX, scaleY: this.scaleY,
+                    rotation: this.rotation,
+                    skewX: this.skewX, skewY: this.skewY,
+                    deltaX: this.deltaX, deltaY: this.deltaY,
+                    pivotCenterX: this.pivotCenter ? this.pivotCenter.x : cx,
+                    pivotCenterY: this.pivotCenter ? this.pivotCenter.y : cy
+                });
+            }
+        });
+    }
+
     onMouseUp(canvas, evt) {
-        const hadSelectBox = this.selectBox; // Check if we were doing drag selection
+        const hadSelectBox = this.selectBox;
         const wasTransforming =
             (Transform.state == Transform.ADJUSTING_PIVOT ||
                 Transform.state == Transform.SCALING ||
@@ -458,15 +499,11 @@ class Transform extends Select {
                 Transform.state == Transform.SKEWING
             );
 
-        const wasDraggingPath = Transform.state == Transform.DRAGGING;
-
         this.mouseDown = false;
 
-        // Call parent to handle inherited Select behavior (may change selection)
         if (!wasTransforming)
             super.onMouseUp(canvas, evt);
 
-        // Update transform state after mouse up
         if (this.hasSelectedPaths()) {
             // Update bboxes for all selected paths
             svgpaths.forEach(path => {
@@ -475,106 +512,41 @@ class Transform extends Select {
                 }
             });
 
-            // Store the previous transform box center to detect selection changes
             const prevCenter = this.transformBox ?
                 { x: this.transformBox.centerX, y: this.transformBox.centerY } : null;
 
-            // Always recalculate transform box to include all selected paths
-            // This handles clicks, drags, and multi-selections
             this.transformBox = this.createTransformBox(svgpaths);
             this.initialTransformBox = { ...this.transformBox };
             this.activeHandle = null;
-
-            // Update original paths from current state for sequential transformations
-            // This ensures that scale + rotate works by applying rotate to scaled paths
             this.storeOriginalPaths();
 
-            // Handle pivot point based on what just happened
-            const newCenter = { x: this.transformBox.centerX, y: this.transformBox.centerY };
-
-            if (prevCenter && this.pivotCenter) {
-                // If we were dragging a path, move the pivot by the exact amount the transform box moved
-                // This preserves the user's custom pivot point position relative to the shapes
-                const boxMovement = {
-                    x: newCenter.x - prevCenter.x,
-                    y: newCenter.y - prevCenter.y
-                };
-                this.pivotCenter.x += boxMovement.x;
-                this.pivotCenter.y += boxMovement.y;
-                this.originalPivot.x += boxMovement.x;
-                this.originalPivot.y += boxMovement.y;
-            } else {
-                // If selection changed or no custom pivot, reset to new transform box center
-                if (!prevCenter || prevCenter.x !== newCenter.x || prevCenter.y !== newCenter.y) {
-                    this.pivotCenter = { ...newCenter };
-                    this.originalPivot = { ...newCenter };
-                }
-            }
-
-            // Store transform history for editable object regeneration
-            if (wasTransforming) {
-                const isIdentity = this.deltaX === 0 && this.deltaY === 0 &&
-                    this.scaleX === 1 && this.scaleY === 1 &&
-                    this.rotation === 0 && this.skewX === 0 && this.skewY === 0;
-                if (!isIdentity) {
-                    const cx = this.initialTransformBox.centerX;
-                    const cy = this.initialTransformBox.centerY;
-                    selectMgr.selectedPaths().forEach(path => {
-                        if (path.creationProperties) {
-                            if (!path.transformHistory) path.transformHistory = [];
-                            path.transformHistory.push({
-                                centerX: cx,
-                                centerY: cy,
-                                scaleX: this.scaleX,
-                                scaleY: this.scaleY,
-                                rotation: this.rotation,
-                                skewX: this.skewX,
-                                skewY: this.skewY,
-                                deltaX: this.deltaX,
-                                deltaY: this.deltaY,
-                                pivotCenterX: this.pivotCenter ? this.pivotCenter.x : cx,
-                                pivotCenterY: this.pivotCenter ? this.pivotCenter.y : cy
-                            });
-                        }
-                    });
-                }
-            }
+            this.updatePivotAfterTransform(prevCenter);
 
             if (wasTransforming) {
-                // Accumulate the just-completed transform into totals
+                this.recordTransformHistory();
                 this.totalRotation += this.rotation;
                 this.totalSkewX += this.skewX;
                 this.totalSkewY += this.skewY;
             } else {
-                // Selection click — recover totals from the newly selected path's history
                 this.recoverTotalsFromHistory();
             }
 
-            // Notify that paths changed (handles toolpath regeneration, STL sync, etc.)
             if (wasTransforming && typeof onPathsChanged === 'function') {
-                const changedIds = selectMgr.selectedPaths().map(p => p.id);
-                onPathsChanged(changedIds);
+                onPathsChanged(selectMgr.selectedPaths().map(p => p.id));
             }
 
-            // Always reset accumulators after operation completes
             this.resetTransformState();
 
-            // Refresh properties panel when selection changed or after box selection
             if (hadSelectBox || !wasTransforming) {
                 this.refreshPropertiesPanel();
             }
 
-            // Transition back to IDLE state
             Transform.state = Transform.IDLE;
-        }
-        else {
-            // No selection, clear transform state
+        } else {
             this.transformBox = null;
             this.activeHandle = null;
-            // Transition to IDLE (without selection)
             Transform.state = Transform.IDLE;
 
-            // If on the Operations tab, return to Select mode
             const operationsTab = document.getElementById('operations-tab');
             if (operationsTab && operationsTab.classList.contains('active')) {
                 cncController.setMode('Select');

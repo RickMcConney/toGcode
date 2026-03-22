@@ -504,13 +504,30 @@ class ToolpathPropertiesManager {
             return '<p class="text-danger">Unknown operation</p>';
         }
 
+        // Field name -> { prop, generator, useNullish }
+        const fieldGenerators = [
+            { field: 'inlayType',        prop: 'inlayType',        gen: 'generateInlayTypeDropdownHTML' },
+            { field: 'tool',             prop: 'toolId',           gen: 'generateToolDropdownHTML' },
+            { field: 'strategy',         prop: 'strategy',         gen: 'generateStrategyDropdownHTML' },
+            { field: 'finishingTool',    prop: 'finishingToolId',  gen: 'generateFinishingToolDropdownHTML' },
+            { field: 'inside',           prop: 'inside',           gen: 'generateInsideOutsideDropdownHTML' },
+            { field: 'direction',        prop: 'direction',        gen: 'generateDirectionDropdownHTML' },
+            { field: 'depth',            prop: 'depth',            gen: 'generateDepthInputHTML' },
+            { field: 'step',             prop: 'step',             gen: 'generateStepInputHTML' },
+            { field: 'numLoops',         prop: 'numLoops',         gen: 'generateNumLoopsInputHTML',       nullish: true },
+            { field: 'overCut',          prop: 'overCut',          gen: 'generateOverCutInputHTML',        nullish: true },
+            { field: 'stepover',         prop: 'stepover',         gen: 'generateStepoverInputHTML' },
+            { field: 'clearance',        prop: 'clearance',        gen: 'generateClearanceInputHTML',      nullish: true },
+            { field: 'glueGap',          prop: 'glueGap',          gen: 'generateGlueGapInputHTML',        nullish: true },
+            { field: 'cutOut',           prop: 'cutOut',           gen: 'generateCutOutCheckboxHTML',      nullish: true },
+            { field: 'angle',            prop: 'angle',            gen: 'generateAngleInputHTML' },
+            { field: 'restToolDiameter', prop: 'restToolDiameter', gen: 'generateRestToolDiameterHTML',    nullish: true },
+        ];
+
         let html = '';
 
         // Info box header
-        html += `<div class="alert alert-info mb-3">`;
-        html += `<strong>${operationName}</strong><br>`;
-        html += config.description;
-        html += `</div>`;
+        html += `<div class="alert alert-info mb-3"><strong>${operationName}</strong><br>${config.description}</div>`;
 
         // Name field
         const defaultName = this.getDefaultName(operationName, existingProperties);
@@ -519,110 +536,20 @@ class ToolpathPropertiesManager {
         html += `<input type="text" class="form-control form-control-sm" id="toolpath-name-input" name="toolpathName" value="${defaultName.replace(/"/g, '&quot;')}">`;
         html += `</div>`;
 
-        // Inlay type dropdown
-        if (config.fields.includes('inlayType')) {
-            const inlayType = existingProperties?.inlayType || null;
-            html += this.generateInlayTypeDropdownHTML(operationName, inlayType);
-        }
-
-        // Tool selection dropdown
-        if (config.fields.includes('tool')) {
-            const toolId = existingProperties?.toolId || null;
-            html += this.generateToolDropdownHTML(operationName, toolId);
-        }
-
-        // Strategy dropdown
-        if (config.fields.includes('strategy')) {
-            const strategy = existingProperties?.strategy || null;
-            html += this.generateStrategyDropdownHTML(operationName, strategy);
-        }
-
-        // Finishing tool dropdown (for Inlay)
-        if (config.fields.includes('finishingTool')) {
-            const finishingToolId = existingProperties?.finishingToolId || null;
-            html += this.generateFinishingToolDropdownHTML(operationName, finishingToolId);
-        }
-
-        // Inside/Outside selection (for relevant operations)
-        if (config.fields.includes('inside')) {
-            const inside = existingProperties?.inside || null;
-            html += this.generateInsideOutsideDropdownHTML(operationName, inside);
-        }
-        // Direction selection (for relevant operations)
-        if (config.fields.includes('direction')) {
-            const direction = existingProperties?.direction || null;
-            html += this.generateDirectionDropdownHTML(operationName, direction);
-        }
-
-        // Depth input
-        if (config.fields.includes('depth')) {
-            const depth = existingProperties?.depth || null;
-            html += this.generateDepthInputHTML(operationName, depth);
-        }
-
-        // Step down input
-        if (config.fields.includes('step')) {
-            const step = existingProperties?.step || null;
-            html += this.generateStepInputHTML(operationName, step);
-        }
-
-        // Profile loops input
-        if (config.fields.includes('numLoops')) {
-            const numLoops = existingProperties?.numLoops ?? null;
-            html += this.generateNumLoopsInputHTML(operationName, numLoops);
-        }
-
-        // Over/under cut input
-        if (config.fields.includes('overCut')) {
-            const overCut = existingProperties?.overCut ?? null;
-            html += this.generateOverCutInputHTML(operationName, overCut);
-        }
-
-        // Stepover input
-        if (config.fields.includes('stepover')) {
-            const stepover = existingProperties?.stepover || null;
-            html += this.generateStepoverInputHTML(operationName, stepover);
-        }
-
-        // Clearance input (for Inlay)
-        if (config.fields.includes('clearance')) {
-            const clearance = existingProperties?.clearance ?? null;
-            html += this.generateClearanceInputHTML(operationName, clearance);
-        }
-
-        // Glue gap input (for Inlay with V-bit finishing)
-        if (config.fields.includes('glueGap')) {
-            const glueGap = existingProperties?.glueGap ?? null;
-            html += this.generateGlueGapInputHTML(operationName, glueGap);
-        }
-
-        // Cut out checkbox (for Inlay male plug)
-        if (config.fields.includes('cutOut')) {
-            const cutOut = existingProperties?.cutOut ?? null;
-            html += this.generateCutOutCheckboxHTML(operationName, cutOut);
-        }
-
-        // Angle input
-        if (config.fields.includes('angle')) {
-            const angle = existingProperties?.angle || null;
-            html += this.generateAngleInputHTML(operationName, angle);
-        }
-
-        // Rest machining previous tool dropdown
-        if (config.fields.includes('restToolDiameter')) {
-            const restToolDiameter = existingProperties?.restToolDiameter ?? null;
-            html += this.generateRestToolDiameterHTML(operationName, restToolDiameter);
+        // Generate fields from config
+        for (const fg of fieldGenerators) {
+            if (!config.fields.includes(fg.field)) continue;
+            const value = fg.nullish ? (existingProperties?.[fg.prop] ?? null) : (existingProperties?.[fg.prop] || null);
+            html += this[fg.gen](operationName, value);
         }
 
         // Update/Apply button
         const buttonLabel = config.applyButtonLabel || 'Update Toolpath';
         const buttonDesc = config.applyButtonDescription || 'Select paths to generate toolpaths. Click Update to apply changes to the last toolpath.';
-        html += '<div class="mb-3">';
-        html += '<button type="button" class="btn btn-primary btn-sm w-100" id="update-toolpath-button">';
-        html += `<i data-lucide="refresh-cw"></i> ${buttonLabel}`;
-        html += '</button>';
-        html += `<div class="form-text small">${buttonDesc}</div>`;
-        html += '</div>';
+        html += `<div class="mb-3">`;
+        html += `<button type="button" class="btn btn-primary btn-sm w-100" id="update-toolpath-button">`;
+        html += `<i data-lucide="refresh-cw"></i> ${buttonLabel}</button>`;
+        html += `<div class="form-text small">${buttonDesc}</div></div>`;
 
         return html;
     }
@@ -634,82 +561,34 @@ class ToolpathPropertiesManager {
         const data = {};
 
         const nameInput = document.getElementById('toolpath-name-input');
-        if (nameInput) {
-            data.toolpathName = nameInput.value.trim();
-        }
+        if (nameInput) data.toolpathName = nameInput.value.trim();
 
-        const toolSelect = document.getElementById('tool-select');
-        const depthInput = document.getElementById('depth-input');
-        const stepInput = document.getElementById('step-input');
-        const stepoverInput = document.getElementById('stepover-input');
-        const angleInput = document.getElementById('angle-input');
-        const insideInput = document.getElementById('inside-select');
-        const directionInput = document.getElementById('direction-select');
-        const numLoopsInput = document.getElementById('numloops-input');
-        const overCutInput = document.getElementById('overcut-input');
+        // [elementId, dataKey, parser]
+        const fields = [
+            ['tool-select',           'toolId',           v => parseInt(v)],
+            ['inside-select',         'inside',           v => v],
+            ['direction-select',      'direction',        v => v],
+            ['depth-input',           'depth',            v => parseDimension(v)],
+            ['step-input',            'step',             v => parseDimension(v)],
+            ['stepover-input',        'stepover',         v => parseFloat(v)],
+            ['angle-input',           'angle',            v => parseFloat(v)],
+            ['numloops-input',        'numLoops',         v => Math.max(1, parseInt(v) || 1)],
+            ['overcut-input',         'overCut',          v => parseDimension(v) || 0],
+            ['inlay-type-select',     'inlayType',        v => v],
+            ['clearance-input',       'clearance',        v => parseFloat(v) || 0],
+            ['glue-gap-input',        'glueGap',          v => parseFloat(v) || 0],
+            ['finishing-tool-select', 'finishingToolId',   v => parseInt(v)],
+            ['rest-tool-select',      'restToolDiameter',  v => parseFloat(v) || 0],
+            ['strategy-select',       'strategy',          v => v],
+        ];
 
-        if (toolSelect) {
-            data.toolId = parseInt(toolSelect.value);
-        }
-        if (insideInput) {
-            data.inside = insideInput.value;
-        }
-        if (directionInput) {
-            data.direction = directionInput.value;
-        }
-        if (depthInput) {
-            data.depth = parseDimension(depthInput.value);
-        }
-        if (stepInput) {
-            data.step = parseDimension(stepInput.value);
-        }
-        if (stepoverInput) {
-            data.stepover = parseFloat(stepoverInput.value);
-        }
-        if (angleInput) {
-            data.angle = parseFloat(angleInput.value);
-        }
-        if (numLoopsInput) {
-            data.numLoops = Math.max(1, parseInt(numLoopsInput.value) || 1);
-        }
-        if (overCutInput) {
-            data.overCut = parseDimension(overCutInput.value) || 0;
-        }
-
-        const inlayTypeSelect = document.getElementById('inlay-type-select');
-        if (inlayTypeSelect) {
-            data.inlayType = inlayTypeSelect.value;
-        }
-
-        const clearanceInput = document.getElementById('clearance-input');
-        if (clearanceInput) {
-            data.clearance = parseFloat(clearanceInput.value) || 0;
-        }
-
-        const glueGapInput = document.getElementById('glue-gap-input');
-        if (glueGapInput) {
-            data.glueGap = parseFloat(glueGapInput.value) || 0;
-        }
-
-        const finishingToolSelect = document.getElementById('finishing-tool-select');
-        if (finishingToolSelect) {
-            data.finishingToolId = parseInt(finishingToolSelect.value);
+        for (const [id, key, parser] of fields) {
+            const el = document.getElementById(id);
+            if (el) data[key] = parser(el.value);
         }
 
         const cutOutCheckbox = document.getElementById('cutout-checkbox');
-        if (cutOutCheckbox) {
-            data.cutOut = cutOutCheckbox.checked;
-        }
-
-        const restToolSelect = document.getElementById('rest-tool-select');
-        if (restToolSelect) {
-            data.restToolDiameter = parseFloat(restToolSelect.value) || 0;
-        }
-
-        const strategySelect = document.getElementById('strategy-select');
-        if (strategySelect) {
-            data.strategy = strategySelect.value;
-        }
+        if (cutOutCheckbox) data.cutOut = cutOutCheckbox.checked;
 
         return data;
     }

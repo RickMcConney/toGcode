@@ -473,47 +473,46 @@ function makeHelicalHole(circle, svgId) {
  * toolRadius: tool radius in world coords
  * Returns array of {x, y, z} points in world coords, z in mm
  */
+// Generate arc points at constant or interpolated radius/Z, advancing angleOffset
+function generateArcPoints(points, cx, cy, r1, r2, z1, z2, numPoints, angleOffset, ppr, toolRadius, startAt1) {
+	var start = startAt1 ? 1 : 0;
+	for (var i = start; i <= numPoints; i++) {
+		var t = i / numPoints;
+		var r = r1 + (r2 - r1) * t;
+		var z = z1 + (z2 - z1) * t;
+		var angle = ((angleOffset + i) / ppr) * 2 * Math.PI;
+		points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), z: z, r: toolRadius });
+	}
+	return angleOffset + numPoints;
+}
+
 function generateHelixPath(circle, depth, stepDown, toolRadius) {
 	var points = [];
-	var pointsPerRevolution = 72; // 5 degrees per point
+	var ppr = 72; // points per revolution
 	var cx = circle.cx;
 	var cy = circle.cy;
-	var outerCutRadius = circle.radius - toolRadius; // offset so tool edge touches circle
+	var outerCutRadius = circle.radius - toolRadius;
 
 	if (stepDown <= 0) stepDown = depth;
 
-	// Determine concentric radii needed.
-	// Stepover is 50% of tool diameter (= tool radius).
+	// Determine concentric radii (stepover = tool radius)
 	var stepover = toolRadius;
 	var radii = [];
-
 	if (outerCutRadius <= stepover) {
-		// Single pass — tool covers from center to the outer cut radius
 		radii.push(outerCutRadius);
 	} else {
-		// Multiple passes from center outward at fixed stepover
 		var r = stepover;
-		while (r < outerCutRadius) {
-			radii.push(r);
-			r += stepover;
-		}
-		radii.push(outerCutRadius); // final pass at exact outer radius
+		while (r < outerCutRadius) { radii.push(r); r += stepover; }
+		radii.push(outerCutRadius);
 	}
 
-	// Build list of Z depth levels
+	// Build Z depth levels
 	var zLevels = [];
 	var z = 0;
-	while (z < depth) {
-		z += stepDown;
-		if (z > depth) z = depth;
-		zLevels.push(-z);
-	}
+	while (z < depth) { z += stepDown; if (z > depth) z = depth; zLevels.push(-z); }
 
-	// Track running angle offset so each operation continues from where
-	// the last one ended — no backtracking. The spiral-out transitions
-	// advance the offset so they progress around the circle.
-	var transitionPoints = Math.round(pointsPerRevolution / 8); // 1/8 turn to spiral out
-	var angleOffset = 0; // accumulated point offset
+	var transitionPoints = Math.round(ppr / 8);
+	var angleOffset = 0;
 	var currentZ = 0;
 	var r0 = radii[0];
 
@@ -521,68 +520,30 @@ function generateHelixPath(circle, depth, stepDown, toolRadius) {
 		var targetZ = zLevels[levelIdx];
 		var isLastLevel = (levelIdx === zLevels.length - 1);
 
-		// Helix down one revolution at the innermost radius, continuing from current angle
-		for (var i = 0; i <= pointsPerRevolution; i++) {
-			var t = i / pointsPerRevolution;
-			var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-			var z = currentZ + (targetZ - currentZ) * t;
-			points.push({ x: cx + r0 * Math.cos(angle), y: cy + r0 * Math.sin(angle), z: z, r: toolRadius });
-		}
-		angleOffset += pointsPerRevolution;
+		// Helix down one revolution at innermost radius
+		angleOffset = generateArcPoints(points, cx, cy, r0, r0, currentZ, targetZ, ppr, angleOffset, ppr, toolRadius, false);
 
-		// At final depth, full circle at r0 to flatten the helix ramp
-		// before spiraling out. At intermediate depths the next helix re-cuts it.
+		// At final depth, flatten the helix ramp with a full circle
 		if (isLastLevel) {
-			for (var i = 1; i <= pointsPerRevolution; i++) {
-				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-				points.push({ x: cx + r0 * Math.cos(angle), y: cy + r0 * Math.sin(angle), z: targetZ, r: toolRadius });
-			}
-			angleOffset += pointsPerRevolution;
+			angleOffset = generateArcPoints(points, cx, cy, r0, r0, targetZ, targetZ, ppr, angleOffset, ppr, toolRadius, true);
 		}
 
-		// Expand outward through remaining radii at this depth
+		// Spiral outward through remaining radii
 		for (var rIdx = 1; rIdx < radii.length; rIdx++) {
-			var prevR = radii[rIdx - 1];
-			var r = radii[rIdx];
-
-			// Spiral outward from prevR to r in 1/8 turn, continuing from current angle
-			for (var i = 1; i <= transitionPoints; i++) {
-				var t = i / transitionPoints;
-				var transR = prevR + (r - prevR) * t;
-				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-				points.push({ x: cx + transR * Math.cos(angle), y: cy + transR * Math.sin(angle), z: targetZ, r: toolRadius });
-			}
-			angleOffset += transitionPoints;
-
-			// Full circle at this radius, continuing from current angle
-			for (var i = 1; i <= pointsPerRevolution; i++) {
-				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-				points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), z: targetZ, r: toolRadius });
-			}
-			angleOffset += pointsPerRevolution;
+			// Transition from previous radius to this one in 1/8 turn
+			angleOffset = generateArcPoints(points, cx, cy, radii[rIdx - 1], radii[rIdx], targetZ, targetZ, transitionPoints, angleOffset, ppr, toolRadius, true);
+			// Full circle at this radius
+			angleOffset = generateArcPoints(points, cx, cy, radii[rIdx], radii[rIdx], targetZ, targetZ, ppr, angleOffset, ppr, toolRadius, true);
 		}
 
-		// At final depth, extend by the transition amount to clean up
-		// the 1/8 turn the helix missed during descent
+		// At final depth, cleanup arc for the 1/8 turn missed during descent
 		if (isLastLevel) {
-			var finalR = radii[radii.length - 1];
-			for (var i = 1; i <= transitionPoints; i++) {
-				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-				points.push({ x: cx + finalR * Math.cos(angle), y: cy + finalR * Math.sin(angle), z: targetZ, r: toolRadius });
-			}
+			generateArcPoints(points, cx, cy, radii[radii.length - 1], radii[radii.length - 1], targetZ, targetZ, transitionPoints, angleOffset, ppr, toolRadius, true);
 		}
 
-		// If not the last level, spiral back inward to innermost radius in 1/8 turn
-		// (through already-cut material — no load)
+		// Spiral back inward to innermost radius for next level
 		if (!isLastLevel && radii.length > 1) {
-			var outerR = radii[radii.length - 1];
-			for (var i = 1; i <= transitionPoints; i++) {
-				var t = i / transitionPoints;
-				var transR = outerR + (r0 - outerR) * t;
-				var angle = ((angleOffset + i) / pointsPerRevolution) * 2 * Math.PI;
-				points.push({ x: cx + transR * Math.cos(angle), y: cy + transR * Math.sin(angle), z: targetZ, r: toolRadius });
-			}
-			angleOffset += transitionPoints;
+			angleOffset = generateArcPoints(points, cx, cy, radii[radii.length - 1], r0, targetZ, targetZ, transitionPoints, angleOffset, ppr, toolRadius, true);
 		}
 
 		currentZ = targetZ;
@@ -747,146 +708,96 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius, angle = 0) 
  * @param {number} angle - Infill angle (paths already rotated back to original orientation by generateClipperInfill)
  * @returns {Array} Array of chains, each containing segments from one X-region
  */
+// Append a segment to a chain, reversing if needed for smooth continuation
+function appendSegmentToChain(chain, segmentPath) {
+	const segStart = segmentPath[0];
+	const segEnd = segmentPath[segmentPath.length - 1];
+	const last = chain.lastEndpoint;
+
+	const distToStart = Math.hypot(segStart.x - last.x, segStart.y - last.y);
+	const distToEnd = Math.hypot(segEnd.x - last.x, segEnd.y - last.y);
+
+	if (distToEnd < distToStart) {
+		const reversed = reversePath(segmentPath);
+		chain.segments.push(reversed);
+		chain.lastEndpoint = reversed[reversed.length - 1];
+	} else {
+		chain.segments.push(segmentPath);
+		chain.lastEndpoint = segmentPath[segmentPath.length - 1];
+	}
+	chain.wasUpdated = true;
+}
+
+// Find the best matching open chain for a segment within tolerance
+function findBestChainMatch(openChains, segmentPath, tolerance) {
+	const segStart = segmentPath[0];
+	const segEnd = segmentPath[segmentPath.length - 1];
+	let bestChain = null;
+	let bestDistance = Infinity;
+	let shouldReverse = false;
+
+	for (let chain of openChains) {
+		const last = chain.lastEndpoint;
+		const distToStart = Math.hypot(segStart.x - last.x, segStart.y - last.y);
+		const distToEnd = Math.hypot(segEnd.x - last.x, segEnd.y - last.y);
+
+		const closestDist = Math.min(distToStart, distToEnd);
+		const reverse = distToEnd < distToStart;
+
+		if (closestDist < tolerance && closestDist < bestDistance) {
+			bestChain = chain;
+			bestDistance = closestDist;
+			shouldReverse = reverse;
+		}
+	}
+
+	return { bestChain, shouldReverse };
+}
+
 function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 	if (infillGroups.length === 0) return [];
 
-	const tolerance = stepover * 2;  // Tolerance for endpoint matching (accounts for Y-distance between segments)
-	const openChains = [];  // Chains still being built
-	const closedChains = [];  // Finalized chains
-	let previousWasSingleSegment = false;  // Track single-segment continuity
+	const tolerance = stepover * 2;
+	const openChains = [];
+	const closedChains = [];
+	let previousWasSingleSegment = false;
 
-	// Process Y-groups in order (already sorted by Y from generateClipperInfill)
 	for (let groupIdx = 0; groupIdx < infillGroups.length; groupIdx++) {
 		const group = infillGroups[groupIdx];
 		const sourceY = group.sourceLineY;
 
-		// Extract all segments from this Y-group
-		const segments = [];
-		for (let path of group.paths) {
-			// Each path is one segment (one side of an island or continuous region)
-			segments.push({ path: path });
-		}
-
-		// Sort segments by X position (left to right) for consistent ordering
+		const segments = group.paths.map(path => ({ path }));
 		segments.sort((a, b) => {
 			const aMinX = Math.min(a.path[0].x, a.path[a.path.length - 1].x);
 			const bMinX = Math.min(b.path[0].x, b.path[b.path.length - 1].x);
 			return aMinX - bMinX;
 		});
 
-		// Check if this Y-level has only one segment (no islands)
 		const isSingleSegment = segments.length === 1;
 
-		// Mark which open chains got updated this iteration
-		for (let chain of openChains) {
-			chain.wasUpdated = false;
-		}
+		for (let chain of openChains) chain.wasUpdated = false;
 
-		// Match segments to open chains based on endpoint proximity
 		for (let segment of segments) {
-			// Special case: if both previous and current Y-levels have single segments,
-			// force continuity (no islands at either level, must be continuous)
 			if (isSingleSegment && previousWasSingleSegment && openChains.length > 0) {
-				// Force segment into existing chain(s)
-				// If there's only one open chain, add to it
-				// If multiple chains, add to first one (they should have been closed if truly separate)
-				const chain = openChains[0];
-
-				const segStart = segment.path[0];
-				const segEnd = segment.path[segment.path.length - 1];
-				const lastEndpoint = chain.lastEndpoint;
-
-				// Still determine if reversal is needed for smooth continuation
-				const distToStart = Math.hypot(
-					segStart.x - lastEndpoint.x,
-					segStart.y - lastEndpoint.y
-				);
-				const distToEnd = Math.hypot(
-					segEnd.x - lastEndpoint.x,
-					segEnd.y - lastEndpoint.y
-				);
-
-				let addedSegment = segment.path;
-				let newEndpoint;
-
-				if (distToEnd < distToStart) {
-					// End point is closer - reverse for continuity
-					addedSegment = reversePath(segment.path);
-					newEndpoint = addedSegment[addedSegment.length - 1];
-				} else {
-					// Start point is closer - use as-is
-					newEndpoint = segment.path[segment.path.length - 1];
-				}
-
-				chain.segments.push(addedSegment);
-				chain.lastEndpoint = newEndpoint;
-				chain.wasUpdated = true;
+				// Force continuity when both levels have single segments
+				appendSegmentToChain(openChains[0], segment.path);
 			} else {
-				// Normal tolerance-based matching for multi-segment or first segment
-				const segStart = segment.path[0];
-				const segEnd = segment.path[segment.path.length - 1];
-				let bestChain = null;
-				let bestDistance = Infinity;
-				let shouldReverse = false;
+				const { bestChain, shouldReverse } = findBestChainMatch(openChains, segment.path, tolerance);
 
-				// Find open chain with closest matching endpoint
-				for (let chain of openChains) {
-					const lastEndpoint = chain.lastEndpoint;
-
-					// Calculate distance from last endpoint to this segment's start point
-					const distToStart = Math.hypot(
-						segStart.x - lastEndpoint.x,
-						segStart.y - lastEndpoint.y
-					);
-
-					// Calculate distance from last endpoint to this segment's end point
-					const distToEnd = Math.hypot(
-						segEnd.x - lastEndpoint.x,
-						segEnd.y - lastEndpoint.y
-					);
-
-					// Use whichever endpoint is closer
-					let closestDist, reverse;
-					if (distToStart < distToEnd) {
-						// Start point is closer - cut forward
-						closestDist = distToStart;
-						reverse = false;
-					} else {
-						// End point is closer - cut backward (reverse)
-						closestDist = distToEnd;
-						reverse = true;
-					}
-
-					// Update best match if this is within tolerance and closest
-					if (closestDist < tolerance && closestDist < bestDistance) {
-						bestChain = chain;
-						bestDistance = closestDist;
-						shouldReverse = reverse;
-					}
-				}
-
-				// Add segment to best matching chain or create new chain
 				if (bestChain) {
-					let addedSegment = segment.path;
-					let newEndpoint;
-
 					if (shouldReverse) {
-						// Reverse the segment for continuity
-						addedSegment = reversePath(segment.path);
-						newEndpoint = addedSegment[addedSegment.length - 1];  // Last point of reversed segment
+						const reversed = reversePath(segment.path);
+						bestChain.segments.push(reversed);
+						bestChain.lastEndpoint = reversed[reversed.length - 1];
 					} else {
-						// Use segment as-is
-						newEndpoint = segment.path[segment.path.length - 1];  // Last point
+						bestChain.segments.push(segment.path);
+						bestChain.lastEndpoint = segment.path[segment.path.length - 1];
 					}
-
-					bestChain.segments.push(addedSegment);
-					bestChain.lastEndpoint = newEndpoint;  // Update endpoint for next match
 					bestChain.wasUpdated = true;
 				} else {
-					// Create new chain
 					openChains.push({
 						segments: [segment.path],
-						lastEndpoint: segment.path[segment.path.length - 1],  // End at last point
+						lastEndpoint: segment.path[segment.path.length - 1],
 						wasUpdated: true,
 						startY: sourceY
 					});
@@ -894,7 +805,6 @@ function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 			}
 		}
 
-		// Update tracking for next iteration
 		previousWasSingleSegment = isSingleSegment;
 
 		// Close chains that didn't get a segment this iteration
@@ -904,7 +814,6 @@ function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 				chain.endY = sourceY;
 				remainingChains.push(chain);
 			} else {
-				// Chain didn't get a segment - it's complete, can't continue without lifting
 				closedChains.push(chain);
 			}
 		}
@@ -912,12 +821,8 @@ function extractConnectivityChains(infillGroups, stepover, angle = 0) {
 		openChains.push(...remainingChains);
 	}
 
-	// Finalize any remaining open chains
-	for (let chain of openChains) {
-		closedChains.push(chain);
-	}
+	closedChains.push(...openChains);
 
-	// Convert chains to final format
 	return closedChains.map(chain => ({
 		segments: chain.segments,
 		startY: chain.startY,

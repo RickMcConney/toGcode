@@ -401,7 +401,6 @@ function pointInBoundingBox(point, bbox) {
 }
 
 function nearbyPaths(svgpath, radius) {
-	var nearbypaths = [];
 	var bbox = {};
 	var d = 2 * radius;
 

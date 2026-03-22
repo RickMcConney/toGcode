@@ -282,16 +282,126 @@ class TabEditor extends Select {
         return pathIsClockwise ? crossProduct < 0 : crossProduct > 0;
     }
 
+    createTabOnEdge(edge, positionFraction, edges) {
+        const p1 = edge.p1;
+        const p2 = edge.p2;
+        const tabX = p1.x + positionFraction * (p2.x - p1.x);
+        const tabY = p1.y + positionFraction * (p2.y - p1.y);
+        const segmentAngle = Math.atan2(edge.dy, edge.dx);
+
+        let pathDistance = 0;
+        for (let i = 0; i < edge.index; i++) {
+            pathDistance += edges[i].length;
+        }
+        pathDistance += edge.length * positionFraction;
+
+        return {
+            x: tabX,
+            y: tabY,
+            angle: segmentAngle,
+            pathDistance: pathDistance,
+            isConvex: edge.isConvex,
+            edgeIndex: edge.index,
+            edgeP1: { x: p1.x, y: p1.y },
+            edgeP2: { x: p2.x, y: p2.y },
+            positionFraction: positionFraction
+        };
+    }
+
+    generateTabsForRegularShape(edges, numberOfTabs) {
+        const tabs = [];
+        const perimeter = edges.reduce((sum, edge) => sum + edge.length, 0);
+
+        // Create list of edge midpoints with their perimeter positions
+        const edgeMidpoints = [];
+        let cumulativeDistance = 0;
+        for (const edge of edges) {
+            edgeMidpoints.push({
+                edge: edge,
+                distance: cumulativeDistance + edge.length * 0.5
+            });
+            cumulativeDistance += edge.length;
+        }
+
+        // Calculate evenly-spaced target positions around perimeter
+        const targetPositions = [];
+        for (let tabIdx = 0; tabIdx < numberOfTabs; tabIdx++) {
+            targetPositions.push(((tabIdx + 0.5) / numberOfTabs) * perimeter);
+        }
+
+        // For each target position, find the nearest unused edge midpoint
+        const usedMidpoints = new Set();
+        for (const targetDistance of targetPositions) {
+            let nearestMidpoint = edgeMidpoints[0];
+            let minDistDiff = Math.abs(edgeMidpoints[0].distance - targetDistance);
+
+            for (const midpoint of edgeMidpoints) {
+                const distDiff = Math.abs(midpoint.distance - targetDistance);
+                if (distDiff < minDistDiff) {
+                    minDistDiff = distDiff;
+                    nearestMidpoint = midpoint;
+                }
+            }
+
+            if (usedMidpoints.has(nearestMidpoint)) {
+                for (const midpoint of edgeMidpoints) {
+                    if (!usedMidpoints.has(midpoint)) {
+                        const distDiff = Math.abs(midpoint.distance - targetDistance);
+                        if (distDiff < minDistDiff) {
+                            minDistDiff = distDiff;
+                            nearestMidpoint = midpoint;
+                        }
+                    }
+                }
+            }
+
+            usedMidpoints.add(nearestMidpoint);
+            tabs.push(this.createTabOnEdge(nearestMidpoint.edge, 0.5, edges));
+        }
+
+        return tabs;
+    }
+
+    generateTabsForIrregularShape(edges, numberOfTabs, tabLength) {
+        const tabs = [];
+        const sortedEdges = [...edges].sort((a, b) => b.length - a.length);
+
+        // Distribute tabs, prioritizing longer edges
+        let remainingTabs = numberOfTabs;
+        const tabsPerEdge = [];
+
+        for (let edgeIdx = 0; edgeIdx < sortedEdges.length && remainingTabs > 0; edgeIdx++) {
+            const edge = sortedEdges[edgeIdx];
+            const maxTabsOnEdge = Math.max(1, Math.floor(edge.length / (tabLength * viewScale)));
+            const remainingEdges = sortedEdges.length - edgeIdx;
+            const tabsForThisEdge = Math.min(
+                maxTabsOnEdge,
+                Math.max(1, Math.ceil(remainingTabs / remainingEdges))
+            );
+            tabsPerEdge.push({ edge: edge, count: tabsForThisEdge });
+            remainingTabs -= tabsForThisEdge;
+        }
+
+        // Place tabs on each edge
+        for (const tabAssignment of tabsPerEdge) {
+            const count = tabAssignment.count;
+            for (let tabNum = 0; tabNum < count; tabNum++) {
+                const positionFraction = (tabNum + 1) / (count + 1);
+                tabs.push(this.createTabOnEdge(tabAssignment.edge, positionFraction, edges));
+            }
+        }
+
+        return tabs;
+    }
+
     generateTabs() {
         if (!this.selectedPath) return;
 
         const numberOfTabs = Math.max(1, Math.floor(this.properties.numberOfTabs));
         const path = this.selectedPath.path;
-        const tabLength = this.properties.tabLength;
 
         if (path.length < 2) return;
 
-        // Determine path winding order once for correct convexity detection
         const pathIsClockwise = isClockwise(path);
 
         // Build list of edges with their properties
@@ -304,208 +414,22 @@ class TabEditor extends Select {
             const length = Math.sqrt(dx * dx + dy * dy);
 
             if (length > 0) {
-                // Calculate convexity at vertex p1
                 let isConvex = true;
                 if (i > 0 && i < path.length - 1) {
-                    const p0 = path[i - 1];
-                    isConvex = this.isConvex(p0, p1, p2, pathIsClockwise);
+                    isConvex = this.isConvex(path[i - 1], p1, p2, pathIsClockwise);
                 }
-
-                edges.push({
-                    index: i,
-                    p1: p1,
-                    p2: p2,
-                    length: length,
-                    dx: dx,
-                    dy: dy,
-                    isConvex: isConvex
-                });
+                edges.push({ index: i, p1, p2, length, dx, dy, isConvex });
             }
         }
 
-        // Detect if all edges have equal (or nearly equal) length
-        // This is common for circles and other regular polygons
+        // Detect regular shapes (circles, regular polygons) by edge length variance
         const edgeLengths = edges.map(e => e.length);
-        const minLength = Math.min(...edgeLengths);
-        const maxLength = Math.max(...edgeLengths);
-        const lengthVariance = (maxLength - minLength) / minLength;
-        const hasEqualLengthEdges = lengthVariance < 0.05; // Within 5% tolerance
+        const lengthVariance = (Math.max(...edgeLengths) - Math.min(...edgeLengths)) / Math.min(...edgeLengths);
+        const hasEqualLengthEdges = lengthVariance < 0.05;
 
-        const tabs = [];
-        const tabsPerEdge = [];
-
-        if (hasEqualLengthEdges) {
-            // For circles and regular shapes: distribute around perimeter but snap to edge midpoints
-            // This keeps tabs spread out around the shape but places them at segment midpoints
-
-            // Calculate total perimeter
-            const perimeter = edges.reduce((sum, edge) => sum + edge.length, 0);
-
-            // Create list of edge midpoints with their positions
-            const edgeMidpoints = [];
-            let cumulativeDistance = 0;
-            for (const edge of edges) {
-                const midpointDistance = cumulativeDistance + edge.length * 0.5;
-                edgeMidpoints.push({
-                    edge: edge,
-                    distance: midpointDistance,
-                    positionFraction: 0.5
-                });
-                cumulativeDistance += edge.length;
-            }
-
-            // Calculate evenly-spaced target positions around perimeter
-            const targetPositions = [];
-            for (let tabIdx = 0; tabIdx < numberOfTabs; tabIdx++) {
-                const targetDistance = ((tabIdx + 0.5) / numberOfTabs) * perimeter;
-                targetPositions.push(targetDistance);
-            }
-
-            // For each target position, find the nearest edge midpoint
-            const usedMidpoints = new Set();
-            for (const targetDistance of targetPositions) {
-                let nearestMidpoint = edgeMidpoints[0];
-                let minDistDiff = Math.abs(edgeMidpoints[0].distance - targetDistance);
-
-                // Find the nearest midpoint to this target position
-                for (const midpoint of edgeMidpoints) {
-                    const distDiff = Math.abs(midpoint.distance - targetDistance);
-                    if (distDiff < minDistDiff) {
-                        minDistDiff = distDiff;
-                        nearestMidpoint = midpoint;
-                    }
-                }
-
-                // Check if we've already placed a tab at this midpoint
-                // If so, find the next nearest one
-                if (usedMidpoints.has(nearestMidpoint)) {
-                    for (const midpoint of edgeMidpoints) {
-                        if (!usedMidpoints.has(midpoint)) {
-                            const distDiff = Math.abs(midpoint.distance - targetDistance);
-                            if (distDiff < minDistDiff) {
-                                minDistDiff = distDiff;
-                                nearestMidpoint = midpoint;
-                            }
-                        }
-                    }
-                }
-
-                usedMidpoints.add(nearestMidpoint);
-                const edge = nearestMidpoint.edge;
-                const p1 = edge.p1;
-                const p2 = edge.p2;
-
-                // Place at midpoint (0.5 fraction)
-                const positionFraction = 0.5;
-                const tabX = p1.x + positionFraction * (p2.x - p1.x);
-                const tabY = p1.y + positionFraction * (p2.y - p1.y);
-
-                // Calculate angle along the edge direction
-                const edgeAngle = Math.atan2(edge.dy, edge.dx);
-                const segmentAngle = edgeAngle;
-
-                // Calculate cumulative distance along path for this tab
-                let pathDistance = 0;
-                for (let i = 0; i < edge.index; i++) {
-                    const e = edges[i];
-                    pathDistance += Math.sqrt(e.dx * e.dx + e.dy * e.dy);
-                }
-                pathDistance += edge.length * positionFraction;
-
-                tabs.push({
-                    x: tabX,
-                    y: tabY,
-                    angle: segmentAngle,
-                    pathDistance: pathDistance,
-                    isConvex: edge.isConvex,
-                    edgeIndex: edge.index,
-                    edgeP1: { x: p1.x, y: p1.y },
-                    edgeP2: { x: p2.x, y: p2.y },
-                    positionFraction: positionFraction
-                });
-
-                tabsPerEdge.push({ edge: edge, count: 1 });
-            }
-        } else {
-            // For irregular shapes: use edge-length-based distribution
-            // Sort edges by length (longest first) for prioritized tab placement
-            const sortedEdges = [...edges].sort((a, b) => b.length - a.length);
-
-            // Distribute tabs evenly, prioritizing longer edges
-            let remainingTabs = numberOfTabs;
-
-            for (let edgeIdx = 0; edgeIdx < sortedEdges.length && remainingTabs > 0; edgeIdx++) {
-                const edge = sortedEdges[edgeIdx];
-                const minTabsForEdge = Math.max(1, Math.floor(tabLength * viewScale));
-
-                // Calculate max tabs this edge can hold (need at least minTabsForEdge spacing between tabs)
-                const maxTabsOnEdge = Math.max(1, Math.floor(edge.length / (tabLength * viewScale)));
-
-                // Calculate how many edges we still need to fill
-                const remainingEdges = sortedEdges.length - edgeIdx;
-
-                // Distribute remaining tabs across remaining edges
-                const tabsForThisEdge = Math.min(
-                    maxTabsOnEdge,
-                    Math.max(1, Math.ceil(remainingTabs / remainingEdges))
-                );
-
-                tabsPerEdge.push({
-                    edge: edge,
-                    count: tabsForThisEdge
-                });
-
-                remainingTabs -= tabsForThisEdge;
-            }
-
-            // Place tabs on each edge
-            for (const tabAssignment of tabsPerEdge) {
-                const edge = tabAssignment.edge;
-                const count = tabAssignment.count;
-
-                // Calculate positions along the edge for all tabs
-                for (let tabNum = 0; tabNum < count; tabNum++) {
-                    // Position along edge: distribute evenly
-                    // For 1 tab: 0.5 (middle)
-                    // For 2 tabs: 0.33 and 0.67
-                    // For 3 tabs: 0.25, 0.5, 0.75
-                    const positionFraction = (tabNum + 1) / (count + 1);
-
-                    const p1 = edge.p1;
-                    const p2 = edge.p2;
-
-                    // Calculate position along edge
-                    const tabX = p1.x + positionFraction * (p2.x - p1.x);
-                    const tabY = p1.y + positionFraction * (p2.y - p1.y);
-
-                    // Calculate angle along the edge direction (segment direction)
-                    const edgeAngle = Math.atan2(edge.dy, edge.dx);
-                    // Store the angle along the segment direction (not perpendicular)
-                    const segmentAngle = edgeAngle;
-
-                    // Calculate cumulative distance along path for this tab
-                    let pathDistance = 0;
-                    for (let i = 0; i < edge.index; i++) {
-                        const e = edges[i];
-                        pathDistance += Math.sqrt(e.dx * e.dx + e.dy * e.dy);
-                    }
-                    pathDistance += edge.length * positionFraction;
-
-                    tabs.push({
-                        x: tabX,
-                        y: tabY,
-                        angle: segmentAngle,
-                        pathDistance: pathDistance,
-                        isConvex: edge.isConvex,
-                        // Store edge information to match tabs to path segments
-                        edgeIndex: edge.index,
-                        edgeP1: { x: p1.x, y: p1.y },
-                        edgeP2: { x: p2.x, y: p2.y },
-                        positionFraction: positionFraction
-                    });
-                }
-            }
-        }
+        const tabs = hasEqualLengthEdges
+            ? this.generateTabsForRegularShape(edges, numberOfTabs)
+            : this.generateTabsForIrregularShape(edges, numberOfTabs, this.properties.tabLength);
 
         // Store tabs in creation properties
         if (!this.selectedPath.creationProperties) {

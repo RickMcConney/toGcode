@@ -62,254 +62,231 @@ function parseSvgPointsElements(svgElement, tagName, label, closePath) {
 	return results;
 }
 
+function parseSvgPathElements(svgElement) {
+	var paths = [];
+	var pathElements = svgElement.getElementsByTagName('path');
+	for (var i = 0; i < pathElements.length; i++) {
+		var d = pathElements[i].getAttribute('d');
+		if (!d) continue;
+		try {
+			var paperPath = new paper.CompoundPath(d);
+			var children = paperPath.children;
+			if (children && children.length > 0) {
+				for (var j = 0; j < children.length; j++) {
+					paths = paths.concat(newTransformFromPaperPath(children[j], "Path"));
+				}
+			} else if (paperPath.segments && paperPath.segments.length > 0) {
+				paths = paths.concat(newTransformFromPaperPath(paperPath, "Path"));
+			} else {
+				var simplePath = new paper.Path(d);
+				if (simplePath.segments && simplePath.segments.length > 0) {
+					paths = paths.concat(newTransformFromPaperPath(simplePath, "Path"));
+				}
+			}
+		} catch (pathError) {
+			console.error('Error creating Paper.js path:', pathError);
+		}
+	}
+	return paths;
+}
+
+function parseSvgLineElements(svgElement) {
+	var paths = [];
+	var lineElements = svgElement.getElementsByTagName('line');
+	for (var i = 0; i < lineElements.length; i++) {
+		var lineEl = lineElements[i];
+		var paperLine = new paper.Path();
+		paperLine.moveTo(parseFloat(lineEl.getAttribute('x1')), parseFloat(lineEl.getAttribute('y1')));
+		paperLine.lineTo(parseFloat(lineEl.getAttribute('x2')), parseFloat(lineEl.getAttribute('y2')));
+		paths = paths.concat(newTransformFromPaperPath(paperLine, "Line"));
+	}
+	return paths;
+}
+
+function parseSvgRectElements(svgElement) {
+	var paths = [];
+	var rectElements = svgElement.getElementsByTagName('rect');
+	for (var i = 0; i < rectElements.length; i++) {
+		var rectEl = rectElements[i];
+		var paperRect = new paper.Path.Rectangle(
+			parseFloat(rectEl.getAttribute('x') || 0), parseFloat(rectEl.getAttribute('y') || 0),
+			parseFloat(rectEl.getAttribute('width')), parseFloat(rectEl.getAttribute('height'))
+		);
+		paths = paths.concat(newTransformFromPaperPath(paperRect, "Rect"));
+	}
+	return paths;
+}
+
+function parseSvgCircleElements(svgElement) {
+	var paths = [];
+	var circleElements = svgElement.getElementsByTagName('circle');
+	for (var i = 0; i < circleElements.length; i++) {
+		var circleEl = circleElements[i];
+		var paperCircle = new paper.Path.Circle(
+			parseFloat(circleEl.getAttribute('cx') || 0), parseFloat(circleEl.getAttribute('cy') || 0),
+			parseFloat(circleEl.getAttribute('r'))
+		);
+		paths = paths.concat(newTransformFromPaperPath(paperCircle, "Circle"));
+	}
+	return paths;
+}
+
+function parseSvgEllipseElements(svgElement) {
+	var paths = [];
+	var ellipseElements = svgElement.getElementsByTagName('ellipse');
+	for (var i = 0; i < ellipseElements.length; i++) {
+		var ellipseEl = ellipseElements[i];
+		var rawCx = parseFloat(ellipseEl.getAttribute('cx') || 0);
+		var rawCy = parseFloat(ellipseEl.getAttribute('cy') || 0);
+		var radiusX = parseFloat(ellipseEl.getAttribute('rx'));
+		var radiusY = parseFloat(ellipseEl.getAttribute('ry'));
+		var paperEllipse = new paper.Path.Ellipse({
+			center: new paper.Point(rawCx, rawCy),
+			radius: new paper.Size(radiusX, radiusY)
+		});
+		paths = paths.concat(newTransformFromPaperPath(paperEllipse, "Ellipse"));
+	}
+	return paths;
+}
+
+function parseSvgTextElements(svgElement) {
+	var paths = [];
+	var textElements = svgElement.getElementsByTagName('text');
+	for (var i = 0; i < textElements.length; i++) {
+		var textEl = textElements[i];
+		var textContent = textEl.textContent || textEl.text || '';
+		if (!textContent.trim()) continue;
+		try {
+			var paperText = new paper.PointText(
+				parseFloat(textEl.getAttribute('x') || 0),
+				parseFloat(textEl.getAttribute('y') || 0)
+			);
+			paperText.content = textContent;
+			paperText.fontSize = parseFloat(textEl.getAttribute('font-size') || 12);
+			var textPath = paperText.createPath();
+			paths = paths.concat(newTransformFromPaperPath(textPath, "Text"));
+		} catch (textError) {
+			console.warn('Could not convert text element to path:', textError);
+		}
+	}
+	return paths;
+}
+
+// Lighten, center on workpiece, and register parsed SVG paths
+function importParsedPaths(paths, name) {
+	addUndo(false, true, false);
+
+	const svgGroupId = 'svg-group-' + Date.now();
+	const groupedPaths = [];
+
+	// Lighten paths
+	for (var i = 0; i < paths.length; i++) {
+		var lightened = clipper.JS.Lighten(paths[i].geom, getOption("tolerance") * viewScale);
+		paths[i].geom = (Array.isArray(lightened) && lightened.length > 0) ? lightened : [];
+	}
+
+	// Calculate bounding box of all imported paths to center them on workpiece
+	var importedBbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity };
+	for (var i = 0; i < paths.length; i++) {
+		if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
+			var pathBbox = boundingBox(paths[i].geom);
+			if (importedBbox.minx > pathBbox.minx) importedBbox.minx = pathBbox.minx;
+			if (importedBbox.miny > pathBbox.miny) importedBbox.miny = pathBbox.miny;
+			if (importedBbox.maxx < pathBbox.maxx) importedBbox.maxx = pathBbox.maxx;
+			if (importedBbox.maxy < pathBbox.maxy) importedBbox.maxy = pathBbox.maxy;
+		}
+	}
+
+	// Calculate offset to center paths on workpiece
+	var offsetX = 0;
+	var offsetY = 0;
+	if (importedBbox.minx !== Infinity) {
+		var importedCenterX = (importedBbox.minx + importedBbox.maxx) / 2;
+		var importedCenterY = (importedBbox.miny + importedBbox.maxy) / 2;
+		var workpieceCenterX = (getOption("workpieceWidth") * viewScale) / 2;
+		var workpieceCenterY = (getOption("workpieceLength") * viewScale) / 2;
+		offsetX = workpieceCenterX - importedCenterX;
+		offsetY = workpieceCenterY - importedCenterY;
+	}
+
+	// Apply offset to center paths and create path objects
+	for (var i = 0; i < paths.length; i++) {
+		if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
+			var geom = paths[i].geom;
+			var len = geom.length;
+			var isClosed = len > 1 && geom[len - 1].x === geom[0].x && geom[len - 1].y === geom[0].y;
+			var stopAt = isClosed ? len - 1 : len;
+			for (var j = 0; j < stopAt; j++) {
+				geom[j].x += offsetX;
+				geom[j].y += offsetY;
+			}
+			if (isClosed) {
+				geom[len - 1].x = geom[0].x;
+				geom[len - 1].y = geom[0].y;
+			}
+
+			let pathName = paths[i].name + ' ' + svgpathId;
+			let id = paths[i].name + svgpathId;
+			const pathObj = {
+				id: id,
+				name: pathName,
+				path: paths[i].geom,
+				visible: true,
+				bbox: boundingBox(paths[i].geom),
+				svgGroupId: svgGroupId
+			};
+			svgpaths.push(pathObj);
+			groupedPaths.push(pathObj);
+			svgpathId++;
+		}
+	}
+
+	if (typeof addSvgGroup === 'function' && groupedPaths.length > 0) {
+		addSvgGroup(svgGroupId, name, groupedPaths);
+	}
+}
+
 function parseSvgContent(data, name) {
 	try {
-
-		// Initialize Paper.js if needed
 		if (!initPaperJS()) {
 			console.warn('Paper.js initialization failed, falling back to old parser');
 			return null;
 		}
 
-		// Clear any existing Paper.js project content to avoid artifacts
 		if (paper.project) {
 			paper.project.clear();
 		}
 
-		// Parse SVG using Paper.js
+		// Detect DPI based on SVG source
 		if (data.indexOf("Adobe Illustrator") >= 0) {
 			pixelsPerInch = 72;
-		}
-		else if (data.indexOf("woodgears.ca") >= 0) {
-			pixelsPerInch = 254; // 100 pixels per mm
-		}
-		else if (data.indexOf("tinkercad") >= 0) {
-			pixelsPerInch = 25.4; // 10 pixels per mm
-		}
-		else {
+		} else if (data.indexOf("woodgears.ca") >= 0) {
+			pixelsPerInch = 254;
+		} else if (data.indexOf("tinkercad") >= 0) {
+			pixelsPerInch = 25.4;
+		} else {
 			pixelsPerInch = 96;
 		}
 		svgscale = viewScale * 25.4 / pixelsPerInch;
 
-		var svgDoc = new DOMParser().parseFromString(data, "image/svg+xml");
-		var svgElement = svgDoc.documentElement;
+		var svgElement = new DOMParser().parseFromString(data, "image/svg+xml").documentElement;
 
+		// Parse all SVG element types
 		var paths = [];
-
-		// Parse all path elements
-		var pathElements = svgElement.getElementsByTagName('path');
-		for (var i = 0; i < pathElements.length; i++) {
-			var pathEl = pathElements[i];
-			var d = pathEl.getAttribute('d');
-			if (d) {
-				try {
-					// Try as CompoundPath first (handles multiple subpaths)
-					var paperPath = new paper.CompoundPath(d);
-
-					var children = paperPath.children;
-					if (children && children.length > 0) {
-						// Has children - process each child path
-						for (var j = 0; j < children.length; j++) {
-							var child = children[j];
-							var convertedPaths = newTransformFromPaperPath(child, "Path");
-							paths = paths.concat(convertedPaths);
-						}
-					} else if (paperPath.segments && paperPath.segments.length > 0) {
-						// No children but has segments directly on compound path
-						var convertedPaths = newTransformFromPaperPath(paperPath, "Path");
-						paths = paths.concat(convertedPaths);
-					} else {
-						// Fallback: try as simple Path
-						var simplePath = new paper.Path(d);
-						if (simplePath.segments && simplePath.segments.length > 0) {
-							var convertedPaths = newTransformFromPaperPath(simplePath, "Path");
-							paths = paths.concat(convertedPaths);
-						}
-					}
-
-				} catch (pathError) {
-					console.error('Error creating Paper.js path:', pathError);
-				}
-			}
-		}
-
-		// Parse polygon elements
+		paths = paths.concat(parseSvgPathElements(svgElement));
 		paths = paths.concat(parseSvgPointsElements(svgElement, 'polygon', 'Poly', true));
 		paths = paths.concat(parseSvgPointsElements(svgElement, 'polyline', 'PolyLine', false));
+		paths = paths.concat(parseSvgLineElements(svgElement));
+		paths = paths.concat(parseSvgRectElements(svgElement));
+		paths = paths.concat(parseSvgCircleElements(svgElement));
+		paths = paths.concat(parseSvgEllipseElements(svgElement));
+		paths = paths.concat(parseSvgTextElements(svgElement));
 
-		// Parse line elements
-		var lineElements = svgElement.getElementsByTagName('line');
-		for (var i = 0; i < lineElements.length; i++) {
-			var lineEl = lineElements[i];
-			var rawX1 = parseFloat(lineEl.getAttribute('x1'));
-			var rawY1 = parseFloat(lineEl.getAttribute('y1'));
-			var rawX2 = parseFloat(lineEl.getAttribute('x2'));
-			var rawY2 = parseFloat(lineEl.getAttribute('y2'));
-
-			var paperLine = new paper.Path();
-			paperLine.moveTo(rawX1, rawY1);
-			paperLine.lineTo(rawX2, rawY2);
-
-			var convertedPaths = newTransformFromPaperPath(paperLine, "Line");
-			paths = paths.concat(convertedPaths);
-		}
-
-		// Parse rect elements
-		var rectElements = svgElement.getElementsByTagName('rect');
-		for (var i = 0; i < rectElements.length; i++) {
-			var rectEl = rectElements[i];
-			var rawX = parseFloat(rectEl.getAttribute('x') || 0);
-			var rawY = parseFloat(rectEl.getAttribute('y') || 0);
-			var rawWidth = parseFloat(rectEl.getAttribute('width'));
-			var rawHeight = parseFloat(rectEl.getAttribute('height'));
-
-			var paperRect = new paper.Path.Rectangle(rawX, rawY, rawWidth, rawHeight);
-			var convertedPaths = newTransformFromPaperPath(paperRect, "Rect");
-			paths = paths.concat(convertedPaths);
-		}
-
-		// Parse circle elements
-		var circleElements = svgElement.getElementsByTagName('circle');
-		for (var i = 0; i < circleElements.length; i++) {
-			var circleEl = circleElements[i];
-			var rawCx = parseFloat(circleEl.getAttribute('cx') || 0);
-			var rawCy = parseFloat(circleEl.getAttribute('cy') || 0);
-			var radius = parseFloat(circleEl.getAttribute('r'));
-
-			var paperCircle = new paper.Path.Circle(rawCx, rawCy, radius);
-			var convertedPaths = newTransformFromPaperPath(paperCircle, "Circle");
-			paths = paths.concat(convertedPaths);
-		}
-
-		// Parse ellipse elements
-		var ellipseElements = svgElement.getElementsByTagName('ellipse');
-		for (var i = 0; i < ellipseElements.length; i++) {
-			var ellipseEl = ellipseElements[i];
-			var rawCx = parseFloat(ellipseEl.getAttribute('cx') || 0);
-			var rawCy = parseFloat(ellipseEl.getAttribute('cy') || 0);
-			var radiusX = parseFloat(ellipseEl.getAttribute('rx'));
-			var radiusY = parseFloat(ellipseEl.getAttribute('ry'));
-
-			var elipse = { center: new paper.Point(rawCx, rawCy), radius: new paper.Size(radiusX, radiusY) };
-			var paperEllipse = new paper.Path.Ellipse(elipse);
-			var convertedPaths = newTransformFromPaperPath(paperEllipse, "Ellipse");
-			paths = paths.concat(convertedPaths);
-		}
-
-		// Parse text elements (convert to paths)
-		var textElements = svgElement.getElementsByTagName('text');
-		for (var i = 0; i < textElements.length; i++) {
-			var textEl = textElements[i];
-			var rawX = parseFloat(textEl.getAttribute('x') || 0);
-			var rawY = parseFloat(textEl.getAttribute('y') || 0);
-
-			var textContent = textEl.textContent || textEl.text || '';
-
-			if (textContent.trim()) {
-				try {
-					var paperText = new paper.PointText(rawX, rawY);
-					paperText.content = textContent;
-					paperText.fontSize = parseFloat(textEl.getAttribute('font-size') || 12);
-
-					// Convert text to path
-					var textPath = paperText.createPath();
-					var convertedPaths = newTransformFromPaperPath(textPath, "Text");
-					paths = paths.concat(convertedPaths);
-				} catch (textError) {
-					console.warn('Could not convert text element to path:', textError);
-				}
-			}
-		}
-
-		addUndo(false, true, false);
-
-		// Generate unique group ID for this SVG import
-		const svgGroupId = 'svg-group-' + Date.now();
-		const groupedPaths = [];
-
-		// Lighten paths first
-		for (var i = 0; i < paths.length; i++) {
-			var lightened = clipper.JS.Lighten(paths[i].geom, getOption("tolerance") * viewScale);
-			// Ensure we have a valid array of points
-			if (Array.isArray(lightened) && lightened.length > 0) {
-				paths[i].geom = lightened;
-			} else {
-				paths[i].geom = [];
-			}
-		}
-
-		// Calculate bounding box of all imported paths to center them on workpiece
-		var importedBbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity };
-		for (var i = 0; i < paths.length; i++) {
-			if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
-				var pathBbox = boundingBox(paths[i].geom);
-				if (importedBbox.minx > pathBbox.minx) importedBbox.minx = pathBbox.minx;
-				if (importedBbox.miny > pathBbox.miny) importedBbox.miny = pathBbox.miny;
-				if (importedBbox.maxx < pathBbox.maxx) importedBbox.maxx = pathBbox.maxx;
-				if (importedBbox.maxy < pathBbox.maxy) importedBbox.maxy = pathBbox.maxy;
-			}
-		}
-
-		// Calculate offset to center paths on workpiece
-		var offsetX = 0;
-		var offsetY = 0;
-		if (importedBbox.minx !== Infinity) {
-			var importedCenterX = (importedBbox.minx + importedBbox.maxx) / 2;
-			var importedCenterY = (importedBbox.miny + importedBbox.maxy) / 2;
-			var workpieceCenterX = (getOption("workpieceWidth") * viewScale) / 2;
-			var workpieceCenterY = (getOption("workpieceLength") * viewScale) / 2;
-			offsetX = workpieceCenterX - importedCenterX;
-			offsetY = workpieceCenterY - importedCenterY;
-		}
-
-		// Apply offset to center paths and create path objects
-		for (var i = 0; i < paths.length; i++) {
-			if (paths[i].geom && paths[i].geom.length > 0 && paths[i].geom[0] && typeof paths[i].geom[0].x === 'number') {
-				var geom = paths[i].geom;
-				var len = geom.length;
-				// Check if path is closed (last point same as first)
-				var isClosed = len > 1 && geom[len - 1].x === geom[0].x && geom[len - 1].y === geom[0].y;
-				// Apply centering offset, skip last point if closed (it will match first after offset)
-				var stopAt = isClosed ? len - 1 : len;
-				for (var j = 0; j < stopAt; j++) {
-					geom[j].x += offsetX;
-					geom[j].y += offsetY;
-				}
-				// Update closing point to match the offset first point
-				if (isClosed) {
-					geom[len - 1].x = geom[0].x;
-					geom[len - 1].y = geom[0].y;
-				}
-
-				let pathName = paths[i].name + ' ' + svgpathId;
-				let id = paths[i].name + svgpathId;
-				const pathObj = {
-					id: id,
-					name: pathName,
-					path: paths[i].geom,
-					visible: true,
-					bbox: boundingBox(paths[i].geom),
-					svgGroupId: svgGroupId
-				};
-				svgpaths.push(pathObj);
-				groupedPaths.push(pathObj);
-				svgpathId++;
-			}
-		}
-
-		// Add the SVG group to sidebar after all paths are created
-		if (typeof addSvgGroup === 'function' && groupedPaths.length > 0) {
-			addSvgGroup(svgGroupId, name, groupedPaths);
-		}
-
-		var bbox = boundingBoxPaths(svgpaths);
-
+		importParsedPaths(paths, name);
 
 		return paths;
-
 	} catch (error) {
 		console.error('Error parsing SVG with Paper.js:', error);
-		// Fallback to old method if Paper.js fails
 		return null;
 	}
 }

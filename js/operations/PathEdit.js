@@ -1067,25 +1067,101 @@ class PathEdit extends Select {
      * @param {Boolean} invert - If true, radius cuts into shape (concave), otherwise rounds out (convex)
      * @returns {Boolean} Success status
      */
+    // Inverted arc: centered at corner point, intersects both segments
+    generateInvertedArc(current, u1, u2, radius, len1, len2, cross) {
+        const arcCenter = { x: current.x, y: current.y };
+
+        const intersect1 = { x: current.x + u1.x * radius, y: current.y + u1.y * radius };
+        const intersect2 = { x: current.x + u2.x * radius, y: current.y + u2.y * radius };
+
+        if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
+            return null;
+        }
+
+        const startAngle = Math.atan2(intersect1.y - arcCenter.y, intersect1.x - arcCenter.x);
+        const endAngle = Math.atan2(intersect2.y - arcCenter.y, intersect2.x - arcCenter.x);
+
+        let sweepAngle = endAngle - startAngle;
+        if (sweepAngle > Math.PI) sweepAngle -= 2 * Math.PI;
+        else if (sweepAngle < -Math.PI) sweepAngle += 2 * Math.PI;
+
+        if (Math.sign(sweepAngle) !== Math.sign(cross)) {
+            sweepAngle = sweepAngle > 0 ? sweepAngle - 2 * Math.PI : sweepAngle + 2 * Math.PI;
+        }
+
+        const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
+        const arcPoints = [];
+        for (let i = 0; i <= numArcPoints; i++) {
+            const t = i / numArcPoints;
+            const currentAngle = startAngle + sweepAngle * t;
+            arcPoints.push({
+                x: arcCenter.x + radius * Math.cos(currentAngle),
+                y: arcCenter.y + radius * Math.sin(currentAngle)
+            });
+        }
+        return arcPoints;
+    }
+
+    // Normal fillet arc: tangent to both segments
+    generateFilletArc(current, u1, u2, radius, len1, len2, angle, cross) {
+        const intersect1 = { x: current.x + u1.x * radius, y: current.y + u1.y * radius };
+        const intersect2 = { x: current.x + u2.x * radius, y: current.y + u2.y * radius };
+
+        if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
+            return null;
+        }
+
+        const arcRadius = radius * Math.tan(angle / 2);
+
+        let perp1;
+        if (cross > 0) {
+            perp1 = { x: -u1.y, y: u1.x };
+        } else {
+            perp1 = { x: u1.y, y: -u1.x };
+        }
+
+        const arcCenter = {
+            x: intersect1.x + perp1.x * arcRadius,
+            y: intersect1.y + perp1.y * arcRadius
+        };
+
+        const startAngle = Math.atan2(intersect1.y - arcCenter.y, intersect1.x - arcCenter.x);
+        const endAngle = Math.atan2(intersect2.y - arcCenter.y, intersect2.x - arcCenter.x);
+
+        let sweepAngle = endAngle - startAngle;
+        if (sweepAngle > Math.PI) sweepAngle -= 2 * Math.PI;
+        else if (sweepAngle < -Math.PI) sweepAngle += 2 * Math.PI;
+
+        const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
+        const arcPoints = [];
+
+        arcPoints.push({ x: intersect1.x, y: intersect1.y });
+        for (let i = 1; i < numArcPoints; i++) {
+            const t = i / numArcPoints;
+            const currentAngle = startAngle + sweepAngle * t;
+            arcPoints.push({
+                x: arcCenter.x + arcRadius * Math.cos(currentAngle),
+                y: arcCenter.y + arcRadius * Math.sin(currentAngle)
+            });
+        }
+        arcPoints.push({ x: intersect2.x, y: intersect2.y });
+
+        return arcPoints;
+    }
+
     insertRadiusCorner(svgPath, pointIndex, radius, invert) {
         const path = svgPath.path;
         const n = path.length;
 
-        if (n < 3) {
-            return false;
-        }
+        if (n < 3) return false;
 
-        // Check if path has duplicate endpoint (closed path)
         const hasDuplicateEndpoint = n > 1 &&
             path[0].x === path[n - 1].x &&
             path[0].y === path[n - 1].y;
 
-        // Get the three points: previous, current (corner), next
-        // Special handling for point 0 when there's a duplicate endpoint
         let prevIndex = (pointIndex - 1 + n) % n;
         let nextIndex = (pointIndex + 1) % n;
 
-        // If we're at point 0 and have duplicate endpoint, use n-2 as previous
         if (pointIndex === 0 && hasDuplicateEndpoint) {
             prevIndex = n - 2;
         }
@@ -1094,187 +1170,35 @@ class PathEdit extends Select {
         const current = path[pointIndex];
         const next = path[nextIndex];
 
-        // Calculate vectors from corner to neighbors
         const v1 = { x: prev.x - current.x, y: prev.y - current.y };
         const v2 = { x: next.x - current.x, y: next.y - current.y };
 
-        // Calculate lengths
         const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
         const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
 
-        if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) {
-            return false; // Silently skip - adjacent points too close
-        }
+        if (len1 < MIN_SEGMENT_LENGTH || len2 < MIN_SEGMENT_LENGTH) return false;
 
-        // Normalize vectors
         const u1 = { x: v1.x / len1, y: v1.y / len1 };
         const u2 = { x: v2.x / len2, y: v2.y / len2 };
 
-        // Calculate angle between vectors
         const dotProduct = u1.x * u2.x + u1.y * u2.y;
         const angle = Math.acos(Math.max(-1, Math.min(1, dotProduct)));
 
-        if (Math.abs(angle) < MIN_ANGLE_THRESHOLD) {
-            return false; // Silently skip - points are collinear
-        }
+        if (Math.abs(angle) < MIN_ANGLE_THRESHOLD) return false;
+        if (Math.abs(angle - Math.PI) < MIN_ANGLE_THRESHOLD) return false;
 
-        if (Math.abs(angle - Math.PI) < MIN_ANGLE_THRESHOLD) {
-            return false; // Silently skip - angle too flat
-        }
-
-        // Calculate the distance from corner to tangent points
         const tangentDistance = radius / Math.tan(angle / 2);
+        if (tangentDistance >= len1 * MAX_TANGENT_RATIO || tangentDistance >= len2 * MAX_TANGENT_RATIO) return false;
 
-        // Check if tangent distance is too large for the segments
-        if (tangentDistance >= len1 * MAX_TANGENT_RATIO || tangentDistance >= len2 * MAX_TANGENT_RATIO) {
-            return false; // Silently skip - radius too large
-        }
-
-        // Calculate cross product to determine handedness
         const cross = u1.x * u2.y - u1.y * u2.x;
 
-        let arcCenter, startAngle, endAngle, sweepAngle, arcPoints;
+        const arcPoints = invert
+            ? this.generateInvertedArc(current, u1, u2, radius, len1, len2, cross)
+            : this.generateFilletArc(current, u1, u2, radius, len1, len2, angle, cross);
 
-        if (invert) {
-            // INVERTED MODE: Arc centered at corner point, intersects both segments
-            arcCenter = { x: current.x, y: current.y };
+        if (!arcPoints) return false;
 
-            // The intersection points are simply at radius distance along each segment direction
-            const intersect1 = {
-                x: current.x + u1.x * radius,
-                y: current.y + u1.y * radius
-            };
-
-            const intersect2 = {
-                x: current.x + u2.x * radius,
-                y: current.y + u2.y * radius
-            };
-
-            // Check that intersections are within the segments
-            if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
-                return false; // Silently skip - radius too large
-            }
-
-            // Calculate angles for the two intersection points
-            startAngle = Math.atan2(intersect1.y - arcCenter.y, intersect1.x - arcCenter.x);
-            endAngle = Math.atan2(intersect2.y - arcCenter.y, intersect2.x - arcCenter.x);
-
-            // Calculate sweep angle - should be the interior angle
-            sweepAngle = endAngle - startAngle;
-
-            // Normalize to [-π, π]
-            if (sweepAngle > Math.PI) {
-                sweepAngle -= 2 * Math.PI;
-            } else if (sweepAngle < -Math.PI) {
-                sweepAngle += 2 * Math.PI;
-            }
-
-            // For inverted, we want to sweep through the interior (the smaller angle)
-            // The sweep direction should match the cross product sign
-            if (Math.sign(sweepAngle) !== Math.sign(cross)) {
-                // Wrong direction, take the other way
-                sweepAngle = sweepAngle > 0 ? sweepAngle - 2 * Math.PI : sweepAngle + 2 * Math.PI;
-            }
-
-            // Generate arc points
-            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
-            arcPoints = [];
-
-            for (let i = 0; i <= numArcPoints; i++) {
-                const t = i / numArcPoints;
-                const currentAngle = startAngle + sweepAngle * t;
-                arcPoints.push({
-                    x: arcCenter.x + radius * Math.cos(currentAngle),
-                    y: arcCenter.y + radius * Math.sin(currentAngle)
-                });
-            }
-
-        } else {
-            // NORMAL MODE: Fillet tangent to both segments
-            // Intersection points are where a circle of 'radius' centered at corner intersects the segments
-            const intersect1 = {
-                x: current.x + u1.x * radius,
-                y: current.y + u1.y * radius
-            };
-
-            const intersect2 = {
-                x: current.x + u2.x * radius,
-                y: current.y + u2.y * radius
-            };
-
-            // Check that intersection points are within the segments
-            if (radius >= len1 * MAX_TANGENT_RATIO || radius >= len2 * MAX_TANGENT_RATIO) {
-                return false; // Silently skip - radius too large
-            }
-
-            // Calculate the arc radius for a tangent arc at these intersection points
-            // For tangent points at distance 'radius' from corner with angle 'angle' between segments:
-            // arcRadius = radius * tan(angle/2)
-            const arcRadius = radius * Math.tan(angle / 2);
-
-            // Calculate perpendicular vectors to each segment
-            // For vector u1, perpendiculars are (-u1.y, u1.x) or (u1.y, -u1.x)
-            // Choose the perpendicular that points away from the interior
-
-            let perp1, perp2;
-            if (cross > 0) {
-                // Counter-clockwise turn - use left-hand perpendiculars for external fillet
-                perp1 = { x: -u1.y, y: u1.x };
-                perp2 = { x: -u2.y, y: u2.x };
-            } else {
-                // Clockwise turn - use right-hand perpendiculars for external fillet
-                perp1 = { x: u1.y, y: -u1.x };
-                perp2 = { x: u2.y, y: -u2.x };
-            }
-
-            // Calculate arc center from intersect1 using perpendicular
-            // Arc center is at distance arcRadius perpendicular from intersection point
-            arcCenter = {
-                x: intersect1.x + perp1.x * arcRadius,
-                y: intersect1.y + perp1.y * arcRadius
-            };
-
-            // Calculate angles for arc generation
-            startAngle = Math.atan2(intersect1.y - arcCenter.y, intersect1.x - arcCenter.x);
-            endAngle = Math.atan2(intersect2.y - arcCenter.y, intersect2.x - arcCenter.x);
-
-            // Calculate sweep angle
-            sweepAngle = endAngle - startAngle;
-
-            // Normalize to [-π, π] to get the shorter arc
-            if (sweepAngle > Math.PI) {
-                sweepAngle -= 2 * Math.PI;
-            } else if (sweepAngle < -Math.PI) {
-                sweepAngle += 2 * Math.PI;
-            }
-
-            // The normalized sweep angle should now be the correct direction for the fillet
-            // (the shorter arc that goes around the exterior of the corner)
-
-            // Generate arc points - make sure to use EXACTLY the intersection points as endpoints
-            const numArcPoints = Math.max(3, Math.ceil(Math.abs(sweepAngle) * ARC_POINTS_PER_RADIAN));
-            arcPoints = [];
-
-            // First point is exactly intersect1
-            arcPoints.push({ x: intersect1.x, y: intersect1.y });
-
-            // Generate intermediate points
-            for (let i = 1; i < numArcPoints; i++) {
-                const t = i / numArcPoints;
-                const currentAngle = startAngle + sweepAngle * t;
-                arcPoints.push({
-                    x: arcCenter.x + arcRadius * Math.cos(currentAngle),
-                    y: arcCenter.y + arcRadius * Math.sin(currentAngle)
-                });
-            }
-
-            // Last point is exactly intersect2
-            arcPoints.push({ x: intersect2.x, y: intersect2.y });
-        }
-
-        // Replace the current point with the arc points
         path.splice(pointIndex, 1, ...arcPoints);
-
         return true;
     }
 }

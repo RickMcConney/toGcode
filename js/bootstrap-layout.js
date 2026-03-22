@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-21";
+var APP_VERSION = "Ver 2026-03-22";
 
 var mode = "Select";
 var options = [];
@@ -1030,12 +1030,17 @@ function createSidebar() {
         </div>
     `;
 
-    // Add sidebar event handlers
+    setupSidebarEventHandlers(sidebar);
+    setupSidebarTabHandlers();
+    setupCanvasTabHandlers();
+    initializeGcodeProfilesUI();
+}
+
+function setupSidebarEventHandlers(sidebar) {
     sidebar.addEventListener('click', function (e) {
         const item = e.target.closest('.sidebar-item');
         const closeButton = e.target.closest('#panel-close-button');
 
-        // Handle Close button (X) clicks
         if (closeButton) {
             showToolsList();
             return;
@@ -1059,9 +1064,6 @@ function createSidebar() {
         const pathId = item.dataset.pathId;
 
         if (operation) {
-            // First activate the operation (calls start() which loads saved properties)
-
-            // Then show the properties editor (which calls getPropertiesHTML())
             const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', 'Boolean', 'Gemini', 'Text', 'Tabs', 'Offset', 'Pattern', 'Drill'].includes(operation);
 
             if (isDrawTool) {
@@ -1071,24 +1073,15 @@ function createSidebar() {
                 showOperationPropertiesEditor(operation);
                 generateToolpathForSelection();
             }
-
         } else if (pathId) {
             handlePathClick(pathId);
         }
-
-        // Update selection
-        // sidebar.querySelectorAll('.sidebar-item.selected').forEach(el => el.classList.remove('selected'));
-        //selectMgr.unselectAll();
-        //if (item) item.classList.add('selected');
     });
 
-
-    // Context menu for paths and tool folders
     sidebar.addEventListener('contextmenu', function (e) {
         const item = e.target.closest('.sidebar-item');
         if (!item) return;
 
-        // Check if this is a tool folder
         const toolFolder = item.closest('[data-tool-name]');
         if (toolFolder && e.target.closest('.sidebar-item.fw-bold')) {
             e.preventDefault();
@@ -1096,7 +1089,6 @@ function createSidebar() {
             return;
         }
 
-        // Check if this is an SVG group folder
         const svgGroup = item.closest('[data-svg-group-id]');
         if (svgGroup && item.dataset.svgGroupHeader) {
             e.preventDefault();
@@ -1104,7 +1096,6 @@ function createSidebar() {
             return;
         }
 
-        // Check if this is a pattern group folder
         const patternGroup = item.closest('[data-pattern-group-id]');
         if (patternGroup && item.dataset.patternGroupHeader) {
             e.preventDefault();
@@ -1112,7 +1103,6 @@ function createSidebar() {
             return;
         }
 
-        // Check if this is a text group folder
         const textGroup = item.closest('[data-text-group-id]');
         if (textGroup && item.dataset.textGroupHeader) {
             e.preventDefault();
@@ -1120,14 +1110,12 @@ function createSidebar() {
             return;
         }
 
-        // Otherwise, check if it's a path item
         if (item.dataset.pathId) {
             e.preventDefault();
             showContextMenu(e, item.dataset.pathId);
         }
     });
 
-    // Double-click on toolpath opens properties editor
     sidebar.addEventListener('dblclick', function (e) {
         const item = e.target.closest('#tool-paths-section .sidebar-item[data-path-id]');
         if (!item) return;
@@ -1135,15 +1123,15 @@ function createSidebar() {
         const toolpath = toolpaths.find(tp => tp.id === pathId);
         if (toolpath) showToolpathPropertiesEditor(toolpath);
     });
+}
 
-    // Add tab change event listeners to control bottom panel visibility
+function setupSidebarTabHandlers() {
     const drawToolsTab = document.getElementById('draw-tools-tab');
     const operationsTab = document.getElementById('operations-tab');
 
     drawToolsTab.addEventListener('shown.bs.tab', function () {
         autoCloseToolProperties('tab switch to Draw Tools');
         hideBottomPanel();
-        // Hide simulation overlay when Draw Tools is active in 2D view
         const canvas2DView = document.getElementById('2d-view');
         if (canvas2DView && canvas2DView.classList.contains('active')) {
             const overlay2D = document.getElementById('simulation-overlay-2d');
@@ -1154,7 +1142,6 @@ function createSidebar() {
     operationsTab.addEventListener('shown.bs.tab', function () {
         autoCloseToolProperties('tab switch to Operations');
         showBottomPanel();
-        // Show simulation overlay when Operations is active in 2D view
         const canvas2DView = document.getElementById('2d-view');
         if (canvas2DView && canvas2DView.classList.contains('active')) {
             const overlay2D = document.getElementById('simulation-overlay-2d');
@@ -1166,7 +1153,6 @@ function createSidebar() {
     const activeTab = document.querySelector('#sidebar-tabs .nav-link.active');
     if (activeTab && activeTab.id === 'operations-tab') {
         showBottomPanel();
-        // Show 2D simulation overlay on init if Operations tab is active
         const canvas2DView = document.getElementById('2d-view');
         if (canvas2DView && canvas2DView.classList.contains('active')) {
             const overlay2D = document.getElementById('simulation-overlay-2d');
@@ -1174,32 +1160,21 @@ function createSidebar() {
         }
     } else {
         hideBottomPanel();
-        // Hide 2D simulation overlay on init if Draw Tools is active
         const overlay2D = document.getElementById('simulation-overlay-2d');
         if (overlay2D) overlay2D.classList.add('d-none');
     }
+}
 
-    // Bootstrap automatically handles aria-expanded, no JS needed for chevron rotation
-    // CSS handles the rotation based on [aria-expanded] attribute
-
-    // Add canvas tab change listeners to control 2D/3D overlay visibility
+function setupCanvasTabHandlers() {
     const canvas2DTab = document.getElementById('2d-tab');
     const canvas3DTab = document.getElementById('3d-tab');
     const canvasToolsTab = document.getElementById('tools-tab');
 
     if (canvas2DTab) {
         canvas2DTab.addEventListener('shown.bs.tab', function () {
-            // Stop 3D simulation when switching to 2D (simulations are mutually exclusive)
-            if (typeof stopSimulation3D === 'function') {
-                stopSimulation3D();
-            }
+            if (typeof stopSimulation3D === 'function') stopSimulation3D();
+            if (typeof hideGcodeViewerPanel === 'function') hideGcodeViewerPanel();
 
-            // Hide gcode viewer when switching to 2D view
-            if (typeof hideGcodeViewerPanel === 'function') {
-                hideGcodeViewerPanel();
-            }
-
-            // When switching to 2D view, show/hide overlay based on sidebar tab
             const currentSidebarTab = document.querySelector('#sidebar-tabs .nav-link.active');
             const overlay2D = document.getElementById('simulation-overlay-2d');
             if (overlay2D) {
@@ -1209,11 +1184,9 @@ function createSidebar() {
                     overlay2D.classList.remove('d-none');
                 }
             }
-            // Hide 3D overlay
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.add('d-none');
 
-            // Update canvas buffer size and redraw after layout settles
             requestAnimationFrame(() => {
                 centerWorkpiece();
                 redraw();
@@ -1223,12 +1196,8 @@ function createSidebar() {
 
     if (canvas3DTab) {
         canvas3DTab.addEventListener('shown.bs.tab', function () {
-            // Stop 2D simulation when switching to 3D (simulations are mutually exclusive)
-            if (typeof stopSimulation2D === 'function') {
-                stopSimulation2D();
-            }
+            if (typeof stopSimulation2D === 'function') stopSimulation2D();
 
-            // Load and show gcode viewer when switching to 3D view
             if (typeof gcodeView !== 'undefined' && gcodeView) {
                 let gcode;
                 if (window._importedGcode) {
@@ -1239,62 +1208,36 @@ function createSidebar() {
                 if (gcode) {
                     window._cachedGcode = gcode;
                     gcodeView.populate(gcode);
-                    if (typeof showGcodeViewerPanel === 'function') {
-                        showGcodeViewerPanel();
-                    }
+                    if (typeof showGcodeViewerPanel === 'function') showGcodeViewerPanel();
                 }
             }
 
-            // When switching to 3D view, show 3D overlay and hide 2D overlay
             const overlay2D = document.getElementById('simulation-overlay-2d');
             if (overlay2D) overlay2D.classList.add('d-none');
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.remove('d-none');
 
-            // Update simulation UI button states when switching to 3D view
-            if (typeof updateSimulation3DUI === 'function') {
-                updateSimulation3DUI();
-            }
-
-            // Update 3D display to show current animation state
-            if (typeof updateSimulation3DDisplays === 'function') {
-                updateSimulation3DDisplays();
-            }
+            if (typeof updateSimulation3DUI === 'function') updateSimulation3DUI();
+            if (typeof updateSimulation3DDisplays === 'function') updateSimulation3DDisplays();
         });
 
-        // WIRE UP CLEANUP (Critical Fix 1.2): Clean up 3D resources when switching away from 3D tab
         canvas3DTab.addEventListener('hidden.bs.tab', function () {
-            if (typeof cleanup3DView === 'function') {
-                cleanup3DView();
-            }
+            if (typeof cleanup3DView === 'function') cleanup3DView();
         });
     }
 
     if (canvasToolsTab) {
         canvasToolsTab.addEventListener('shown.bs.tab', function () {
-            // Stop both simulations when switching to Tools tab
-            if (typeof stopSimulation2D === 'function') {
-                stopSimulation2D();
-            }
-            if (typeof stopSimulation3D === 'function') {
-                stopSimulation3D();
-            }
+            if (typeof stopSimulation2D === 'function') stopSimulation2D();
+            if (typeof stopSimulation3D === 'function') stopSimulation3D();
+            if (typeof hideGcodeViewerPanel === 'function') hideGcodeViewerPanel();
 
-            // Hide gcode viewer when switching to Tools tab
-            if (typeof hideGcodeViewerPanel === 'function') {
-                hideGcodeViewerPanel();
-            }
-
-            // When switching to Tools tab, hide both overlays
             const overlay2D = document.getElementById('simulation-overlay-2d');
             if (overlay2D) overlay2D.classList.add('d-none');
             const overlay3D = document.getElementById('simulation-overlay-3d');
             if (overlay3D) overlay3D.classList.add('d-none');
         });
     }
-
-    // Initialize G-code profiles UI
-    initializeGcodeProfilesUI();
 }
 
 // Global GcodeView instance and state
@@ -1905,17 +1848,149 @@ function showOperationPropertiesEditor(operationName) {
 /**
  * Setup the Update Toolpath button handler (shared by both creation and editing flows)
  */
+function updateSurfacingToolpath(operationName, activeToolpaths, selectedTool, data) {
+    const originalTool = window.currentTool;
+    window.currentTool = {
+        ...selectedTool,
+        depth: data.depth,
+        stepover: data.stepover
+    };
+    window.currentToolpathProperties = { ...data };
+    window.toolpathUpdateTargets = [...activeToolpaths];
+
+    try {
+        if (operationName === '3dProfile' && typeof window.do3dProfile === 'function') {
+            window.do3dProfile();
+        } else {
+            doSurfacing();
+        }
+    } finally {
+        window.currentTool = originalTool;
+        window.currentToolpathProperties = null;
+        window.toolpathUpdateTargets = null;
+    }
+}
+
+function updateHelicalDrillToolpath(activeToolpaths, selectedTool, data) {
+    for (const toolpath of activeToolpaths) {
+        if (toolpath.operation !== 'HelicalDrill') continue;
+        toolpath.toolpathProperties = { ...data };
+        if (data.toolpathName) toolpath.label = data.toolpathName;
+        toolpath.tool = {
+            ...selectedTool,
+            depth: data.depth,
+            step: data.step
+        };
+
+        const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
+        if (svgPath && typeof Drill !== 'undefined') {
+            const drillOp = cncController.operationManager.getOperation('Drill');
+            if (drillOp) {
+                const circleInfo = drillOp.detectCircle(svgPath);
+                if (circleInfo) {
+                    const newRadius = (selectedTool.diameter / 2) * viewScale;
+                    if (circleInfo.radius <= newRadius) {
+                        var circleDiaMM = (circleInfo.radius * 2 / viewScale).toFixed(2);
+                        var toolDiaMM = selectedTool.diameter.toFixed(2);
+                        notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
+                    } else {
+                        const helixPath = generateHelixPath(circleInfo, data.depth, data.step, newRadius);
+                        toolpath.paths = [{ tpath: helixPath, path: helixPath }];
+                    }
+                }
+            }
+        }
+    }
+}
+
+function updateDrillToolpath(activeToolpaths, selectedTool, data) {
+    for (const toolpath of activeToolpaths) {
+        toolpath.toolpathProperties = { ...data };
+        if (data.toolpathName) toolpath.label = data.toolpathName;
+        toolpath.tool = {
+            ...selectedTool,
+            depth: data.depth,
+            step: data.step,
+            stepover: data.stepover,
+            inside: data.inside,
+            direction: data.direction
+        };
+
+        if (selectedTool.diameter) {
+            const newRadius = (selectedTool.diameter / 2) * viewScale;
+            if (toolpath.paths && Array.isArray(toolpath.paths)) {
+                toolpath.paths.forEach(pathObj => {
+                    if (pathObj.path && Array.isArray(pathObj.path)) {
+                        pathObj.path.forEach(point => {
+                            if (point.r !== undefined) point.r = newRadius;
+                        });
+                    }
+                    if (pathObj.tpath && Array.isArray(pathObj.tpath)) {
+                        pathObj.tpath.forEach(point => {
+                            if (point.r !== undefined) point.r = newRadius;
+                        });
+                    }
+                });
+            }
+        }
+    }
+}
+
+function regenerateToolpathFromSvg(operationName, activeToolpaths, selectedTool, data) {
+    const svgPathsToRegenerate = [];
+    for (const toolpath of activeToolpaths) {
+        if (toolpath.svgIds && Array.isArray(toolpath.svgIds)) {
+            toolpath.svgIds.forEach(id => {
+                const svgPath = svgpaths.find(p => p.id === id);
+                if (svgPath) svgPathsToRegenerate.push(svgPath);
+            });
+        } else {
+            const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
+            if (svgPath) svgPathsToRegenerate.push(svgPath);
+        }
+    }
+
+    if (svgPathsToRegenerate.length === 0) {
+        notify('Original paths not found', 'error');
+        return;
+    }
+
+    selectMgr.unselectAll();
+    svgPathsToRegenerate.forEach(p => selectMgr.selectPath(p));
+
+    const originalTool = window.currentTool;
+    window.currentTool = {
+        ...selectedTool,
+        depth: data.depth,
+        step: data.step,
+        stepover: data.stepover,
+        inside: data.inside,
+        direction: data.direction,
+        numLoops: data.numLoops || 1,
+        overCut: data.overCut || 0
+    };
+    window.currentToolpathProperties = { ...data };
+    window.toolpathUpdateTargets = [...activeToolpaths];
+
+    try {
+        handleOperationClick(operationName);
+    } finally {
+        window.currentTool = originalTool;
+        window.currentToolpathProperties = null;
+        window.toolpathUpdateTargets = null;
+    }
+
+    setActiveToolpaths(activeToolpaths);
+}
+
 function setupToolpathUpdateButton(operationName) {
     const updateButton = document.getElementById('update-toolpath-button');
     if (!updateButton) return;
 
-    // Remove any existing listeners by cloning the button
     const newButton = updateButton.cloneNode(true);
     updateButton.parentNode.replaceChild(newButton, updateButton);
 
-    // Set up the click handler
     newButton.addEventListener('click', function () {
-        // Get all currently active toolpaths
         const activeToolpaths = getActiveToolpaths();
 
         if (activeToolpaths.length === 0) {
@@ -1923,208 +1998,35 @@ function setupToolpathUpdateButton(operationName) {
             return;
         }
 
-        // Collect form data
         const data = window.toolpathPropertiesManager.collectFormData();
 
-        // Validate
         const errors = window.toolpathPropertiesManager.validateFormData(operationName, data);
         if (errors.length > 0) {
             notify(errors.join(', '), 'error');
             return;
         }
 
-        // Update defaults for this operation
         window.toolpathPropertiesManager.updateDefaults(operationName, data);
 
-        // Get the selected tool
         const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
         if (!selectedTool) {
             notify('Selected tool not found', 'error');
             return;
         }
 
-        // For Surfacing and 3dProfile, regenerate the toolpath from scratch (no source SVG paths)
         if (operationName === 'Surfacing' || operationName === '3dProfile') {
-            const originalTool = window.currentTool;
-            window.currentTool = {
-                ...selectedTool,
-                depth: data.depth,
-                stepover: data.stepover
-            };
-            window.currentToolpathProperties = { ...data };
-            window.toolpathUpdateTargets = [...activeToolpaths];
-
-            try {
-                if (operationName === '3dProfile' && typeof window.do3dProfile === 'function') {
-                    window.do3dProfile();
-                } else {
-                    doSurfacing();
-                }
-            } finally {
-                window.currentTool = originalTool;
-                window.currentToolpathProperties = null;
-                window.toolpathUpdateTargets = null;
-            }
-
-            refreshToolPathsDisplay();
-            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
-            redraw();
-            return;
+            updateSurfacingToolpath(operationName, activeToolpaths, selectedTool, data);
+        } else if (operationName === 'Drill' && activeToolpaths.some(tp => tp.operation === 'HelicalDrill')) {
+            updateHelicalDrillToolpath(activeToolpaths, selectedTool, data);
+        } else if (operationName === 'Drill') {
+            updateDrillToolpath(activeToolpaths, selectedTool, data);
+        } else {
+            regenerateToolpathFromSvg(operationName, activeToolpaths, selectedTool, data);
         }
 
-        // For HelicalDrill, regenerate helix with new depth/step/tool
-        if (operationName === 'Drill' && activeToolpaths.some(tp => tp.operation === 'HelicalDrill')) {
-            for (const toolpath of activeToolpaths) {
-                if (toolpath.operation !== 'HelicalDrill') continue;
-                toolpath.toolpathProperties = { ...data };
-                if (data.toolpathName) toolpath.label = data.toolpathName;
-                toolpath.tool = {
-                    ...selectedTool,
-                    depth: data.depth,
-                    step: data.step
-                };
-
-                // Regenerate helix from the linked SVG circle
-                const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
-                if (svgPath && typeof Drill !== 'undefined') {
-                    const drillOp = cncController.operationManager.getOperation('Drill');
-                    if (drillOp) {
-                        const circleInfo = drillOp.detectCircle(svgPath);
-                        if (circleInfo) {
-                            const newRadius = (selectedTool.diameter / 2) * viewScale;
-                            if (circleInfo.radius <= newRadius) {
-                                var circleDiaMM = (circleInfo.radius * 2 / viewScale).toFixed(2);
-                                var toolDiaMM = selectedTool.diameter.toFixed(2);
-                                notify('Circle diameter (' + circleDiaMM + 'mm) is smaller than tool diameter (' + toolDiaMM + 'mm). Use a smaller end mill.', 'error');
-                            } else {
-                                const helixPath = generateHelixPath(circleInfo, data.depth, data.step, newRadius);
-                                toolpath.paths = [{ tpath: helixPath, path: helixPath }];
-                            }
-                        }
-                    }
-                }
-            }
-            refreshToolPathsDisplay();
-            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
-            redraw();
-            return;
-        }
-
-        // For VCarve and Drill operations, update in place without regenerating from SVG paths
-        if (operationName === 'Drill') {
-            // Update toolpath properties and tool data in place without regenerating
-            for (const toolpath of activeToolpaths) {
-                toolpath.toolpathProperties = { ...data };
-                if (data.toolpathName) {
-                    toolpath.label = data.toolpathName;
-                }
-                toolpath.tool = {
-                    ...selectedTool,
-                    depth: data.depth,
-                    step: data.step,
-                    stepover: data.stepover,
-                    inside: data.inside,
-                    direction: data.direction
-                };
-
-
-                // For drill holes, if tool diameter changed, update the radius in the path
-                if (operationName === 'Drill' && selectedTool.diameter) {
-                    // Convert diameter to radius in world coordinates (multiply by viewScale)
-                    const newRadius = (selectedTool.diameter / 2) * viewScale;
-                    // Update radius in all path points
-                    if (toolpath.paths && Array.isArray(toolpath.paths)) {
-                        toolpath.paths.forEach(pathObj => {
-                            if (pathObj.path && Array.isArray(pathObj.path)) {
-                                pathObj.path.forEach(point => {
-                                    if (point.r !== undefined) {
-                                        point.r = newRadius;
-                                    }
-                                });
-                            }
-                            if (pathObj.tpath && Array.isArray(pathObj.tpath)) {
-                                pathObj.tpath.forEach(point => {
-                                    if (point.r !== undefined) {
-                                        point.r = newRadius;
-                                    }
-                                });
-                            }
-                        });
-                    }
-                }
-            }
-
-            // Refresh display to show updated tool name if changed
-            refreshToolPathsDisplay();
-            notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
-            redraw();
-            return;
-        }
-
-        // For non-VCarve operations, regenerate the toolpaths
-        // Collect all SVG paths that need to be regenerated
-        const svgPathsToRegenerate = [];
-        for (const toolpath of activeToolpaths) {
-            // Check if toolpath has svgIds array (new format for multi-path operations like pocket)
-            if (toolpath.svgIds && Array.isArray(toolpath.svgIds)) {
-                // Multi-path: find ALL matching paths
-                toolpath.svgIds.forEach(id => {
-                    const svgPath = svgpaths.find(p => p.id === id);
-                    if (svgPath) {
-                        svgPathsToRegenerate.push(svgPath);
-                    }
-                });
-            } else {
-                // Single path: backward compatible with old format
-                const svgPath = svgpaths.find(p => p.id === toolpath.svgId);
-                if (svgPath) {
-                    svgPathsToRegenerate.push(svgPath);
-                }
-            }
-        }
-
-        if (svgPathsToRegenerate.length === 0) {
-            notify('Original paths not found', 'error');
-            return;
-        }
-
-        // Select all the original paths
-        selectMgr.unselectAll();
-        svgPathsToRegenerate.forEach(p => selectMgr.selectPath(p));
-
-        // Store current tool and temporarily replace it
-        const originalTool = window.currentTool;
-        window.currentTool = {
-            ...selectedTool,
-            depth: data.depth,
-            step: data.step,
-            stepover: data.stepover,
-            inside: data.inside,
-            direction: data.direction,
-            numLoops: data.numLoops || 1,
-            overCut: data.overCut || 0
-        };
-
-        // Store the properties for later reference
-        window.currentToolpathProperties = { ...data };
-
-        // Tell pushToolPath to update these existing toolpaths in-place
-        // rather than creating new ones, preserving name, id, and list position.
-        window.toolpathUpdateTargets = [...activeToolpaths];
-
-        try {
-            handleOperationClick(operationName);
-        } finally {
-            window.currentTool = originalTool;
-            window.currentToolpathProperties = null;
-            window.toolpathUpdateTargets = null;
-        }
-
-        setActiveToolpaths(activeToolpaths);
-
-        // Refresh display
         refreshToolPathsDisplay();
         notify(`${activeToolpaths.length} toolpath(s) updated`, 'success');
+        redraw();
     });
 }
 

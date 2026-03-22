@@ -16,29 +16,67 @@ class Workpiece extends Operation {
         // No canvas interaction needed
     }
 
+    getOriginGridHTML(currentOriginPosition) {
+        const positions = [
+            'top-left', 'top-center', 'top-right',
+            'middle-left', 'middle-center', 'middle-right',
+            'bottom-left', 'bottom-center', 'bottom-right'
+        ];
+        const cells = positions.map(pos =>
+            `<div class="col-4">
+                <div class="grid-cell" onclick="this.querySelector('input').click()">
+                    <input class="form-check-input" type="radio" name="originPosition" value="${pos}"
+                           ${currentOriginPosition === pos ? 'checked' : ''}>
+                </div>
+            </div>`
+        ).join('\n');
+
+        return `
+            <div class="mb-3">
+                <label class="form-label">Origin Position</label>
+                <div class="origin-position-grid">
+                    <div class="row g-1">${cells}</div>
+                </div>
+                <div class="form-text">Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece</div>
+            </div>`;
+    }
+
+    getDisplayOptionsHTML(showGrid, snapGrid, showOrigin, showWorkpiece) {
+        const checkbox = (id, label, checked) =>
+            `<div class="form-check${id === 'snapGrid' ? ' mt-1' : ''}">
+                <input class="form-check-input" type="checkbox" id="${id}" name="${id}" ${checked ? 'checked' : ''}>
+                <label class="form-check-label" for="${id}">${label}</label>
+            </div>`;
+
+        return `
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    ${checkbox('showGrid', 'Show Grid', showGrid)}
+                    ${checkbox('snapGrid', 'Snap to Grid', snapGrid)}
+                </div>
+                <div class="col-md-4">
+                    ${checkbox('showOrigin', 'Show Origin', showOrigin)}
+                </div>
+                <div class="col-md-4">
+                    ${checkbox('showWorkpiece', 'Show Workpiece', showWorkpiece)}
+                </div>
+            </div>`;
+    }
+
     // Properties Editor Interface
     getPropertiesHTML() {
-        // Get current values from options (stored in mm)
         const currentWidth = getOption("workpieceWidth") || 300;
         const currentLength = getOption("workpieceLength") || 200;
         const currentThickness = getOption("workpieceThickness") || 19;
         const currentGridSize = getOption("gridSize") || 10;
 
-
-        // Convert values for display (with fractions in inch mode)
         const displayWidth = formatDimension(currentWidth, true);
         const displayLength = formatDimension(currentLength, true);
-        const displayThickness = formatDimension(currentThickness,  true);
-        const displayGridSize = formatDimension(currentGridSize,  true);
+        const displayThickness = formatDimension(currentThickness, true);
+        const displayGridSize = formatDimension(currentGridSize, true);
 
         const currentSpecies = getOption("woodSpecies") || 'Pine';
-        const currentOriginPosition = getOption("originPosition") || 'middle-center';
-        const currentShowGrid = getOption("showGrid") !== false;
-        const currentSnapGrid = getOption("snapGrid") !== false;
-        const currentShowOrigin = getOption("showOrigin") !== false;
-        const currentShowWorkpiece = getOption("showWorkpiece") !== false;
 
-        // Generate species dropdown options
         let speciesOptions = '';
         if (typeof woodSpeciesDatabase !== 'undefined') {
             Object.keys(woodSpeciesDatabase).forEach(species => {
@@ -49,38 +87,15 @@ class Workpiece extends Operation {
 
         return `
             <style>
-                .origin-position-grid {
-                    max-width: 150px;
-                    margin: 0 auto;
-                }
-                .origin-position-grid .form-check-input {
-                    margin: 0;
-                    transform: scale(0.8);
-                    position: relative;
-                }
+                .origin-position-grid { max-width: 150px; margin: 0 auto; }
+                .origin-position-grid .form-check-input { margin: 0; transform: scale(0.8); position: relative; }
                 .origin-position-grid .grid-cell {
-                    aspect-ratio: 1;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    border: 1px solid #dee2e6;
-                    background-color: #f8f9fa;
-                    border-radius: 4px;
-                    padding: 8px;
-                    min-height: 30px;
+                    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+                    border: 1px solid #dee2e6; background-color: #f8f9fa; border-radius: 4px;
+                    padding: 8px; min-height: 30px; cursor: pointer;
                 }
-                .origin-position-grid .grid-cell:hover {
-                    background-color: #e9ecef;
-                    cursor: pointer;
-                }
-                .origin-position-grid .form-check-input:checked + .grid-cell,
-                .origin-position-grid .grid-cell:has(.form-check-input:checked) {
-                    background-color: #cfe2ff;
-                    border-color: #0d6efd;
-                }
-                .origin-position-grid .grid-cell {
-                    cursor: pointer;
-                }
+                .origin-position-grid .grid-cell:hover { background-color: #e9ecef; }
+                .origin-position-grid .grid-cell:has(.form-check-input:checked) { background-color: #cfe2ff; border-color: #0d6efd; }
             </style>
 
             <div class="alert alert-info mb-3">
@@ -91,30 +106,22 @@ class Workpiece extends Operation {
             <div class="row mb-3">
                 <div class="col-md-6">
                     <label for="workpieceWidth" class="form-label">Width (X)</label>
-                    <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth"
-                           value="${displayWidth}" >
-     
+                    <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth" value="${displayWidth}">
                 </div>
                 <div class="col-md-6">
                     <label for="workpieceLength" class="form-label">Length (Y)</label>
-                    <input type="text" class="form-control" id="workpieceLength" name="workpieceLength"
-                           value="${displayLength}" >
-     
+                    <input type="text" class="form-control" id="workpieceLength" name="workpieceLength" value="${displayLength}">
                 </div>
             </div>
 
             <div class="row mb-3">
                 <div class="col-md-6">
                     <label for="workpieceThickness" class="form-label">Thickness (Z)</label>
-                    <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness"
-                           value="${displayThickness}" >
-
+                    <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness" value="${displayThickness}">
                 </div>
                 <div class="col-md-6">
                     <label for="woodSpecies" class="form-label">Wood Species</label>
-                    <select class="form-select" id="woodSpecies" name="woodSpecies">
-                        ${speciesOptions}
-                    </select>
+                    <select class="form-select" id="woodSpecies" name="woodSpecies">${speciesOptions}</select>
                 </div>
             </div>
 
@@ -123,110 +130,18 @@ class Workpiece extends Operation {
                     <label for="gridSize" class="form-label mb-0">Grid Size</label>
                 </div>
                 <div class="col-auto">
-                    <input type="text" class="form-control" id="gridSize" name="gridSize"
-                           value="${displayGridSize}"  style="width: 100px;">
+                    <input type="text" class="form-control" id="gridSize" name="gridSize" value="${displayGridSize}" style="width: 100px;">
                 </div>
             </div>
 
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="showGrid" name="showGrid"
-                               ${currentShowGrid ? 'checked' : ''}>
-                        <label class="form-check-label" for="showGrid">
-                            Show Grid
-                        </label>
-                    </div>
-                    <div class="form-check mt-1">
-                        <input class="form-check-input" type="checkbox" id="snapGrid" name="snapGrid"
-                               ${currentSnapGrid ? 'checked' : ''}>
-                        <label class="form-check-label" for="snapGrid">
-                            Snap to Grid
-                        </label>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="showOrigin" name="showOrigin"
-                               ${currentShowOrigin ? 'checked' : ''}>
-                        <label class="form-check-label" for="showOrigin">
-                            Show Origin
-                        </label>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="showWorkpiece" name="showWorkpiece"
-                               ${currentShowWorkpiece ? 'checked' : ''}>
-                        <label class="form-check-label" for="showWorkpiece">
-                            Show Workpiece
-                        </label>
-                    </div>
-                </div>
-            </div>
+            ${this.getDisplayOptionsHTML(
+                getOption("showGrid") !== false,
+                getOption("snapGrid") !== false,
+                getOption("showOrigin") !== false,
+                getOption("showWorkpiece") !== false
+            )}
 
-            <div class="mb-3">
-                <label class="form-label">Origin Position</label>
-                <div class="origin-position-grid">
-                    <div class="row g-1">
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="top-left"
-                                       ${currentOriginPosition === 'top-left' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="top-center"
-                                       ${currentOriginPosition === 'top-center' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="top-right"
-                                       ${currentOriginPosition === 'top-right' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="middle-left"
-                                       ${currentOriginPosition === 'middle-left' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="middle-center"
-                                       ${currentOriginPosition === 'middle-center' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="middle-right"
-                                       ${currentOriginPosition === 'middle-right' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="bottom-left"
-                                       ${currentOriginPosition === 'bottom-left' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="bottom-center"
-                                       ${currentOriginPosition === 'bottom-center' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                        <div class="col-4">
-                            <div class="grid-cell" onclick="this.querySelector('input').click()">
-                                <input class="form-check-input" type="radio" name="originPosition" value="bottom-right"
-                                       ${currentOriginPosition === 'bottom-right' ? 'checked' : ''}>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="form-text">Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece</div>
-            </div>
+            ${this.getOriginGridHTML(getOption("originPosition") || 'middle-center')}
 
             <div class="alert alert-light">
                 <small class="text-muted">
