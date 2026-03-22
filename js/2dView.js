@@ -138,13 +138,6 @@ function getCanvasCenter() {
 	};
 }
 
-function center() {
-
-	const w = canvas.getBoundingClientRect().width;
-	const h = canvas.getBoundingClientRect().height;
-
-}
-
 
 function clear() {
 	ctx.globalAlpha = 1;
