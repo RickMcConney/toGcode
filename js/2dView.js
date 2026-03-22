@@ -90,7 +90,6 @@ function newZoom(delta, centerX, centerY) {
 	panX = centerX - world.x * newZoom;
 	panY = centerY - world.y * newZoom;
 	zoomLevel = newZoom;
-	redraw();
 	// keep mouse position stable
 	var world = screenToWorld(centerX, centerY);
 	panX = centerX - world.x * zoomLevel;
@@ -141,29 +140,9 @@ function getCanvasCenter() {
 
 function center() {
 
-	//var w = $('#canvas').parent()[0].clientWidth;
-	//var h = $('#canvas').parent()[0].clientHeight;
-
 	const w = canvas.getBoundingClientRect().width;
 	const h = canvas.getBoundingClientRect().height;
 
-	var boxWidth = w;
-	var boxHeight = h;
-
-	scaleFactor = 1;
-
-	if (svgpaths && svgpaths.length > 0) {
-		bbox = boundingBoxPaths(svgpaths);
-		boxWidth = Math.round(bbox.maxx + bbox.minx);
-		boxHeight = Math.round(bbox.maxy + bbox.miny);
-		if (boxWidth > boxHeight)
-			scaleFactor = w / boxWidth;
-		else
-			scaleFactor = h / boxHeight;
-	}
-
-	offsetX = 0;
-	offsetY = 0;
 }
 
 
@@ -207,10 +186,6 @@ function drawSvgPath(svgpath, color, lineWidth) {
 		} else {
 			ctx.lineTo(pt.x, pt.y);
 		}
-	}
-	// Close the path if marked as closed
-	if (false && svgpath.closed) {
-		ctx.closePath();
 	}
 	ctx.lineWidth = lineWidth;
 	ctx.strokeStyle = color;
@@ -445,13 +420,8 @@ function drawOrigin() {
 // Core rendering function (does actual drawing)
 function redrawCore() {
 
-	// The context is reset when the size changes, so get a fresh one.
-	//const ctx = canvas.getContext('2d');
-
-	//ctx.setTransform(1, 0, 0, 1, 0, 0);
 	clear();
 
-	//ctx.setTransform(scaleFactor, 0, 0, scaleFactor, offsetX, offsetY);
 	if (getOption("showWorkpiece"))
 		drawWorkpiece();
 	// Hide grid during simulation or when paused/seeking for clearer visualization
@@ -462,9 +432,6 @@ function redrawCore() {
 	drawToolPaths();
 	drawSvgPaths();
 	if (typeof window.drawSTLHeightMap === 'function') window.drawSTLHeightMap(ctx);
-
-	// DEBUG: Draw tab bounding boxes for visualization
-	//drawTabBoundingBoxes();
 
 	// Draw material removal circles for 2D simulation
 	// Draw if precomputed points exist and simulation has been set up

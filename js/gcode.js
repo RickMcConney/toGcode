@@ -169,7 +169,6 @@ function toGcodeUnits(x, y, useInches) {
 
 // Convert Z coordinate to G-code units (mm or inches based on profile setting)
 function toGcodeUnitsZ(z, useInches) {
-	//var mm = toMMZ(z);
 	var mm = z;
 	if (!useInches) {
 		return mm;

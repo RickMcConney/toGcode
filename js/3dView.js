@@ -106,7 +106,6 @@ const CONFIG = {
 
   // Coordinate space
   TOOL_LENGTH: 40,  // Tool visualization length
-  SAFE_Z_HEIGHT: 5,  // Safe height for rapid moves
 
   // Performance
   VOXEL_REMOVAL_RATE: 2,  // Only remove voxels every N frames

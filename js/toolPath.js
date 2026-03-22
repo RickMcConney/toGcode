@@ -115,14 +115,6 @@ function makeNorms(subpath, path, cw, r, outside) {
 				dy = t;
 			}
 
-
-			/*
-			 * var nr = r; var pt = {x:x1+dx*nr,y:y1+dy*nr}; var count =
-			 * lineIntersectsPath({x:x1+dx*0.1,y:y1+dy*0.1},pt,path);
-			 * while(count > 0 && nr > 0.1) { nr = nr/2; pt =
-			 * {x:x1+dx*nr,y:y1+dy*nr}; count =
-			 * lineIntersectsPath({x:x1,y:y1},pt,path); }
-			 */
 			var pt = { x: x1 + dx * r, y: y1 + dy * r };
 			if (!outside && pointInPolygon(pt, subpath)) {
 				norms.push({ x1: x1, y1: y1, x2: pt.x, y2: pt.y, dx: dx, dy: dy });
@@ -214,18 +206,6 @@ function largestEmptyCircles(norms, startRadius, subpath) {
 		}
 
 
-		/*
-				for (var r = inc; r < startRadius; r += inc) {
-					point.x = n.x1 + (n.dx * (r + inc));
-					point.y = n.y1 + (n.dy * (r + inc));
-					if (!bitFits(point, r) || r >= startRadius - 1) {
-						point.r = r;
-						circles.push(point);
-						drawCircle(point);
-						break;
-					}
-				}
-				*/
 	}
 
 	if (circles.length > 0) {
@@ -598,9 +578,6 @@ function generateClipperInfill(inputPaths, stepOverDistance, radius, angle = 0) 
 		sourceLines.push({ index: lineIndex, y: y });
 		lineIndex++;
 	}
-
-	//const line = [{ x: minX, y: maxY-radius }, { x: maxX, y: maxY-radius }];
-	//subjectLines.push(line);
 
 	// Add the boundary paths as the clip subject.
 	// The last parameter is `true` because boundaries are closed polygons.
@@ -1001,10 +978,8 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 	for (var seg in segments) {
 		seg = segments[seg];
 		var p = { x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) };
-		//if (pointInPolygon(p, path))
 		circles.push(p);
 		var p1 = { x: seg.point1.x, y: seg.point1.y, r: Math.min(seg.point1.radius, maxRadius) };
-		//if (pointInPolygon(p1, path))
 		circles.push(p1);
 	}
 	circles = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
@@ -1109,9 +1084,6 @@ function computeVcarve(outside, name) {
 
 		if (!selectMgr.isSelected(svgpaths[i]) || !svgpaths[i].visible) continue;
 
-		//medialAxis(name, path, [], svgpaths[i].id);
-		//continue;
-
 		var r = radius;
 
 		if (outside)
@@ -1141,7 +1113,6 @@ function computeVcarve(outside, name) {
 			// circles[norms.length] is the closing duplicate of circles[0] (same object ref),
 			// so it was already updated above
 		}
-		//var tpath = simplify(circles,2,true);
 		var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 		if (outside) {

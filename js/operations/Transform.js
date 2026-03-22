@@ -1099,7 +1099,6 @@ class Transform extends Select {
     // Properties Editor Interface
     getPropertiesHTML() {
         const hasSelectedPaths = this.hasSelectedPaths();
-        //const disabled = hasSelectedPaths ? '' : 'disabled';
         const disabled = '';
         // Show center position only if we have a transform box
         let centerInfo = '';

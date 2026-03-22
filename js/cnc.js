@@ -189,7 +189,6 @@ function doRemoveToolPath(id) {
 		}
 	}
 	for (var i = toolpaths.length - 1; i >= 0; i--) {
-		var toremove = [];
 		if (toolpaths[i].id == id || toolpaths[i].tool.name == id) {
 			toolpaths.splice(i, 1);
 			removeToolPath(id);
@@ -693,7 +692,6 @@ function doShape() {
 
 function doText() {
 	cncController.setMode("Text");
-	//selectMgr.unselectAll();
 }
 
 function doOffset() {

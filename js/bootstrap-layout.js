@@ -16,7 +16,6 @@ function traceImageToSvg(dataUrl, filename) {
     ImageTracer.imageToSVG(dataUrl, function(svgString) {
         var cleanedSvg = removeBoundaryPaths(svgString);
         parseSvgContent(cleanedSvg, filename);
-        center();
         redraw();
     }, {
         numberofcolors: 4,
@@ -359,7 +358,6 @@ fileInput.addEventListener('change', function (e) {
     var reader = new FileReader();
     reader.onload = function (event) {
         parseSvgContent(event.target.result, file.name);
-        center();
         redraw();
     };
     reader.readAsText(file);
@@ -1588,7 +1586,6 @@ function showToolPropertiesEditor(operationName) {
 
             // Add both change and input events for real-time updates
             input.addEventListener('change', handleInputChange);
-            //input.addEventListener('input', handleInputChange);
         });
 
         // Handle operation-specific buttons (e.g., Generate Tabs, Apply Smoothing)
@@ -1830,7 +1827,6 @@ function showOperationPropertiesEditor(operationName) {
 
                 // Add both change and input events for real-time updates
                 input.addEventListener('change', handleInputChange);
-                // input.addEventListener('input', handleInputChange);
             });
         } else {
             form.innerHTML = '<p class="text-muted">No properties available for this operation.</p>';
@@ -2348,7 +2344,6 @@ function showPathPropertiesEditor(path) {
 
         // Add both change and input events for real-time updates
         input.addEventListener('change', handlePathEditChange);
-        //input.addEventListener('input', handlePathEditChange);
     });
 
     // Update help content
@@ -3612,14 +3607,6 @@ function handleOperationClick(operation) {
     // then we should NOT execute the operation yet - just set the mode
     const isGeneratingFromProperties = window.currentToolpathProperties !== null &&
         window.currentToolpathProperties !== undefined;
-
-    // let selectOperations = ['Select', 'Drill',  'Boolean'];
-
-    // cncController.setMode(operation);
-    // if( selectOperations.includes(operation)){
-    //     setMode("Select");
-    // }
-
 
     // Execute the appropriate operation
     switch (operation) {

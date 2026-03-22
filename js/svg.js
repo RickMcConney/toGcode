@@ -323,7 +323,6 @@ function newTransformFromPaperPath(paperPath, name) {
 
 		// Ensure we have a valid flattened path
 		if (!flattenedPath || !flattenedPath.segments) {
-			//console.warn('Flattened path is invalid, using original path');
 			flattenedPath = paperPath;
 		}
 

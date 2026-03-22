@@ -92,7 +92,6 @@ function applyBooleanOperation() {
 
     svgpathId++;
     redraw();
-    console.log("boolean " + operation);
 }
 
 class BooleanOpp extends Select {

@@ -160,8 +160,7 @@ class Text extends Operation {
         if (this.currentPath && this.currentPath.creationProperties) {
             // Edit mode: update existing text
             this.updateTextInPlace(this.currentPath);
-        } 
-        //super.onPropertiesChanged(data);
+        }
     }
 
     // Options Management Helper Method

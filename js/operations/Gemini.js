@@ -1,8 +1,5 @@
 
-//var model = 'gemini-2.5-flash-image';
-//var model = 'gemini-2.5-flash'
 var model = 'gemini-2.5-pro';
-//var model = 'gemini-2.5-flash-lite'
 var prefix = "Can you generate SVG path data for ";
 async function callGeminiApi(prompt, apiKey) {
  
