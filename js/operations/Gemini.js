@@ -1,6 +1,5 @@
 
 var model = 'gemini-2.5-pro';
-var prefix = "Can you generate SVG path data for ";
 async function callGeminiApi(prompt, apiKey) {
  
   var request = `Generate SVG path data for "${prompt}" as proper line work suitable for CNC machining.
@@ -124,7 +123,7 @@ class Gemini extends Operation {
                 Generate SVG paths from text prompt using Gemini AI
             </div>
             <div class="mb-3">
-                <label for="gemini-key" class="form-label">Gemini API Key: <span id="gemini-prompt-value">Key</label>
+                <label for="gemini-key" class="form-label">Gemini API Key:</label>
                 <input type="text"
                        class="form-text"
                        id="gemini-key"
@@ -133,7 +132,7 @@ class Gemini extends Operation {
                        >
             </div>
             <div class="mb-3">
-                <label for="gemini-prompt" class="form-label">Prompt: <span id="gemini-prompt-value">Prompt</label>
+                <label for="gemini-prompt" class="form-label">Prompt:</label>
                 <input type="text"
                        class="form-text"
                        id="gemini-prompt"

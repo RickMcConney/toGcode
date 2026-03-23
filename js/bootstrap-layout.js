@@ -479,7 +479,7 @@ function removeBoundaryPaths(svgString) {
             if (hasBottomLeftCorner) cornerCount++;
             if (hasBottomRightCorner) cornerCount++;
 
-            // Only remove if path touches 2 or more corners (boundary artifacts)
+            // Remove if path touches any corner (boundary artifacts)
             if (cornerCount >= 1) {
                 pathsToRemove.push(pathElement);
             }
@@ -2880,25 +2880,7 @@ function getCurrentToolIndex() {
     return selectedRow ? parseInt(selectedRow.dataset.toolIndex) : -1;
 }
 
-function openColorPicker(index) {
-    // Create a temporary color input
-    const colorInput = document.createElement('input');
-    colorInput.type = 'color';
-    colorInput.value = '#' + tools[index].color;
 
-    colorInput.addEventListener('change', function () {
-        const newColor = this.value.substring(1); // Remove #
-        updateTool(index, 'color', newColor);
-
-        // Update the color cell
-        const colorCell = document.querySelector(`tr[data-tool-index="${index}"] .color-cell`);
-        if (colorCell) {
-            colorCell.style.backgroundColor = this.value;
-        }
-    });
-
-    colorInput.click();
-}
 
 // Modal creation
 function createModals() {
@@ -3403,17 +3385,6 @@ function renderOptionsTable() {
     });
 }
 
-// Parse percentage input (e.g., "50%", "100%", "110%") and return percentage value
-function parsePercentage(value) {
-    if (typeof value === 'string' && value.trim().endsWith('%')) {
-        const percent = parseFloat(value.replace('%', '').trim());
-        if (!isNaN(percent) && percent >= 0 && percent <= 110) {
-            return percent;
-        }
-    }
-    return null;
-}
-
 // Calculate depth or step value from percentage of workpiece thickness
 function calculateFromPercentage(percent) {
     const thickness = getOption("workpieceThickness") || 19;
@@ -3728,8 +3699,8 @@ function handlePathClick(pathId) {
 
     doSelect(pathId);
 
-    // Check if this is a toolpath (starts with 'T')
-    if (pathId && pathId.startsWith('T')) {
+    // Check if this is a toolpath
+    if (pathId) {
         const toolpath = toolpaths.find(tp => tp.id === pathId);
         if (toolpath) {
             // Check if this operation has properties manager support

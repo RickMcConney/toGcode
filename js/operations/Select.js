@@ -103,7 +103,7 @@ class Select extends Operation {
         return [...Select.selected];
     }
 
-    selectHighlighted(addToSelection)
+    selectHighlighted()
     {
         for (let i = 0; i < svgpaths.length; i++) {
             if (!svgpaths[i].visible) continue;

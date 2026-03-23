@@ -52,7 +52,6 @@ class Shape extends Operation {
     constructor() {
         super('Shape', 'pentagon', 'Create basic shapes (circle, rectangle, polygon, star, etc.)');
         this.defaults = {};
-        this.oldShape = null;
 
         for (let shape of AVAILABLE_SHAPES) {
             let meta = null;

@@ -17,9 +17,6 @@ var toolpaths = [];
 var svgpaths = [];
 var nearbypaths = [];
 var norms = [];
-var debug = [];
-var vlocal = [];
-var currentNorm = null;
 var undoList = [];
 var redoList = [];
 var MAX_UNDO = 50;
@@ -45,7 +42,7 @@ document.addEventListener('keydown', function (evt) {
 	const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 	const cmdOrCtrl = isMac ? evt.metaKey : evt.ctrlKey;
 
-	// Ctrl/Cmd + Z: Undo
+	// Ctrl/Cmd + V: Paste
 	if (cmdOrCtrl && evt.key === 'v' && !evt.shiftKey) {
 		evt.preventDefault();
 		doPaste();
@@ -263,7 +260,7 @@ function restoreToolpaths(projectToolpaths) {
 	clearToolPaths();
 	toolpaths = projectToolpaths;
 	toolpathId = 1;
-	for (var i in toolpaths) {
+	for (var i = 0; i < toolpaths.length; i++) {
 		toolpaths[i].id = 'T' + toolpathId;
 		addToolPath('T' + toolpathId, toolpaths[i].operation + ' ' + toolpathId, toolpaths[i].operation, toolpaths[i].tool.name);
 		toolpathId++;
@@ -276,8 +273,14 @@ function restoreSvgpaths(projectSvgpaths, selectedIds) {
 	svgpaths = projectSvgpaths;
 	svgpathId = 1;
 	var addedTextGroups = {};
-	for (var i in svgpaths) {
+	for (var i = 0; i < svgpaths.length; i++) {
 		var sp = svgpaths[i];
+		// Track highest numeric ID to prevent collisions
+		var idMatch = sp.id && sp.id.match(/\d+$/);
+		if (idMatch) {
+			var num = parseInt(idMatch[0], 10);
+			if (num >= svgpathId) svgpathId = num + 1;
+		}
 		if (sp.textGroupId && !addedTextGroups[sp.textGroupId]) {
 			var groupPaths = svgpaths.filter(function(p) { return p.textGroupId === sp.textGroupId; });
 			var text = (sp.creationProperties && sp.creationProperties.text) || sp.name;
@@ -286,7 +289,6 @@ function restoreSvgpaths(projectSvgpaths, selectedIds) {
 		} else if (!sp.textGroupId) {
 			addSvgPath(sp.id, sp.name);
 		}
-		svgpathId++;
 	}
 	if (selectedIds) {
 		for (var i = 0; i < svgpaths.length; i++) {
@@ -421,9 +423,9 @@ function loadProject(json) {
 	newProject();
 
 	var project = JSON.parse(json);
-	origin = project.origin;
-	toolpaths = project.toolpaths;
-	svgpaths = project.svgpaths;
+	if (project.origin) origin = project.origin;
+	if (project.toolpaths) toolpaths = project.toolpaths;
+	if (project.svgpaths) svgpaths = project.svgpaths;
 
 	// Restore tools and options if they exist in the project file
 	if (project.tools) {
@@ -492,8 +494,6 @@ function newProject() {
 	toolpaths = [];
 	svgpaths = [];
 	norms = [];
-	debug = [];
-	vlocal = [];
 	nearbypaths = [];
 	undoList = [];
 	clearToolPaths();
@@ -591,7 +591,7 @@ function doProfileCut(outside) {
 			for (var p = 0; p < offsetPaths.length; p++) {
 				var opath = offsetPaths[p];
 				var subpath = subdividePath(opath, 2);
-				var circles = checkPath(subpath, radius - 1);
+				var circles = checkPath(subpath, radius * 0.9);
 				var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
 				if (reverseDirection) {
@@ -1468,6 +1468,7 @@ function generateVbitInlayPlug(inputPaths, depths, clearance, plugReach, pocketi
 	}
 	let hull = convexHull(allPts);
 	let expanded = offsetPath(hull, expand, true);
+	if (expanded.length === 0) return { vcarveGroups: [], pocketGroups: [], cutOutGroups: [] };
 	let outerBoundary = expanded[0];
 	if (outerBoundary.length > 0 &&
 		(outerBoundary[0].x !== outerBoundary[outerBoundary.length - 1].x ||
@@ -1652,6 +1653,7 @@ function generateInlayMalePaths(inputPaths, depths, clearance, pocketingTool, po
 	}
 	let hull = convexHull(allPts);
 	let expanded = offsetPath(hull, expand, true);
+	if (expanded.length === 0) return { pocketGroups: [], cutOutGroups: [] };
 	let outerBoundary = expanded[0];
 	if (outerBoundary.length > 0 &&
 		(outerBoundary[0].x !== outerBoundary[outerBoundary.length - 1].x ||

@@ -482,41 +482,6 @@ function convertPointsToScreen(...points) {
 }
 
 /**
- * Create a draw point object for rendering
- * Consolidates duplicated object creation logic
- * @param {Object} point - The precomputed point data
- * @param {boolean} isInterpolating - Whether we're interpolating within this segment
- * @param {Object|null} interpolationData - Interpolated x, y, z, radius if interpolating
- * @returns {Object} Draw point with screen-ready properties
- */
-function createDrawPoint(point, isInterpolating, interpolationData) {
-    if (isInterpolating && interpolationData) {
-        const { interpX, interpY, interpZ, interpRadius } = interpolationData;
-        return {
-            x: interpX,
-            y: interpY,
-            z: interpZ,
-            radius: interpRadius,
-            moveType: point.moveType,
-            operation: point.operation,
-            frustumData: point.frustumData,
-            isFrustum: point.isFrustum
-        };
-    }
-    // Use completed point data
-    return {
-        x: point.x,
-        y: point.y,
-        z: point.z,
-        radius: point.toolRadius,
-        moveType: point.moveType,
-        operation: point.operation,
-        frustumData: point.frustumData,
-        isFrustum: point.isFrustum
-    };
-}
-
-/**
  * Draw material removal from precomputed points
  * Draws dashed red lines for rapids, brown slots for cuts
  * Draws only from line 0 to currentLineIndex

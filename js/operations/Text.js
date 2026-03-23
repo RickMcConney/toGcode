@@ -61,7 +61,7 @@ class Text extends Operation {
 
     _generateFontSizeSlider(fontSize) {
         const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-        const fontSizeValue = parseDimension(parseFloat(useInches ? 1 : 20));
+        const fontSizeValue = fontSize ? parseDimension(parseFloat(fontSize)) : parseDimension(parseFloat(useInches ? 1 : 20));
         const displaySize = formatDimension(fontSizeValue, true);
 
         // Dynamic max based on workpiece size
@@ -252,7 +252,7 @@ class Text extends Operation {
 
                 case 'Z': // Close path
                     if (firstPoint && currentPathData.length > 0) {
-                        if(firstPoint.x != currentPathData[currentPathData.length-1].x && firstPoint.y != currentPathData[currentPathData.length-1].y)
+                        if(firstPoint.x != currentPathData[currentPathData.length-1].x || firstPoint.y != currentPathData[currentPathData.length-1].y)
                             currentPathData.push(firstPoint);
                     }
                     break;

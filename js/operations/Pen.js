@@ -201,7 +201,6 @@ class Pen extends Operation {
             svgpathId++;
         }
 
-        this.isDrawing = false;
         this.drawingPoints = [];
         this.lastPoint = null;
         this.previewLine = null;

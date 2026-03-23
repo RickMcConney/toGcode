@@ -80,7 +80,7 @@ function subdividePath(path, size) {
 
 function makeNorms(subpath, path, cw, r, outside) {
 
-	norms = [];
+	var norms = [];
 
 	for (var i = 0; i < subpath.length; i++) {
 		var j = (i + 1) % subpath.length;
@@ -200,7 +200,6 @@ function largestEmptyCircles(norms, startRadius, subpath) {
 			if (newbitFits(point, r) || r <= inc) {
 				point.r = r;
 				circles.push(point);
-				drawCircle(point);
 				break;
 			}
 		}
@@ -975,8 +974,8 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 
 	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
 	var circles = [];
-	for (var seg in segments) {
-		seg = segments[seg];
+	for (var si = 0; si < segments.length; si++) {
+		var seg = segments[si];
 		var p = { x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) };
 		circles.push(p);
 		var p1 = { x: seg.point1.x, y: seg.point1.y, r: Math.min(seg.point1.radius, maxRadius) };
@@ -1049,17 +1048,17 @@ function computeWithMedialAxis(outside, name) {
 	var paths = [];
 
 	// Clear hole flags from any previous computation
-	for (var i in selected) {
+	for (var i = 0; i < selected.length; i++) {
 		delete selected[i].hole;
 	}
 
-	for (var i in selected) {
+	for (var i = 0; i < selected.length; i++) {
 		if (selected[i].hole) continue;
 		var holes = []
 		var holeSvgIds = []
 		var path = selected[i].path;
-		for (var j in selected) {
-			if (i != j) {
+		for (var j = 0; j < selected.length; j++) {
+			if (i !== j) {
 				if (pathIn(path, selected[j].path)) {
 					holes.push(selected[j].path);
 					holeSvgIds.push(selected[j].id);
@@ -1075,28 +1074,24 @@ function computeWithMedialAxis(outside, name) {
 function computeVcarve(outside, name) {
 	var radius = vbitRadius(currentTool) * viewScale;
 	var overCutWorld = (currentTool.overCut || 0) * viewScale;
+	var selected = selectMgr.selectedPaths();
 
-	for (var i = 0; i < svgpaths.length; i++) {
+	for (var i = 0; i < selected.length; i++) {
+		var svgpath = selected[i];
 		var paths = [];
-		var path = svgpaths[i].path;
-
-
-
-		if (!selectMgr.isSelected(svgpaths[i]) || !svgpaths[i].visible) continue;
+		var path = svgpath.path;
 
 		var r = radius;
 
 		if (outside)
-			nearbypaths = nearbyPaths(svgpaths[i], radius);
+			nearbypaths = nearbyPaths(svgpath, radius);
 		else
-			nearbypaths = nearbyPaths(svgpaths[i], 1);
+			nearbypaths = nearbyPaths(svgpath, 1);
 
 		var cw = isClockwise(path);
 		if (outside) cw = !cw;
 
-
-		var subpath = subdividePath(path, 2); // max path length
-
+		var subpath = subdividePath(path, 2);
 
 		norms = makeNorms(subpath, path, cw, 1, outside);
 		drawNorms(norms)
@@ -1115,29 +1110,15 @@ function computeVcarve(outside, name) {
 		}
 		var tpath = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
 
-		if (outside) {
-			if (currentTool.direction != "climb") {
-				var rcircles = reversePath(circles);
-				var rtpath = reversePath(tpath);
-				paths.push({ path: rcircles, tpath: rtpath });
-			}
-			else {
-				paths.push({ path: circles, tpath: tpath });
-			}
-		}
-		else {
-			if (currentTool.direction == "climb") {
-				var rcircles = reversePath(circles);
-				var rtpath = reversePath(tpath);
-				paths.push({ path: rcircles, tpath: rtpath });
-			}
-			else {
-				paths.push({ path: circles, tpath: tpath });
-			}
+		// Determine if path should be reversed based on direction and inside/outside
+		var shouldReverse = outside ? (currentTool.direction != "climb") : (currentTool.direction == "climb");
+		if (shouldReverse) {
+			paths.push({ path: reversePath(circles), tpath: reversePath(tpath) });
+		} else {
+			paths.push({ path: circles, tpath: tpath });
 		}
 
-		pushToolPath(paths, name, 'VCarve', svgpaths[i].id);
-
+		pushToolPath(paths, name, 'VCarve', svgpath.id);
 	}
 
 }

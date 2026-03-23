@@ -312,18 +312,11 @@ function newTransformFromPaperPath(paperPath, name) {
 			return paths;
 		}
 
-		// Try to flatten the path, but handle potential errors
-		var flattenedPath = null;
+		// Flatten the path in-place, handle potential errors
 		try {
-			flattenedPath = paperPath.flatten(0.05);
+			paperPath.flatten(0.05);
 		} catch (flattenError) {
 			console.warn('Could not flatten path, using original:', flattenError);
-			flattenedPath = paperPath;
-		}
-
-		// Ensure we have a valid flattened path
-		if (!flattenedPath || !flattenedPath.segments) {
-			flattenedPath = paperPath;
 		}
 
 		// Convert to our format

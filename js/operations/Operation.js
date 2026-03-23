@@ -22,10 +22,7 @@ class Operation {
 
     // Mouse event handlers
     onMouseDown(evt) { }
-    onMouseMove(canvas, evt) {
-        var mouse = this.normalizeEvent(canvas, evt);
-        var path = closestPath(mouse,true);
-    }
+    onMouseMove(canvas, evt) { }
     onMouseUp(evt) { }
 
     // Drawing
@@ -121,25 +118,13 @@ class Operation {
     }
 
     normalizeEvent(target, e) {
-        if (!e) { e = self.event; }
-        var x = 0;
-        var y = 0;
-        var rect = canvas.getBoundingClientRect();
-        x = (e.clientX - rect.left) / (rect.right - rect.left) * canvas.width;
-        y = (e.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height;
+        if (!e) { e = window.event; }
+        var rect = target.getBoundingClientRect();
+        var x = (e.clientX - rect.left) / (rect.right - rect.left) * target.width;
+        var y = (e.clientY - rect.top) / (rect.bottom - rect.top) * target.height;
 
         // Convert screen to world coordinates
-        var worldCoords;
-        if (typeof worldToScreen === 'function' && typeof screenToWorld === 'function') {
-            // x,y are already in canvas coordinate space (getBoundingClientRect accounts for all nesting)
-            worldCoords = screenToWorld(x, y);
-        } else {
-            // fallback to old method if mapping not available
-            worldCoords = {
-                x: (x - offsetX) / scaleFactor,
-                y: (y - offsetY) / scaleFactor
-            };
-        }
+        var worldCoords = screenToWorld(x, y);
 
         // Apply snap-to-grid
         return this.snapToGrid(worldCoords.x, worldCoords.y);

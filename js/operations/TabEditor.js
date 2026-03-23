@@ -7,7 +7,6 @@ class TabEditor extends Select {
 
         this.unselectOnMouseDown = false;
         this.selectedPath = null;
-        this.activeTab = null;
         this.draggedTab = null;
         this.hoveredTab = null;
 
@@ -53,7 +52,6 @@ class TabEditor extends Select {
     start() {
         super.start();
         this.selectedPath = null;
-        this.activeTab = null;
         this.draggedTab = null;
         this.hoveredTab = null;
 
@@ -68,7 +66,6 @@ class TabEditor extends Select {
     stop() {
         super.stop();
         this.selectedPath = null;
-        this.activeTab = null;
         this.draggedTab = null;
         this.hoveredTab = null;
 
@@ -611,7 +608,6 @@ function intersectSegmentWithRedEnds(p1, p2, tab, tabLength, toolRadius, viewSca
 	// distance = 0 at p1, distance = 1 at p2
 
 	const intersections = [];
-	const isTab0 = Math.abs(tab.angle - 2.0943951022854153) < 0.01; // Detect Tab 0 by angle
 
 	// Convert tab length to world units
 	const tabLengthWorld = tabLength * viewScale;

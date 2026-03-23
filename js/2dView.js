@@ -90,10 +90,6 @@ function newZoom(delta, centerX, centerY) {
 	panX = centerX - world.x * newZoom;
 	panY = centerY - world.y * newZoom;
 	zoomLevel = newZoom;
-	// keep mouse position stable
-	var world = screenToWorld(centerX, centerY);
-	panX = centerX - world.x * zoomLevel;
-	panY = centerY - world.y * zoomLevel;
 
 	// Update properties panel if Pan tool is currently active
 	if (typeof cncController !== 'undefined' &&
@@ -462,61 +458,6 @@ function drawWorkpiece() {
 	ctx.stroke();
 }
 
-function getBack(len, x1, y1, x2, y2) {
-	return x2 - (len * (x2 - x1) / (Math.sqrt(Math.pow(y2 - y1, 2) + Math.pow(x2 - x1, 2))));
-}
-
-function canvasDrawArrow(context, fromx, fromy, tox, toy) {
-	var headlen = 10.0;
-	var back = 4.0;
-	var angle1 = Math.PI / 7.0;
-	var angle2 = Math.atan2(toy - fromy, tox - fromx);
-	var diff1 = angle2 - angle1;
-	var diff2 = angle2 + angle1;
-	var xx = getBack(back, fromx, fromy, tox, toy);
-	var yy = getBack(back, fromy, fromx, toy, tox);
-
-	context.moveTo(fromx, fromy);
-	context.lineTo(tox, toy);
-
-	context.moveTo(xx, yy);
-	context.lineTo(xx - headlen * Math.cos(diff1), yy - headlen * Math.sin(diff1));
-
-	context.moveTo(xx, yy);
-	context.lineTo(xx - headlen * Math.cos(diff2), yy - headlen * Math.sin(diff2));
-}
-
-function drawCircle(circle) {
-	var pt = worldToScreen(circle.x, circle.y);
-	var r = circle.r * zoomLevel;
-	ctx.beginPath();
-	ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
-	ctx.strokeStyle = circleColor;
-	ctx.lineWidth = 0.1;
-	ctx.stroke();
-}
-
-function drawCircles(circles, color) {
-	for (var i = 0; i < circles.length; i++) {
-		var circle = circles[i];
-		var pt = worldToScreen(circle.x, circle.y);
-		var r = (circle.r || circle.radius) * zoomLevel;
-		ctx.beginPath();
-		ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
-		if (i < circles.length - 1) {
-			var nextPt = worldToScreen(circles[i + 1].x, circles[i + 1].y);
-			canvasDrawArrow(ctx, pt.x, pt.y, nextPt.x, nextPt.y);
-		}
-
-		ctx.strokeStyle = color;
-		ctx.lineWidth = 0.5;
-		ctx.stroke();
-	}
-
-
-
-}
-
 function fillCircles(circles, color) {
 	for (var i = 0; i < circles.length; i++) {
 		var circle = circles[i];
@@ -531,28 +472,6 @@ function fillCircles(circles, color) {
 		ctx.stroke();
 	}
 
-}
-
-function drawBoundingBox(bbox) {
-	var pt1 = worldToScreen(bbox.minx, bbox.miny);
-	var pt2 = worldToScreen(bbox.minx, bbox.maxy);
-	var pt3 = worldToScreen(bbox.maxx, bbox.maxy);
-	var pt4 = worldToScreen(bbox.maxx, bbox.miny);
-	ctx.beginPath();
-	ctx.moveTo(pt1.x, pt1.y);
-	ctx.lineTo(pt2.x, pt2.y);
-	ctx.lineTo(pt3.x, pt3.y);
-	ctx.lineTo(pt4.x, pt4.y);
-	ctx.lineTo(pt1.x, pt1.y);
-	ctx.lineWidth = 0.1;
-	ctx.strokeStyle = lineColor;
-	ctx.stroke();
-}
-
-function drawNearby() {
-	for (var i = 0; i < nearbypaths.length; i++) {
-		drawSvgPath(nearbypaths[i], selectColor, 1);
-	}
 }
 
 function drawSvgPaths() {
@@ -602,10 +521,7 @@ function drawToolPaths() {
 			var lineWidth = isActive ? 4 : (toolpaths[i].selected ? 3 : 2);
 
 			for (var p = 0; p < paths.length; p++) {
-				raw = false;
 				var path = paths[p].tpath;
-				if (raw)
-					path = paths[p].path;
 				var tpath = paths[p].tpath;
 				var operation = toolpaths[i].operation;
 				var isMultiSegment = paths[p].isMultiSegment || false;

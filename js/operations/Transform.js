@@ -1099,7 +1099,6 @@ class Transform extends Select {
     // Properties Editor Interface
     getPropertiesHTML() {
         const hasSelectedPaths = this.hasSelectedPaths();
-        const disabled = '';
         // Show center position only if we have a transform box
         let centerInfo = '';
         if (this.transformBox) {
@@ -1138,12 +1137,12 @@ class Transform extends Select {
                     <div class="col-6">
                         <label for="move-delta-x" class="form-label">Delta X</label>
                         <input type="text" class="form-control" id="move-delta-x" name="deltaX"
-                               value="${deltaXValue}" ${disabled}>
+                               value="${deltaXValue}">
                     </div>
                     <div class="col-6">
                         <label for="move-delta-y" class="form-label">Delta Y</label>
                         <input type="text" class="form-control" id="move-delta-y" name="deltaY"
-                               value="${deltaYValue}" ${disabled}>
+                               value="${deltaYValue}">
                     </div>
                 </div>
             </div>
@@ -1154,12 +1153,12 @@ class Transform extends Select {
                     <div class="col-6">
                         <label for="move-width" class="form-label">Width</label>
                         <input type="text" class="form-control" id="move-width" name="width"
-                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.width / viewScale, true) : (this.transformBox.width / viewScale).toFixed(2)) : '0'}" ${disabled}>
+                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.width / viewScale, true) : (this.transformBox.width / viewScale).toFixed(2)) : '0'}">
                     </div>
                     <div class="col-6">
                         <label for="move-height" class="form-label">Height</label>
                         <input type="text" class="form-control" id="move-height" name="height"
-                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.height / viewScale, true) : (this.transformBox.height / viewScale).toFixed(2)) : '0'}" ${disabled}>
+                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.height / viewScale, true) : (this.transformBox.height / viewScale).toFixed(2)) : '0'}">
                     </div>
                 </div>
             </div>
@@ -1167,7 +1166,7 @@ class Transform extends Select {
             <div class="mb-3">
                 <label for="move-rotation" class="form-label"><strong>Rotation (degrees)</strong></label>
                 <input type="number" class="form-control" id="move-rotation" name="rotation"
-                       value="${(this.totalRotation + this.rotation).toFixed(1)}" step="1" ${disabled}>
+                       value="${(this.totalRotation + this.rotation).toFixed(1)}" step="1">
             </div>
 
             <div class="mb-3">
@@ -1176,12 +1175,12 @@ class Transform extends Select {
                     <div class="col-6">
                         <label for="move-skew-x" class="form-label">Skew X</label>
                         <input type="number" class="form-control" id="move-skew-x" name="skewX"
-                               value="${(this.totalSkewX + this.skewX).toFixed(1)}" step="1" ${disabled}>
+                               value="${(this.totalSkewX + this.skewX).toFixed(1)}" step="1">
                     </div>
                     <div class="col-6">
                         <label for="move-skew-y" class="form-label">Skew Y</label>
                         <input type="number" class="form-control" id="move-skew-y" name="skewY"
-                               value="${(this.totalSkewY + this.skewY).toFixed(1)}" step="1" ${disabled}>
+                               value="${(this.totalSkewY + this.skewY).toFixed(1)}" step="1">
                     </div>
                 </div>
             </div>

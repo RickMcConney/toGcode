@@ -326,97 +326,6 @@ function getPathEndPoint(pathObj) {
 	return { x: 0, y: 0 };
 }
 
-// Helper function: Check if path is a straight line (only 2 points)
-function isStraightLine(pathObj) {
-	// A straight line has exactly 2 points (start and end)
-	var pathData = pathObj.path || pathObj.tpath;
-
-	if (!pathData) return false;
-
-	// Check if path has exactly 2 points
-	return pathData.length === 2;
-}
-
-// Helper function: Reverse path data
-function reversePathData(pathObj) {
-	// Create a copy and reverse the path points
-	var reversed = JSON.parse(JSON.stringify(pathObj));
-
-	if (reversed.path && reversed.path.length > 0) {
-		reversed.path = reversed.path.slice().reverse();
-	}
-	if (reversed.tpath && reversed.tpath.length > 0) {
-		reversed.tpath = reversed.tpath.slice().reverse();
-	}
-
-	return reversed;
-}
-
-// Optimize path order using nearest neighbor algorithm with bidirectional consideration
-// Only reverses straight lines (2 points) to preserve clockwise/counter-clockwise direction
-function optimizePathOrder(paths) {
-
-	if (paths.length <= 1) {
-		return paths; // Return original order for Pocket or single path
-	}
-
-	var optimized = [];
-	var remaining = paths.slice();
-
-	// Start with first path
-	var current = remaining.shift();
-	optimized.push(current);
-
-	// Track current end point
-	var currentEnd = getPathEndPoint(current);
-
-	// Nearest neighbor with bidirectional consideration for straight lines only
-	while (remaining.length > 0) {
-		var nearestIdx = 0;
-		var nearestDist = Infinity;
-		var shouldReverse = false;
-
-		// Find nearest path
-		for (var i = 0; i < remaining.length; i++) {
-			var pathStart = getPathStartPoint(remaining[i]);
-			var distToStart = distance(currentEnd, pathStart);
-
-			if (distToStart < nearestDist) {
-				nearestDist = distToStart;
-				nearestIdx = i;
-				shouldReverse = false;
-			}
-
-			// Check if this is a straight line (only 2 points)
-			// Straight lines can be cut in either direction
-			if (isStraightLine(remaining[i])) {
-				var pathEnd = getPathEndPoint(remaining[i]);
-				var distToEnd = distance(currentEnd, pathEnd);
-
-				if (distToEnd < nearestDist) {
-					nearestDist = distToEnd;
-					nearestIdx = i;
-					shouldReverse = true;
-				}
-			}
-		}
-
-		// Get the nearest path
-		current = remaining.splice(nearestIdx, 1)[0];
-
-		// Reverse path if it's a straight line and that's optimal
-		if (shouldReverse) {
-			current = reversePathData(current);
-		}
-
-		optimized.push(current);
-		currentEnd = getPathEndPoint(current);
-	}
-
-	return optimized;
-}
-
-
 // Tab avoidance helper functions for G-code generation
 function getTabLiftAmount(z, tabs, workpieceThickness, tabHeight) {
 	if (!tabs || tabs.length === 0) return 0;
@@ -818,24 +727,6 @@ function _generate3dProfileOperationGcode(toolpath, profile, useInches, settings
 	return output;
 }
 
-// HELPER FUNCTION: Find a point along a path at a given distance from the start (world units)
-function getPointAlongPath(path, distance) {
-	if (path.length < 2) return path[0];
-	var remaining = distance;
-	for (var i = 1; i < path.length; i++) {
-		var dx = path[i].x - path[i - 1].x;
-		var dy = path[i].y - path[i - 1].y;
-		var segLen = Math.sqrt(dx * dx + dy * dy);
-		if (segLen > 0 && remaining <= segLen) {
-			var t = remaining / segLen;
-			return { x: path[i - 1].x + dx * t, y: path[i - 1].y + dy * t };
-		}
-		remaining -= segLen;
-	}
-	// Path shorter than distance - return last reachable point
-	return path[path.length - 1];
-}
-
 // HELPER FUNCTION: Generate ramp-in G-code sequence
 // Instead of plunging straight down, ramps in along the path direction:
 // 1. Rapid to a point offset 2x tool diameter along the path from start
@@ -1103,7 +994,7 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 					}
 
 					// Ramp-in: retract, move to offset point, plunge to previous depth, ramp to current depth
-					output += generateRampIn(augmentedPath, toolpath.tool.diameter, targetZ, toolStep, safeHeight, profile, useInches, feed, zfeed);
+					output += generateRampIn(augmentedPath, toolpath.tool.diameter, targetZ, toolStep, safeHeight, profile, useInches, feedXY, feedZ);
 					isFirstPass = false;
 				}
 				else {
@@ -1113,16 +1004,16 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 
 						if (pt.marker === 'lift') {
 							var zNormalCoord = toGcodeUnitsZ(z, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feedXY }) + '\n';
 							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feedXY }) + '\n';
 							currentlyLifted = true;
 						}
 						else if (pt.marker === 'lower') {
 							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feedXY }) + '\n';
 							var zNormalCoord = toGcodeUnitsZ(z, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feedXY }) + '\n';
 							currentlyLifted = false;
 						}
 					}
@@ -1131,11 +1022,11 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 						if (currentlyLifted) {
 							var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
 							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feedXY }) + '\n';
 						}
 						else {
 							var zNormalCoord = toGcodeUnitsZ(z, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feed }) + '\n';
+							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feedXY }) + '\n';
 						}
 					}
 				}
@@ -1145,7 +1036,7 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 			if (startedLifted && firstMarkerPos) {
 				var cleanupZCoord = toGcodeUnitsZ(z, useInches);
 				var markerCoord = toGcodeUnits(firstMarkerPos.x, firstMarkerPos.y, useInches);
-				output += applyGcodeTemplate(profile.cutTemplate, { x: markerCoord.x, y: markerCoord.y, z: cleanupZCoord, f: feed }) + '\n';
+				output += applyGcodeTemplate(profile.cutTemplate, { x: markerCoord.x, y: markerCoord.y, z: cleanupZCoord, f: feedXY }) + '\n';
 			}
 		}
 	}

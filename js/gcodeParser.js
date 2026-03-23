@@ -13,7 +13,6 @@ const CUT = 1;            // G1 - Linear cutting move
 const TOOL_REGEX = /Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/;
 const COORD_REGEX = /([XYZ])([\d.-]+)/gi;
 const FEED_REGEX = /F([\d.-]+)/i;
-const FIRST_TOKEN_REGEX = /^(\S+)/;
 
 /**
  * Parse a G-code template string to extract command and axis information

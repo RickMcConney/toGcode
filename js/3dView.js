@@ -94,7 +94,7 @@ const CONFIG = {
 
   // Voxel system
   DEFAULT_VOXEL_SIZE: 0.1,  // Default voxel size in mm
-  MAX_VOXELS: 750000,  // Maximum voxels before scaling up voxel size
+  MAX_VOXELS: 750000*4,  // Maximum voxels before scaling up voxel size
   VOXEL_SIZE_INCREMENT: 0.1,  // How much to increase voxel size when exceeding max
 
   // Toolpath visualization
@@ -1642,12 +1642,13 @@ class ToolpathAnimation {
         let numberOfVoxels = clippedWidth*clippedLength/(this.voxelSize*this.voxelSize);
 
     
-        while (numberOfVoxels > 750000)
+        while (numberOfVoxels > CONFIG.MAX_VOXELS)
         {
-            this.voxelSize += 0.1;
+            this.voxelSize += CONFIG.VOXEL_SIZE_INCREMENT;
             numberOfVoxels = clippedWidth*clippedLength/(this.voxelSize*this.voxelSize);
 
         }
+        console.log(`Voxel size adjusted to ${this.voxelSize}mm to keep total voxels under ${CONFIG.MAX_VOXELS} (total voxels: ${numberOfVoxels})`);
 
         // Round clipped bounds UP to clean voxel boundaries to ensure all in-bounds toolpath is captured
         const toolpathWidthMM = Math.ceil((clippedMaxX - clippedMinX) / this.voxelSize) * this.voxelSize;
@@ -2484,7 +2485,7 @@ class ToolpathAnimation {
       this.voxelGrid.updateInstanceMatrices();
     }
 
-    this.updateWorkpiece();
+    //this.updateWorkpiece();
   }
 
   setProgress(lineNumber, skipViewerUpdate) {
@@ -2554,7 +2555,7 @@ class ToolpathAnimation {
       this.voxelGrid.updateInstanceMatrices();
     }
 
-    this.updateWorkpiece();
+    //this.updateWorkpiece();
   }
 
   _replayFromMovementIndexToIndex(startIndex, endIndex) {
@@ -2743,69 +2744,6 @@ class ToolpathAnimation {
     }
   }
 
-  /**
-   * Test function: Remove voxels at a specific world position
-   * Usage from browser console: toolpathAnimation.testRemoveVoxelsAt(0, 0, 0, 2)
-   * @param {number} worldX - World X coordinate in mm
-   * @param {number} worldY - World Y coordinate in mm
-   * @param {number} worldZ - World Z coordinate in mm
-   * @param {number} toolDiameter - Tool diameter in mm (default 2)
-   */
-  testRemoveVoxelsAt(worldX, worldY, worldZ, toolDiameter = 2) {
-    if (!this.voxelGrid) {
-      console.log('Voxel grid not initialized');
-      return;
-    }
-
-    console.log('\n=== VOXEL REMOVAL TEST ===');
-    console.log('Input world position:', { worldX, worldY, worldZ });
-    console.log('Tool diameter:', toolDiameter);
-
-    const toolInfo = {
-      diameter: toolDiameter,
-      type: 'flat',
-      vbitAngle: 90
-    };
-
-    // Call the remover
-    const removedCount = this.voxelMaterialRemover.removeAtToolPosition(
-      this.voxelGrid,
-      worldX,
-      worldY,
-      worldZ,
-      toolInfo
-    );
-
-    console.log('Voxels removed:', removedCount.length, 'voxels');
-    console.log('Removed voxel indices:', removedCount);
-
-    // Show detailed grid coordinate info for the removed voxels
-    if (removedCount && removedCount.length > 0) {
-      console.log('\nDetailed removed voxel info:');
-      for (const index of removedCount.slice(0, 10)) {  // Show first 10
-        const coords = this.voxelGrid.indexToCoords(index);
-        const worldPos = this.voxelGrid.getVoxelWorldPosition(index);
-        console.log(`  Voxel ${index}: grid(${coords.x},${coords.y},${coords.z}) → world(${worldPos.x.toFixed(1)}, ${worldPos.y.toFixed(1)}, ${worldPos.z.toFixed(1)})`);
-      }
-      // Manually calculate grid coords to show user where voxels actually are
-      // Using proper mathematical inverse of positioning formula
-      let gridX = Math.floor((worldX - this.voxelGrid.originOffset.x + this.voxelGrid.workpieceWidth / 2 - this.voxelGrid.voxelSize / 2) / this.voxelGrid.voxelSize);
-      let gridY = Math.floor((worldY - this.voxelGrid.originOffset.y + this.voxelGrid.workpieceLength / 2 - this.voxelGrid.voxelSize / 2) / this.voxelGrid.voxelSize);
-      let gridZ = Math.floor((this.voxelGrid.originOffset.z - worldZ + this.voxelGrid.voxelSize / 2) / this.voxelGrid.voxelSize);
-
-      // Clamp to valid grid bounds
-      gridX = Math.max(0, Math.min(this.voxelGrid.gridWidth - 1, gridX));
-      gridY = Math.max(0, Math.min(this.voxelGrid.gridLength - 1, gridY));
-      gridZ = Math.max(0, Math.min(this.voxelGrid.gridHeight - 1, gridZ));
-
-      console.log('Grid coordinates where voxels were removed:', { gridX, gridY, gridZ });
-
-      console.log('✓ Grid coordinates clamped to valid bounds');
-    }
-
-    console.log('Check the 3D view - dark voxels should appear at the position you specified!');
-    console.log('Expected location: worldX=' + worldX + ', worldY=' + worldY + ', worldZ=' + worldZ);
-  }
 
   /**
    * Test function: Remove a single voxel by index
@@ -2944,13 +2882,6 @@ class ToolpathAnimation {
     if (typeof gcodeView !== 'undefined' && gcodeView) {
       gcodeView.setCurrentLine(this.currentGcodeLineNumber);
     }
-
-    this.updateWorkpiece();
-  }
-
-  updateWorkpiece() {
-    // Tool position is already updated in update() method
-    // This method is for any additional workpiece updates
   }
 
   updateToolPositionAtCoordinates(toolX, toolY, toolZ, isG1, gcodeLineNumber) {
@@ -2990,187 +2921,7 @@ class ToolpathAnimation {
     }
   }
 
-  updateToolPositionFromMovement(movement) {
-    // Update tool position directly from a movement object
-    // Used for direct movement seeking (not used in playback, kept for compatibility)
 
-    if (!movement) return;
-
-    const toolX = movement.x;
-    const toolY = movement.y;
-    const toolZ = movement.z;
-    const isG1 = movement.isG1 || false;
-
-    this.updateToolPositionAtCoordinates(toolX, toolY, toolZ, isG1, movement.gcodeLineNumber);
-  }
-
-  updateToolPositionByTime() {
-    // Legacy method - now kept for backwards compatibility but not used in line-driven mode
-    // Find tool position based on elapsed time using movement timing info
-    if (this.movementTiming.length === 0) return;
-
-    // Use forced movement index if set (handles no-op moves with same time)
-    let segmentIndex = this._forcedMovementIndex !== undefined && this._forcedMovementIndex !== null
-      ? this._forcedMovementIndex
-      : null;
-
-    // If no forced index, find which movement segment we're in based on elapsed time
-    if (segmentIndex === null) {
-      segmentIndex = 0;
-      for (let i = 0; i < this.movementTiming.length; i++) {
-        if (this.elapsedTime <= this.movementTiming[i].cumulativeTime) {
-          segmentIndex = i;
-          break;
-        }
-        segmentIndex = i;  // In case we're past the last point
-      }
-    }
-
-    // Sync movement index and line number from the segment
-    const currentMovement = this.movementTiming[segmentIndex];
-    this.currentMovementIndex = segmentIndex;
-    this.currentGcodeLineNumber = currentMovement ? currentMovement.gcodeLineNumber : 0;
-
-    // Use the tool lookup table to get the correct tool for this line number
-    // This ensures consistency between slider replay and normal animation
-    const toolForCurrentSegment = this.getToolForLine(this.currentGcodeLineNumber);
-
-    if (toolForCurrentSegment) {
-      // Switch tools if different from current
-      if (toolForCurrentSegment !== this.toolInfo) {
-        this.toolInfo = toolForCurrentSegment;
-        this.currentToolInfo = toolForCurrentSegment;  // Track for progress slider
-
-        // Update tool radius for visualization
-        if (this.toolInfo?.diameter) {
-          this.toolRadius = this.toolInfo.diameter / 2;
-        }
-
-        // Get current movement for position info
-        const currMove = this.movementTiming[Math.min(segmentIndex, this.movementTiming.length - 1)];
-        if (currMove) {
-          // Regenerate tool geometry with new tool info
-          updateToolMesh(this.toolRadius * 2, currMove.x, currMove.y, currMove.z,
-            this.toolInfo?.type || 'End Mill', this.toolInfo?.angle || 0);
-        }
-      }
-    }
-
-    // Update current progress tracking for slider support
-    if (segmentIndex !== this.currentProgressIndex) {
-      this.currentProgressIndex = segmentIndex;
-    }
-
-    let toolX, toolY, toolZ;
-    let isG1 = false;  // Track if current move is a cutting move
-
-    if (segmentIndex >= this.movementTiming.length - 1) {
-      // At or past the end
-      const lastMove = this.movementTiming[this.movementTiming.length - 1];
-      toolX = lastMove.x;
-      toolY = lastMove.y;
-      toolZ = lastMove.z;
-      isG1 = lastMove.isG1 || false;
-      this.currentFeedRate = lastMove.feedRate || 0;
-    } else {
-      // Interpolate between current and next movement
-      const prevMove = segmentIndex > 0 ? this.movementTiming[segmentIndex - 1] : { cumulativeTime: 0, x: 0, y: 0, z: 5, isG1: false, feedRate: 0 };
-      const currMove = this.movementTiming[segmentIndex];
-
-      const timeSinceLastMove = this.elapsedTime - prevMove.cumulativeTime;
-      const totalSegmentTime = currMove.cumulativeTime - prevMove.cumulativeTime;
-
-      let t = 0;
-      if (totalSegmentTime > 0) {
-        t = timeSinceLastMove / totalSegmentTime;
-        t = Math.max(0, Math.min(1, t));  // Clamp to [0, 1]
-      }
-
-      // Linear interpolation between previous and current position
-      toolX = prevMove.x + (currMove.x - prevMove.x) * t;
-      toolY = prevMove.y + (currMove.y - prevMove.y) * t;
-      toolZ = prevMove.z + (currMove.z - prevMove.z) * t;
-      isG1 = currMove.isG1 || false;  // Only remove material on cutting moves
-
-      // Update current feed rate
-      this.currentFeedRate = currMove.feedRate || 0;
-    }
-
-    // Remove material from voxel grid if enabled
-    // ONLY on cutting moves (G1), skip on rapid moves (G0), and only when playing (not paused)
-    if (this.enableVoxelRemoval && this.voxelGrid && this.voxelMaterialRemover && isG1 && this.isPlaying) {
-      const voxelRemovalStart = performance.now();
-      try {
-        // Get the correct tool for the current G-code line (not just the first tool)
-        const currentToolData = this.getToolForLine(this.currentGcodeLineNumber) || this.toolInfo;
-
-        // Use tool type directly from G-code (source of truth)
-        // VoxelMaterialRemover will normalize the type name automatically
-        const toolInfo = {
-          diameter: this.toolRadius * 2,
-          type: currentToolData?.type || 'End Mill',  // Use G-code tool type directly
-          angle: currentToolData?.angle || 90
-        };
-
-        // Track last tool position for interpolated removal along path
-        // Check if previous move was a G0 (rapid) - if so, don't interpolate across the gap
-        const prevMove = segmentIndex > 0 ? this.movementTiming[segmentIndex - 1] : null;
-        const prevWasRapid = prevMove && !prevMove.isG1;  // Previous move was G0
-
-        if (!this.lastToolPos) {
-          this.lastToolPos = { x: toolX, y: toolY, z: toolZ };
-        }
-
-        // Calculate distance tool moved since last removal
-        const dx = toolX - this.lastToolPos.x;
-        const dy = toolY - this.lastToolPos.y;
-        const dz = toolZ - this.lastToolPos.z;
-        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-        // If tool moved more than 1mm, interpolate removal along the path
-        // But don't interpolate across G0 moves (after rapid travel between holes)
-        if (distance > 1 && !prevWasRapid) {
-          const steps = Math.ceil(distance);
-
-          for (let i = 0; i <= steps; i++) {
-            const t = steps > 0 ? i / steps : 0;
-            const interpX = this.lastToolPos.x + dx * t;
-            const interpY = this.lastToolPos.y + dy * t;
-            const interpZ = this.lastToolPos.z + dz * t;
-            this.voxelMaterialRemover.removeAtToolPosition(this.voxelGrid, interpX, interpY, interpZ, toolInfo);
-          }
-        } else {
-          // Small movement - just remove at current position
-          this.voxelMaterialRemover.removeAtToolPosition(this.voxelGrid, toolX, toolY, toolZ, toolInfo);
-        }
-
-        this.lastToolPos = { x: toolX, y: toolY, z: toolZ };
-      } catch (error) {
-        console.error('Error removing voxel material:', error);
-        this.enableVoxelRemoval = false;  // Disable on error
-      }
-
-      // Profile voxel removal time - simple frame counter
-      const voxelRemovalTime = performance.now() - voxelRemovalStart;
-      voxelRemovalFrameCount++;
-      voxelRemovalTotalTime += voxelRemovalTime;
-
-      // Report average every 100 frames
-      if (voxelRemovalFrameCount % 100 === 0) {
-        const avg = (voxelRemovalTotalTime / voxelRemovalFrameCount).toFixed(2);
-       // console.log(`[Voxel Removal Profile] Frames: ${voxelRemovalFrameCount}, Avg: ${avg}ms`);
-
-        // Reset counters for next 100 frames
-        voxelRemovalFrameCount = 0;
-        voxelRemovalTotalTime = 0;
-      }
-    }
-
-    // Update the 3D tool mesh to the interpolated position with tool type info
-    const toolType = this.toolInfo?.type || 'End Mill';
-    const toolAngle = this.toolInfo?.angle || 0;
-    updateToolMesh(this.toolRadius * 2, toolX, toolY, toolZ, toolType, toolAngle);  // toolRadius * 2 = diameter
-  }
 
   updateStatus() {
     if (this.onStatusChange) {

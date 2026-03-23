@@ -60,6 +60,7 @@ function applyBooleanOperation() {
         );
     }
 
+    if (solutionPaths.length === 0 || solutionPaths[0].length === 0) return;
     solutionPaths[0].push(solutionPaths[0][0]);
     let selectedIds = selectMgr.selectedPaths().map(p => p.id);
     addUndo(false, true, false, selectedIds);
