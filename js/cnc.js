@@ -1688,8 +1688,8 @@ function doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketing
 	let vcarveGroups = [];
 	let cutOutGroups = [];
 
+	const vcarveStrategy = props?.vcarveStrategy || 'profile';
 	if (inlayType === 'female') {
-		const vcarveStrategy = props?.vcarveStrategy || 'profile';
 		generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocketRadius, stepover, rasterAngle, direction, vcarveGroups, pocketGroups, finishingTool, selectedSvgIds, vcarveStrategy);
 	} else {
 		generateVbitInlayPlug(inputPaths, depths, clearance, plugReach, pocketingTool, pocketRadius, stepover, rasterAngle, direction, cutOut, vcarveGroups, pocketGroups, cutOutGroups);
