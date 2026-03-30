@@ -327,10 +327,15 @@ function findBestPath(jspolySegments) {
 
 }
 
+function makeEdgeKey(a, b) {
+    return a < b ? a + '|' + b : b + '|' + a;
+}
+
 function findPossiblePath(nodeMap, graph, startNode) {
     const toolPath = [];
     let travel = 0;
     let node = startNode;
+    const traversedEdges = new Set();
 
     // Reset visited states
     nodeMap.forEach(n => n.visited = false);
@@ -346,15 +351,86 @@ function findPossiblePath(nodeMap, graph, startNode) {
         const target = result.target;
         const path = result.path;
 
-        // Process all nodes in current path 
-        for (let i = 1; i < path.length; i++) {     
+        // Process all nodes in current path
+        let prevId = node.id;
+        for (let i = 1; i < path.length; i++) {
             const nextNode = nodeMap.get(path[i]);
             nextNode.visited = true;
             toolPath.push({ x: nextNode.x, y: nextNode.y, r: nextNode.r });
             travel += getCachedDistance(node, nextNode);
+            traversedEdges.add(makeEdgeKey(prevId, path[i]));
+            prevId = path[i];
             node = nextNode;
         }
         result = findClosestTarget(node.id, nodeMap, graph);
+    }
+
+    // Second pass: traverse any untraversed edges (completes loops)
+    let untraversed = [];
+    nodeMap.forEach((n, key) => {
+        n.connections.forEach(connId => {
+            const ek = makeEdgeKey(key, connId);
+            if (!traversedEdges.has(ek)) {
+                untraversed.push({ from: key, to: connId, ek: ek });
+            }
+        });
+    });
+    // Deduplicate (each edge appears twice in connections)
+    const seen = new Set();
+    untraversed = untraversed.filter(e => {
+        if (seen.has(e.ek)) return false;
+        seen.add(e.ek);
+        return true;
+    });
+
+    while (untraversed.length > 0) {
+        // Find the untraversed edge closest to current position
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < untraversed.length; i++) {
+            const n1 = nodeMap.get(untraversed[i].from);
+            const n2 = nodeMap.get(untraversed[i].to);
+            const d1 = Math.hypot(node.x - n1.x, node.y - n1.y);
+            const d2 = Math.hypot(node.x - n2.x, node.y - n2.y);
+            const d = Math.min(d1, d2);
+            if (d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+            }
+        }
+
+        const edge = untraversed[bestIdx];
+        untraversed.splice(bestIdx, 1);
+        if (traversedEdges.has(edge.ek)) continue;
+
+        // Navigate to the closer endpoint using Dijkstra
+        const n1 = nodeMap.get(edge.from);
+        const n2 = nodeMap.get(edge.to);
+        const d1 = Math.hypot(node.x - n1.x, node.y - n1.y);
+        const d2 = Math.hypot(node.x - n2.x, node.y - n2.y);
+        const nearKey = d1 <= d2 ? edge.from : edge.to;
+        const farKey = d1 <= d2 ? edge.to : edge.from;
+
+        // Walk to the near endpoint if not already there
+        if (node.id !== nearKey) {
+            const navResult = dijkstraToTarget(graph, node.id, nearKey);
+            if (navResult.path && navResult.path.length > 1) {
+                for (let i = 1; i < navResult.path.length; i++) {
+                    const nextNode = nodeMap.get(navResult.path[i]);
+                    toolPath.push({ x: nextNode.x, y: nextNode.y, r: nextNode.r });
+                    traversedEdges.add(makeEdgeKey(navResult.path[i - 1], navResult.path[i]));
+                    travel += getCachedDistance(node, nextNode);
+                    node = nextNode;
+                }
+            }
+        }
+
+        // Traverse the untraversed edge
+        const farNode = nodeMap.get(farKey);
+        toolPath.push({ x: farNode.x, y: farNode.y, r: farNode.r });
+        traversedEdges.add(edge.ek);
+        travel += getCachedDistance(node, farNode);
+        node = farNode;
     }
 
     // Return to start if needed and possible

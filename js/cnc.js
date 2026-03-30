@@ -1391,12 +1391,112 @@ function addCornerFanNormals(norms, subpath, outside) {
 }
 
 /**
+ * Generate V-bit passes along corner bisectors to clear the triangular zones
+ * at sharp corners that the main profile pass and end mill pocket both miss.
+ * At distance d along the inward bisector from a corner vertex, the inscribed
+ * circle radius is d * sin(halfInteriorAngle). The pass goes from the vertex
+ * (shallow) to where the radius reaches fullReach (full depth).
+ */
+function generateCornerBisectorPasses(path, fullReach, direction) {
+	var cornerThreshold = 10 * Math.PI / 180; // 10° — skip nearly-straight corners
+	var stepSize = 0.5; // world units between sample points along bisector
+	var passes = [];
+
+	// Work with the un-subdivided path for clean corner detection
+	for (var i = 0; i < path.length - 1; i++) { // path is closed: last == first
+		var prev = path[(i + path.length - 2) % (path.length - 1)];
+		var curr = path[i];
+		var next = path[(i + 1) % (path.length - 1)];
+
+		// Edge vectors
+		var e1x = prev.x - curr.x;
+		var e1y = prev.y - curr.y;
+		var e2x = next.x - curr.x;
+		var e2y = next.y - curr.y;
+		var len1 = Math.sqrt(e1x * e1x + e1y * e1y);
+		var len2 = Math.sqrt(e2x * e2x + e2y * e2y);
+		if (len1 < 0.001 || len2 < 0.001) continue;
+		e1x /= len1; e1y /= len1;
+		e2x /= len2; e2y /= len2;
+
+		// Interior angle between the two edges meeting at this vertex
+		var cross = e1x * e2y - e1y * e2x;
+		var dot = e1x * e2x + e1y * e2y;
+		var interiorAngle = Math.atan2(Math.abs(cross), dot);
+		// Skip nearly-straight corners (exterior angle < threshold)
+		if (Math.PI - interiorAngle < cornerThreshold) continue;
+
+		var halfInterior = interiorAngle / 2;
+		var sinHalf = Math.sin(halfInterior);
+		if (sinHalf < 0.01) continue;
+
+		// Bisector direction: average of the two normalized edge vectors
+		var bx = e1x + e2x;
+		var by = e1y + e2y;
+		var blen = Math.sqrt(bx * bx + by * by);
+		if (blen < 0.001) continue;
+		bx /= blen;
+		by /= blen;
+
+		// Ensure bisector points inward (into the polygon)
+		var testDist = 2;
+		var testPt = { x: curr.x + bx * testDist, y: curr.y + by * testDist };
+		if (!pointInPolygon(testPt, path)) {
+			bx = -bx;
+			by = -by;
+		}
+
+		// Extend 40% past the intersection to ensure full corner clearing.
+		// Keep the original slope (r = d * sinHalf) so the bit cuts deeper
+		// past fullReach rather than flattening out — the plug covers any overcut.
+		var maxDist = (fullReach / sinHalf) * 1.4;
+
+		// Generate points along bisector from vertex to maxDist
+		var bisectorPoints = [];
+		for (var d = 0; d <= maxDist; d += stepSize) {
+			var px = curr.x + bx * d;
+			var py = curr.y + by * d;
+			var r = d * sinHalf;
+			bisectorPoints.push({ x: px, y: py, r: r });
+		}
+		// Ensure we include the endpoint at maxDist
+		var lastD = bisectorPoints.length > 0 ? Math.sqrt(
+			Math.pow(bisectorPoints[bisectorPoints.length - 1].x - curr.x, 2) +
+			Math.pow(bisectorPoints[bisectorPoints.length - 1].y - curr.y, 2)
+		) : 0;
+		if (maxDist - lastD > stepSize * 0.1) {
+			bisectorPoints.push({ x: curr.x + bx * maxDist, y: curr.y + by * maxDist, r: maxDist * sinHalf });
+		}
+
+		if (bisectorPoints.length < 2) continue;
+
+		// Build path: go in (shallow to deep) then retrace out (deep to shallow)
+		var fullPath = bisectorPoints.slice();
+		for (var j = bisectorPoints.length - 2; j >= 0; j--) {
+			fullPath.push({ x: bisectorPoints[j].x, y: bisectorPoints[j].y, r: bisectorPoints[j].r });
+		}
+
+		// Apply direction
+		if (direction === "climb") {
+			fullPath = fullPath.reverse();
+		}
+
+		var tpath = clipper.JS.Lighten(fullPath, getOption("tolerance") * viewScale);
+		if (tpath.length < 2) tpath = fullPath.slice();
+
+		passes.push({ path: fullPath, tpath: tpath });
+	}
+
+	return passes;
+}
+
+/**
  * V-bit inlay: generates socket or plug toolpaths using V-carve algorithm
  * to preserve sharp design features. The V-bit's variable depth naturally
  * handles narrow features (star points, serifs) where an end mill can't reach.
  */
 // V-bit inlay female socket: V-carve profiles inside boundaries + end mill pocket
-function generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocketRadius, stepover, rasterAngle, direction, vcarveGroups, pocketGroups) {
+function generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocketRadius, stepover, rasterAngle, direction, vcarveGroups, pocketGroups, finishingTool, selectedSvgIds, vcarveStrategy) {
 	for (let oi = 0; oi < allOuters.length; oi++) {
 		let outerPath = allOuters[oi];
 		let outerIdx = inputPaths.indexOf(outerPath);
@@ -1408,26 +1508,71 @@ function generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocke
 			}
 		}
 
-		// V-bit profile inside the outer boundary
-		let outerProfile = computeVbitInlayProfile(outerPath, inputPaths, fullReach, false, direction);
-		if (outerProfile) vcarveGroups.push([outerProfile]);
+		if (vcarveStrategy === 'center') {
+			// Use medial axis algorithm for V-carve (better for text/letters)
+			var savedTool = window.currentTool;
+			window.currentTool = finishingTool;
+			var maxRadius = vbitRadius(finishingTool) * viewScale;
 
-		// V-bit profile outside each island
-		for (let island of islandPaths) {
-			let islandProfile = computeVbitInlayProfile(island, inputPaths, fullReach, true, direction);
-			if (islandProfile) vcarveGroups.push([islandProfile]);
+			let descritize_threshold = 1e-1;
+			let descritize_method = 2;
+			let filtering_angle = 7 * Math.PI / 8;
+			let holes = islandPaths.length > 0 ? islandPaths : [];
+			let segments = JSPoly.construct_medial_axis(outerPath, holes,
+				descritize_threshold, descritize_method, filtering_angle, -1, 0,
+				{ no_parabola: false, show_sites: false }, null);
+
+			segments = pruneNoisyBranches(segments, outerPath, holes, maxRadius);
+
+			var circles = [];
+			for (var si = 0; si < segments.length; si++) {
+				var seg = segments[si];
+				circles.push({ x: seg.point0.x, y: seg.point0.y, r: Math.min(seg.point0.radius, maxRadius) });
+				circles.push({ x: seg.point1.x, y: seg.point1.y, r: Math.min(seg.point1.radius, maxRadius) });
+			}
+			circles = clipper.JS.Lighten(circles, getOption("tolerance") * viewScale);
+
+			var tpath = findBestPath(segments).toolpath;
+			for (var p of tpath) {
+				p.r = Math.min(p.r, maxRadius);
+			}
+
+			if (tpath.length > 0) {
+				vcarveGroups.push([{ path: circles, tpath: tpath }]);
+			}
+
+			window.currentTool = savedTool;
+		} else {
+			// Profile-based V-carve (better for simple polygons)
+			let outerProfile = computeVbitInlayProfile(outerPath, inputPaths, fullReach, false, direction);
+			if (outerProfile) vcarveGroups.push([outerProfile]);
+
+			// Corner bisector passes for the outer boundary (clears uncut corner triangles)
+			let outerCornerPasses = generateCornerBisectorPasses(outerPath, fullReach, direction);
+			for (let pass of outerCornerPasses) {
+				vcarveGroups.push([pass]);
+			}
+
+			// V-bit profile outside each island
+			for (let island of islandPaths) {
+				let islandProfile = computeVbitInlayProfile(island, inputPaths, fullReach, true, direction);
+				if (islandProfile) vcarveGroups.push([islandProfile]);
+			}
 		}
 
 		// End mill roughing: pocket the flat bottom area, inset by fullReach from design edges
-		let pocketOuter = offsetPath(outerPath, fullReach, false);
-		let pocketIslands = islandPaths.map(p => {
-			let off = offsetPath(p, fullReach, true);
-			return off.length > 0 ? off[0] : null;
-		}).filter(p => p);
+		// (only needed for profile strategy - center strategy V-bit handles the full shape)
+		if (vcarveStrategy !== 'center') {
+			let pocketOuter = offsetPath(outerPath, fullReach, false);
+			let pocketIslands = islandPaths.map(p => {
+				let off = offsetPath(p, fullReach, true);
+				return off.length > 0 ? off[0] : null;
+			}).filter(p => p);
 
-		if (pocketOuter.length > 0) {
-			let pocketPaths = generatePocketPaths(pocketOuter[0], pocketIslands, pocketRadius, stepover, rasterAngle, direction, 0);
-			if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+			if (pocketOuter.length > 0) {
+				let pocketPaths = generatePocketPaths(pocketOuter[0], pocketIslands, pocketRadius, stepover, rasterAngle, direction, 0);
+				if (pocketPaths.length > 0) pocketGroups.push(pocketPaths);
+			}
 		}
 	}
 }
@@ -1544,7 +1689,8 @@ function doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketing
 	let cutOutGroups = [];
 
 	if (inlayType === 'female') {
-		generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocketRadius, stepover, rasterAngle, direction, vcarveGroups, pocketGroups);
+		const vcarveStrategy = props?.vcarveStrategy || 'profile';
+		generateVbitInlaySocket(inputPaths, depths, allOuters, fullReach, pocketRadius, stepover, rasterAngle, direction, vcarveGroups, pocketGroups, finishingTool, selectedSvgIds, vcarveStrategy);
 	} else {
 		generateVbitInlayPlug(inputPaths, depths, clearance, plugReach, pocketingTool, pocketRadius, stepover, rasterAngle, direction, cutOut, vcarveGroups, pocketGroups, cutOutGroups);
 	}
@@ -1553,16 +1699,16 @@ function doVbitInlay(inputPaths, depths, allOuters, allIslands, props, pocketing
 	const depthMM = pocketingTool.depth;
 	const typeName = inlayType === 'female' ? 'Socket' : 'Plug';
 
-	let allVcarvePaths = optimizeGroupOrder(vcarveGroups);
-	if (allVcarvePaths.length > 0) {
-		window.currentTool = { ...finishingTool, depth: inlayType === 'female' ? flatDepthMM : plugDepthMM };
-		pushToolPath(allVcarvePaths, `Inlay ${typeName} VCarve`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName} VCarve`);
-	}
-
 	let allPocketPaths = optimizeGroupOrder(pocketGroups);
 	if (allPocketPaths.length > 0) {
 		window.currentTool = { ...pocketingTool };
 		pushToolPath(allPocketPaths, `Inlay ${typeName}`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName}`);
+	}
+
+	let allVcarvePaths = optimizeGroupOrder(vcarveGroups);
+	if (allVcarvePaths.length > 0) {
+		window.currentTool = { ...finishingTool, depth: inlayType === 'female' ? flatDepthMM : plugDepthMM };
+		pushToolPath(allVcarvePaths, `Inlay ${typeName} VCarve`, 'Inlay', null, selectedSvgIds, `${depthMM}mm ${typeName} VCarve`);
 	}
 
 	let allCutOutPaths = optimizeGroupOrder(cutOutGroups);
@@ -1768,6 +1914,17 @@ function doInlay() {
 	var selected = selectMgr.selectedPaths();
 	for (let svgpath of selected)
 		inputPaths.push(svgpath.path);
+
+	// Mirror paths horizontally for male plug if mirror option is enabled
+	if (inlayType === 'male' && props?.mirror) {
+		var allBbox = boundingBox(inputPaths.flat());
+		var centerX = (allBbox.minx + allBbox.maxx) / 2;
+		inputPaths = inputPaths.map(function(path) {
+			return path.map(function(pt) {
+				return { x: 2 * centerX - pt.x, y: pt.y };
+			});
+		});
+	}
 
 	inputPaths = normalizeWindingOrder(inputPaths);
 	const selectedSvgIds = selected.map(p => p.id);

@@ -188,11 +188,16 @@ class Text extends Operation {
         fontPath.commands.forEach(function (cmd) {
             switch (cmd.type) {
                 case 'M': // Move - Start new subpath
-                    if (currentPathData.length > 0) {
-                        // Save previous subpath if it exists
-                        if (currentPathData.length >= 2) {
-                            allPaths.push([...currentPathData]);
+                    if (currentPathData.length >= 2) {
+                        // Close previous subpath if start and end are near each other
+                        var last = currentPathData[currentPathData.length - 1];
+                        if (firstPoint && (last.x !== firstPoint.x || last.y !== firstPoint.y)) {
+                            var dist = Math.hypot(last.x - firstPoint.x, last.y - firstPoint.y);
+                            if (dist < 2) {
+                                currentPathData.push(firstPoint);
+                            }
                         }
+                        allPaths.push([...currentPathData]);
                     }
                     // Start new subpath
                     currentPathData = [];
@@ -259,8 +264,15 @@ class Text extends Operation {
             }
         });
 
-        // Add the last subpath if it exists
+        // Add the last subpath if it exists, closing it if start and end are near
         if (currentPathData.length >= 2) {
+            var last = currentPathData[currentPathData.length - 1];
+            if (firstPoint && (last.x !== firstPoint.x || last.y !== firstPoint.y)) {
+                var dist = Math.hypot(last.x - firstPoint.x, last.y - firstPoint.y);
+                if (dist < 2) {
+                    currentPathData.push(firstPoint);
+                }
+            }
             allPaths.push(currentPathData);
         }
 
@@ -271,10 +283,22 @@ class Text extends Operation {
         const createdPaths = [];
         let pathIdCounter = 0;
 
+        // Find the largest path by bbox area to label as outer
+        var largestArea = -1;
+        var largestIdx = 0;
+        for (var ai = 0; ai < allPaths.length; ai++) {
+            var bb = boundingBox(allPaths[ai]);
+            var area = (bb.maxx - bb.minx) * (bb.maxy - bb.miny);
+            if (area > largestArea) {
+                largestArea = area;
+                largestIdx = ai;
+            }
+        }
+
         allPaths.forEach((pathData, pathIndex) => {
             pathData = clipper.JS.Lighten(pathData, getOption("tolerance") * viewScale);
             if (pathData.length > 0) {
-                var pathType = pathIndex === 0 ? 'outer' : 'inner';
+                var pathType = pathIndex === largestIdx ? 'outer' : 'inner';
 
                 // Reuse original ID and name if available (for updates), otherwise create new
                 var pathId, pathName, isSelected;
@@ -453,9 +477,6 @@ class Text extends Operation {
             }
         });
 
-        // Create new text paths using the same logic as the original text tool
-        let currentX = x;
-
         // Calculate proper font size based on capital letter height
         const referenceChar = font.charToGlyph('H');
         const referenceBBox = referenceChar.getBoundingBox();
@@ -464,7 +485,11 @@ class Text extends Operation {
         let fontSizeScaled = sizeInMM * viewScale * scaleFactor;
         let pathIdCounter = 0; // Track which original ID to reuse
 
+        // Center the text horizontally on the original click position
         const chars = text.split('');
+        let totalWidth = 0;
+        chars.forEach(char => { totalWidth += font.getAdvanceWidth(char, fontSizeScaled); });
+        let currentX = x - totalWidth / 2;
         chars.forEach((char, index) => {
             var fontPath = font.getPath(char, currentX, y, fontSizeScaled);
 

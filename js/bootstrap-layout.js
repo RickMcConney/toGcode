@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-22";
+var APP_VERSION = "Ver 2026-03-30";
 
 var mode = "Select";
 var options = [];
@@ -1586,6 +1586,9 @@ function showToolPropertiesEditor(operationName) {
 
             // Add both change and input events for real-time updates
             input.addEventListener('change', handleInputChange);
+            if (input.type === 'text' || input.tagName === 'TEXTAREA') {
+                input.addEventListener('input', handleInputChange);
+            }
         });
 
         // Handle operation-specific buttons (e.g., Generate Tabs, Apply Smoothing)

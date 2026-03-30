@@ -81,53 +81,100 @@ function subdividePath(path, size) {
 function makeNorms(subpath, path, cw, r, outside) {
 
 	var norms = [];
+	var sampleSize = 2; // world units between sample points along edges
+	var fanStep = 5 * Math.PI / 180; // 5° between fan normals at corners
 
-	for (var i = 0; i < subpath.length; i++) {
-		var j = (i + 1) % subpath.length;
-		var k = (i + subpath.length - 1) % subpath.length;
-		var point = subpath[i];
-		var next = subpath[j];
-		var prev = subpath[k];
-		var x1 = point.x;
-		var y1 = point.y;
-		var x2 = next.x;
-		var y2 = next.y;
-		var x3 = prev.x;
-		var y3 = prev.y;
-		var dx = x2 - x3;
-		var dy = y2 - y3;
+	// Work with original path vertices (closed: last == first)
+	var n = path.length - 1;
+	if (n < 2) return norms;
 
-		var dnorm = Math.sqrt(dx * dx + dy * dy);
-
-
-		if (dnorm != 0) {
-			dx = dx / dnorm;
-			dy = dy / dnorm;
-
-			var t = dx;
-			if (cw) {
-
-				dx = dy;
-				dy = -t;
-			}
-			else {
-				dx = -dy;
-				dy = t;
-			}
-
-			var pt = { x: x1 + dx * r, y: y1 + dy * r };
-			if (!outside && pointInPolygon(pt, subpath)) {
-				norms.push({ x1: x1, y1: y1, x2: pt.x, y2: pt.y, dx: dx, dy: dy });
-			}
-			else if (outside && !pointInPolygon(pt, subpath)) {
-				norms.push({ x1: x1, y1: y1, x2: pt.x, y2: pt.y, dx: dx, dy: dy });
-			}
+	// Precompute edge normals for each edge
+	var edgeNormals = [];
+	for (var i = 0; i < n; i++) {
+		var curr = path[i];
+		var next = path[(i + 1) % n];
+		var edx = next.x - curr.x;
+		var edy = next.y - curr.y;
+		var edLen = Math.sqrt(edx * edx + edy * edy);
+		if (edLen < 0.001) {
+			edgeNormals.push(null);
+			continue;
 		}
-		else {
-		}
-
-
+		var ux = edx / edLen, uy = edy / edLen;
+		var nx, ny;
+		if (cw) { nx = uy; ny = -ux; }
+		else { nx = -uy; ny = ux; }
+		edgeNormals.push({ nx: nx, ny: ny, ux: ux, uy: uy, len: edLen });
 	}
+
+	function addNorm(x, y, dx, dy) {
+		var pt = { x: x + dx * r, y: y + dy * r };
+		if ((!outside && pointInPolygon(pt, path)) ||
+			(outside && !pointInPolygon(pt, path))) {
+			norms.push({ x1: x, y1: y, x2: pt.x, y2: pt.y, dx: dx, dy: dy });
+		}
+	}
+
+	for (var i = 0; i < n; i++) {
+		var edge = edgeNormals[i];
+		if (!edge) continue;
+
+		var curr = path[i];
+		var next = path[(i + 1) % n];
+
+		// Sample points along this edge with constant perpendicular normal
+		var count = Math.max(2, Math.ceil(edge.len / sampleSize));
+		if (count > 500) count = 500;
+		for (var p = 0; p < count; p++) {
+			var t = p / count;
+			var x = curr.x + edge.ux * edge.len * t;
+			var y = curr.y + edge.uy * edge.len * t;
+			addNorm(x, y, edge.nx, edge.ny);
+		}
+
+		// Corner normals at the vertex between this edge and next edge
+		var nextEdge = edgeNormals[(i + 1) % n];
+		if (!nextEdge) continue;
+
+		// Angle between the two edge normals
+		var dot = edge.nx * nextEdge.nx + edge.ny * nextEdge.ny;
+		dot = Math.max(-1, Math.min(1, dot));
+		var angle = Math.acos(dot);
+		if (angle < 0.01) continue;
+
+		// Determine if corner is convex from the cut side using edge cross product
+		var edgeCross = edge.ux * nextEdge.uy - edge.uy * nextEdge.ux;
+		var isConvex = cw ? (edgeCross < 0) : (edgeCross > 0);
+
+		if (isConvex) {
+			// Convex corner: fan of normals to trace around the outside
+			var steps = Math.max(2, Math.ceil(angle / fanStep));
+			var sinAngle = Math.sin(angle);
+			if (sinAngle < 0.001) continue;
+
+			for (var s = 0; s <= steps; s++) {
+				var ft = s / steps;
+				var w1 = Math.sin((1 - ft) * angle) / sinAngle;
+				var w2 = Math.sin(ft * angle) / sinAngle;
+				var fdx = w1 * edge.nx + w2 * nextEdge.nx;
+				var fdy = w1 * edge.ny + w2 * nextEdge.ny;
+				var flen = Math.sqrt(fdx * fdx + fdy * fdy);
+				if (flen < 0.001) continue;
+				fdx /= flen; fdy /= flen;
+				addNorm(next.x, next.y, fdx, fdy);
+			}
+		} else {
+			// Concave corner: single bisector normal to dip into the corner
+			var bx = edge.nx + nextEdge.nx;
+			var by = edge.ny + nextEdge.ny;
+			var blen = Math.sqrt(bx * bx + by * by);
+			if (blen > 0.001) {
+				bx /= blen; by /= blen;
+				addNorm(next.x, next.y, bx, by);
+			}
+		}
+	}
+
 	return norms;
 }
 
@@ -957,11 +1004,124 @@ function optimizePathListOrder(paths) {
 	return optimized;
 }
 
+/**
+ * Prune noisy medial axis branches that touch curved parts of the outline.
+ * Leaf endpoints near sharp corners (long outline segments) are kept.
+ * Leaf endpoints near curves (short outline segments) are pruned.
+ */
+function pruneNoisyBranches(segments, path, holes, maxRadius) {
+	// Build all outline paths (outer + holes)
+	var outlines = [path];
+	if (holes) outlines = outlines.concat(holes);
+
+	// Use proper graph construction to identify leaf nodes
+	var graphResult = parseJSPolySegmentsToGraph(segments);
+	var graphNodeMap = graphResult.nodeMap;
+
+	// Find leaf nodes (1 unique connection) that touch the boundary (r ≈ 0)
+	var leafsToCheck = [];
+	graphNodeMap.forEach(function(n, key) {
+		if (n.connections.size === 1 && n.r < maxRadius * 0.1) {
+			leafsToCheck.push({ key: key, x: n.x, y: n.y });
+		}
+	});
+
+	// For each leaf, find the closest point on the outline and check adjacent segment lengths
+	var minSegLength = maxRadius * 0.8; // outline segments shorter than this indicate a curve
+	var pruneKeys = new Set();
+
+	for (var li = 0; li < leafsToCheck.length; li++) {
+		var leaf = leafsToCheck[li];
+		var bestDist = Infinity;
+		var bestSegLen = 0;
+
+		for (var oi = 0; oi < outlines.length; oi++) {
+			var outline = outlines[oi];
+			for (var pi = 0; pi < outline.length - 1; pi++) {
+				var p1 = outline[pi];
+				var p2 = outline[(pi + 1) % outline.length];
+				var dx = p2.x - p1.x;
+				var dy = p2.y - p1.y;
+				var segLen = Math.sqrt(dx * dx + dy * dy);
+
+				// Distance from leaf to each endpoint of this segment
+				var d1 = Math.hypot(leaf.x - p1.x, leaf.y - p1.y);
+				var d2 = Math.hypot(leaf.x - p2.x, leaf.y - p2.y);
+				var dMin = Math.min(d1, d2);
+
+				if (dMin < bestDist) {
+					bestDist = dMin;
+					// Check both adjacent segment lengths at the closest vertex
+					// For closed path (last == first), n unique vertices are 0..n-1
+					var nVerts = outline.length - 1;
+					if (nVerts < 2) continue;
+					var closestIdx = d1 < d2 ? pi : (pi + 1) % outline.length;
+					if (closestIdx >= nVerts) closestIdx = 0;
+					var prevVert = outline[(closestIdx - 1 + nVerts) % nVerts];
+					var currVert = outline[closestIdx];
+					var nextVert = outline[(closestIdx + 1) % nVerts];
+					var len1 = Math.hypot(currVert.x - prevVert.x, currVert.y - prevVert.y);
+					var len2 = Math.hypot(nextVert.x - currVert.x, nextVert.y - currVert.y);
+					bestSegLen = Math.max(len1, len2);
+				}
+			}
+		}
+
+		// Only prune if BOTH adjacent segments are short (curve) - if either is long, it's a corner
+		if (bestSegLen < minSegLength) {
+			pruneKeys.add(leaf.key);
+		}
+	}
+
+	if (pruneKeys.size === 0) return segments;
+
+	// Remove segments that have a pruned leaf as an endpoint
+	// Trace each pruned leaf back through single-connection nodes
+	var segByNode = {};
+	for (var i = 0; i < segments.length; i++) {
+		var s = segments[i];
+		var k0 = `${s.point0.x.toFixed(1)},${s.point0.y.toFixed(1)}`;
+		var k1 = `${s.point1.x.toFixed(1)},${s.point1.y.toFixed(1)}`;
+		if (!segByNode[k0]) segByNode[k0] = [];
+		if (!segByNode[k1]) segByNode[k1] = [];
+		segByNode[k0].push(i);
+		segByNode[k1].push(i);
+	}
+
+	var removeSet = new Set();
+	for (var key of pruneKeys) {
+		// Walk from leaf along the branch, removing segments until hitting a junction
+		var current = key;
+		var currentNode = graphNodeMap.get(current);
+		while (currentNode && currentNode.connections.size <= 2) {
+			var segs = segByNode[current];
+			if (!segs) break;
+			// Remove ALL segments at current node, then move to the next node
+			var nextKey = null;
+			for (var si = 0; si < segs.length; si++) {
+				if (!removeSet.has(segs[si])) {
+					removeSet.add(segs[si]);
+					var seg = segments[segs[si]];
+					var k0 = `${seg.point0.x.toFixed(1)},${seg.point0.y.toFixed(1)}`;
+					var k1 = `${seg.point1.x.toFixed(1)},${seg.point1.y.toFixed(1)}`;
+					nextKey = k0 === current ? k1 : k0;
+				}
+			}
+			if (!nextKey) break;
+			current = nextKey;
+			currentNode = graphNodeMap.get(current);
+			if (currentNode && currentNode.connections.size > 2) break;
+		}
+	}
+
+	return segments.filter((_, i) => !removeSet.has(i));
+}
+
 function medialAxis(name, path, holes, svgId, holeSvgIds) {
 
 	let descritize_threshold = 1e-1;
 	let descritize_method = 2;
-	let filtering_angle = 3 * Math.PI / 4;
+	let filtering_angle = 7 * Math.PI / 8;
 	let pointpoint_segmentation_threshold = -1;
 	let number_usage = 0;
 	let debug_flags = {
@@ -973,6 +1133,13 @@ function medialAxis(name, path, holes, svgId, holeSvgIds) {
 	var maxRadius = vbitRadius(currentTool) * viewScale;
 
 	var segments = JSPoly.construct_medial_axis(path, holes, descritize_threshold, descritize_method, filtering_angle, pointpoint_segmentation_threshold, number_usage, debug_flags, intermediate_debug_data);
+
+	// Prune noisy medial axis branches on curves while keeping branches at sharp corners.
+	// At a sharp corner, the outline path has long segments meeting at a point.
+	// On a curve, the outline path has many short segments (discretization).
+	// For each leaf endpoint (r≈0), check the outline path segment lengths nearby.
+	segments = pruneNoisyBranches(segments, path, holes, maxRadius);
+
 	var circles = [];
 	for (var si = 0; si < segments.length; si++) {
 		var seg = segments[si];
@@ -1052,13 +1219,22 @@ function computeWithMedialAxis(outside, name) {
 		delete selected[i].hole;
 	}
 
+	// Sort by bounding box area (largest first) so outer paths are processed before holes
+	selected.sort(function(a, b) {
+		var bboxA = boundingBox(a.path);
+		var bboxB = boundingBox(b.path);
+		var areaA = (bboxA.maxx - bboxA.minx) * (bboxA.maxy - bboxA.miny);
+		var areaB = (bboxB.maxx - bboxB.minx) * (bboxB.maxy - bboxB.miny);
+		return areaB - areaA;
+	});
+
 	for (var i = 0; i < selected.length; i++) {
 		if (selected[i].hole) continue;
 		var holes = []
 		var holeSvgIds = []
 		var path = selected[i].path;
 		for (var j = 0; j < selected.length; j++) {
-			if (i !== j) {
+			if (i !== j && !selected[j].hole) {
 				if (pathIn(path, selected[j].path)) {
 					holes.push(selected[j].path);
 					holeSvgIds.push(selected[j].id);

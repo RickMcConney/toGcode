@@ -46,7 +46,7 @@ class ToolpathPropertiesManager {
             },
             'Inlay': {
                 compatibleBits: ['End Mill', 'Ball Nose'],
-                fields: ['inlayType', 'tool', 'finishingTool', 'depth', 'step', 'stepover', 'clearance', 'glueGap', 'angle', 'direction', 'cutOut'],
+                fields: ['inlayType', 'mirror', 'vcarveStrategy', 'tool', 'finishingTool', 'depth', 'step', 'stepover', 'clearance', 'glueGap', 'angle', 'direction', 'cutOut'],
                 description: 'Create male plug or female socket for inlay work',
                 toolLabel: 'Pocketing Tool:',
                 applyButtonLabel: 'Generate Inlay',
@@ -111,7 +111,9 @@ class ToolpathPropertiesManager {
                 clearance: 0.1,
                 glueGap: 0.5,
                 finishingToolId: null,
-                cutOut: false
+                cutOut: false,
+                mirror: true,
+                vcarveStrategy: 'profile'
             };
         }
         return this.defaults[operationName];
@@ -446,6 +448,49 @@ class ToolpathPropertiesManager {
     }
 
     /**
+     * Generate HTML for V-carve strategy dropdown (female socket only)
+     */
+    generateVcarveStrategyHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).vcarveStrategy || 'profile';
+        }
+
+        const options = [
+            { value: 'profile', label: 'Profile' },
+            { value: 'center', label: 'Center (Medial Axis)' }
+        ];
+
+        let html = '<div class="mb-3">';
+        html += '<label for="vcarve-strategy-select" class="form-label small"><strong>V-Carve Strategy:</strong></label>';
+        html += '<select class="form-select form-select-sm" id="vcarve-strategy-select" name="vcarveStrategy">';
+        for (const opt of options) {
+            html += `<option value="${opt.value}" ${value === opt.value ? 'selected' : ''}>${opt.label}</option>`;
+        }
+        html += '</select>';
+        html += '<div class="form-text">Profile follows edges, Center uses medial axis (better for text/letters)</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
+     * Generate HTML for mirror checkbox (male plug only)
+     */
+    generateMirrorCheckboxHTML(operationName, value = null) {
+        if (value === null) {
+            value = this.getDefaults(operationName).mirror || false;
+        }
+
+        let html = '<div class="mb-3 form-check">';
+        html += `<input type="checkbox" class="form-check-input" id="mirror-checkbox" name="mirror" ${value ? 'checked' : ''}>`;
+        html += '<label class="form-check-label small" for="mirror-checkbox"><strong>Mirror plug</strong></label>';
+        html += '<div class="form-text">Mirror the selected path horizontally before generating the male plug</div>';
+        html += '</div>';
+
+        return html;
+    }
+
+    /**
      * Generate HTML for finishing tool dropdown (End Mill or VBit)
      */
     generateFinishingToolDropdownHTML(operationName, selectedToolId = null) {
@@ -507,6 +552,8 @@ class ToolpathPropertiesManager {
         // Field name -> { prop, generator, useNullish }
         const fieldGenerators = [
             { field: 'inlayType',        prop: 'inlayType',        gen: 'generateInlayTypeDropdownHTML' },
+            { field: 'mirror',           prop: 'mirror',           gen: 'generateMirrorCheckboxHTML',      nullish: true },
+            { field: 'vcarveStrategy',   prop: 'vcarveStrategy',   gen: 'generateVcarveStrategyHTML' },
             { field: 'tool',             prop: 'toolId',           gen: 'generateToolDropdownHTML' },
             { field: 'strategy',         prop: 'strategy',         gen: 'generateStrategyDropdownHTML' },
             { field: 'finishingTool',    prop: 'finishingToolId',  gen: 'generateFinishingToolDropdownHTML' },
@@ -580,6 +627,7 @@ class ToolpathPropertiesManager {
             ['finishing-tool-select', 'finishingToolId',   v => parseInt(v)],
             ['rest-tool-select',      'restToolDiameter',  v => parseFloat(v) || 0],
             ['strategy-select',       'strategy',          v => v],
+            ['vcarve-strategy-select','vcarveStrategy',    v => v],
         ];
 
         for (const [id, key, parser] of fields) {
@@ -589,6 +637,9 @@ class ToolpathPropertiesManager {
 
         const cutOutCheckbox = document.getElementById('cutout-checkbox');
         if (cutOutCheckbox) data.cutOut = cutOutCheckbox.checked;
+
+        const mirrorCheckbox = document.getElementById('mirror-checkbox');
+        if (mirrorCheckbox) data.mirror = mirrorCheckbox.checked;
 
         return data;
     }

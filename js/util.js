@@ -456,11 +456,25 @@ function lineIntersects(p0, p1, p2, p3) {
 function pointInPolygon(point, path) {
 
 	var x = point.x, y = point.y;
+	var epsilon = 0.1;
 
 	var inside = false;
 	for (var i = 0, j = path.length - 2; i < path.length - 1; j = i++) {
 		var xi = path[i].x, yi = path[i].y;
 		var xj = path[j].x, yj = path[j].y;
+
+		// Check if point is on (or within epsilon of) this edge segment
+		var edx = xj - xi, edy = yj - yi;
+		var edLen = Math.sqrt(edx * edx + edy * edy);
+		if (edLen > 0) {
+			// Perpendicular distance from point to infinite line
+			var dist = Math.abs(edx * (yi - y) - edy * (xi - x)) / edLen;
+			if (dist <= epsilon) {
+				// Check if projection falls within the segment
+				var t = ((x - xi) * edx + (y - yi) * edy) / (edLen * edLen);
+				if (t >= -0.01 && t <= 1.01) return true;
+			}
+		}
 
 		var intersect = ((yi > y) != (yj > y))
 			&& (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
@@ -595,12 +609,12 @@ function rotatePoint(point, centerX, centerY, angleRad) {
 }
 
 function pathIn(outer, inner) {
+	var insideCount = 0;
 	for (var i = 0; i < inner.length; i++) {
-		var p = inner[i];
-		if (!pointInPolygon(p, outer))
-			return false;
+		if (pointInPolygon(inner[i], outer))
+			insideCount++;
 	}
-	return true;
+	return insideCount > inner.length * 0.8;
 }
 
 // Replay stored transform history on a svgpath's points
