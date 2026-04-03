@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-03-30";
+var APP_VERSION = "Ver 2026-04-02";
 
 var mode = "Select";
 var options = [];
@@ -1954,6 +1954,40 @@ function regenerateToolpathFromSvg(operationName, activeToolpaths, selectedTool,
         return;
     }
 
+    // For VCarve on text, expand selection to include all paths in the same
+    // text group so hole detection works (e.g. letter "e", "o", "i").
+    // Remove all existing VCarve toolpaths for the group — the regeneration
+    // will create the correct number fresh (inside: one per path, center: one per outer).
+    if (operationName === 'VCarve') {
+        const textGroupIds = new Set();
+        svgPathsToRegenerate.forEach(p => {
+            if (p.textGroupId) textGroupIds.add(p.textGroupId);
+        });
+        if (textGroupIds.size > 0) {
+            // Expand source path selection to full text group
+            svgpaths.forEach(p => {
+                if (p.textGroupId && textGroupIds.has(p.textGroupId) &&
+                    !svgPathsToRegenerate.some(sp => sp.id === p.id)) {
+                    svgPathsToRegenerate.push(p);
+                }
+            });
+
+            // Remove all VCarve toolpaths linked to this text group
+            const allGroupPathIds = new Set(svgPathsToRegenerate.map(p => p.id));
+            for (let i = toolpaths.length - 1; i >= 0; i--) {
+                const tp = toolpaths[i];
+                if (tp.operation !== 'VCarve In' && tp.operation !== 'VCarve Out' && tp.operation !== 'VCarve') continue;
+                const tpIds = tp.svgIds || (tp.svgId ? [tp.svgId] : []);
+                if (tpIds.some(id => allGroupPathIds.has(id))) {
+                    toolpaths.splice(i, 1);
+                    removeToolPath(tp.id);
+                }
+            }
+            // Clear update targets — all old toolpaths are removed, create fresh
+            activeToolpaths = [];
+        }
+    }
+
     selectMgr.unselectAll();
     svgPathsToRegenerate.forEach(p => selectMgr.selectPath(p));
 
@@ -1979,7 +2013,18 @@ function regenerateToolpathFromSvg(operationName, activeToolpaths, selectedTool,
         window.toolpathUpdateTargets = null;
     }
 
-    setActiveToolpaths(activeToolpaths);
+    if (typeof refreshToolPathsDisplay === 'function') {
+        refreshToolPathsDisplay();
+    }
+
+    // After VCarve mode switches, the number of toolpaths may have changed.
+    // Mark all toolpaths linked to the regenerated source paths as active.
+    const regenIds = new Set(svgPathsToRegenerate.map(p => p.id));
+    const newActive = toolpaths.filter(tp => {
+        const tpIds = tp.svgIds || (tp.svgId ? [tp.svgId] : []);
+        return tpIds.some(id => regenIds.has(id));
+    });
+    setActiveToolpaths(newActive.length > 0 ? newActive : activeToolpaths);
 }
 
 function setupToolpathUpdateButton(operationName) {
@@ -2126,8 +2171,12 @@ function regenerateToolpathsForPaths(changedPathIds) {
         // call updates one in-place instead of creating duplicates
         window.toolpathUpdateTargets = [...group.toolpaths];
 
+        // Normalize operation names (e.g. 'VCarve In'/'VCarve Out' -> 'VCarve')
+        let opName = group.operation;
+        if (opName === 'VCarve In' || opName === 'VCarve Out') opName = 'VCarve';
+
         try {
-            handleOperationClick(group.operation);
+            handleOperationClick(opName);
         } finally {
             window.toolpathUpdateTargets = null;
             window.currentToolpathProperties = null;
@@ -2347,6 +2396,9 @@ function showPathPropertiesEditor(path) {
 
         // Add both change and input events for real-time updates
         input.addEventListener('change', handlePathEditChange);
+        if (input.type === 'text' || input.tagName === 'TEXTAREA') {
+            input.addEventListener('input', handlePathEditChange);
+        }
     });
 
     // Update help content

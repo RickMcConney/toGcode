@@ -462,10 +462,23 @@ class Text extends Operation {
         // Store original path IDs, names, textGroupId, and transformHistory to preserve them
         const textGroupId = textPaths[0].textGroupId || ('TextGroup' + Date.now());
         const savedTransformHistory = textPaths[0].transformHistory || null;
+        const originalPathIds = textPaths.map(p => p.id);
         const originalPaths = textPaths.map(p => ({
             id: p.id,
             name: p.name
         }));
+
+        // Find and remove toolpaths linked to any of the old text paths
+        const linkedToolpaths = [];
+        for (let i = toolpaths.length - 1; i >= 0; i--) {
+            const tp = toolpaths[i];
+            const tpIds = tp.svgIds || (tp.svgId ? [tp.svgId] : []);
+            if (tpIds.some(id => originalPathIds.includes(id))) {
+                linkedToolpaths.push({ operation: tp.operation, tool: { ...tp.tool }, toolpathProperties: tp.toolpathProperties ? { ...tp.toolpathProperties } : null });
+                toolpaths.splice(i, 1);
+                removeToolPath(tp.id);
+            }
+        }
 
         // Remove existing text paths from sidebar and array
         selectMgr.unselectAll();
@@ -524,10 +537,33 @@ class Text extends Operation {
             addTextGroup(textGroupId, text, updatedTextPaths);
         }
 
-        // Regenerate toolpaths linked to any of the text paths (using preserved IDs)
-        if (typeof regenerateToolpathsForPaths === 'function') {
-            const allIds = updatedTextPaths.map(p => p.id);
-            regenerateToolpathsForPaths(allIds);
+        // Re-run linked toolpath operations on the new text paths
+        if (linkedToolpaths.length > 0 && updatedTextPaths.length > 0) {
+            // Deduplicate by operation type (only need to run each operation once)
+            const seen = new Set();
+            const uniqueOps = linkedToolpaths.filter(lt => {
+                if (seen.has(lt.operation)) return false;
+                seen.add(lt.operation);
+                return true;
+            });
+
+            selectMgr.unselectAll();
+            updatedTextPaths.forEach(p => selectMgr.selectPath(p));
+
+            for (const lt of uniqueOps) {
+                const originalTool = window.currentTool;
+                window.currentTool = lt.tool;
+                window.currentToolpathProperties = lt.toolpathProperties;
+                // Normalize operation names (e.g. 'VCarve In'/'VCarve Out' -> 'VCarve')
+                let opName = lt.operation;
+                if (opName === 'VCarve In' || opName === 'VCarve Out') opName = 'VCarve';
+                try {
+                    handleOperationClick(opName);
+                } finally {
+                    window.currentTool = originalTool;
+                    window.currentToolpathProperties = null;
+                }
+            }
         }
     }
 
