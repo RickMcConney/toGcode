@@ -29,6 +29,20 @@ class PathEdit extends Select {
         this.lastRadiusValue = '5'; // Store last entered radius value
         this.lastCornerStyle = 'outer'; // Store last corner style selection
 
+        // Field specs for PropertiesManager
+        this.fields = {
+            cornerStyle: {
+                key: 'cornerStyle', label: 'Corner Style', type: 'choice', default: 'outer',
+                options: [
+                    { value: 'outer',   label: 'Radius (outer)' },
+                    { value: 'inner',   label: 'Radius (inner)' },
+                    { value: 'miter',   label: 'Miter (chamfer)' },
+                    { value: 'dogbone', label: 'Dogbone' },
+                ]
+            },
+            radius: { key: 'radius', label: 'Size', type: 'dimension', default: 5, help: 'e.g. 5mm or 1/4in' }
+        };
+
         // Define keydown handler (will be added/removed in start/stop)
         this.keydownHandler = (evt) => {
             // Don't handle keyboard shortcuts if user is typing in an input field
@@ -62,9 +76,9 @@ class PathEdit extends Select {
     // Helper to update properties panel and refresh icons
     updatePropertiesPanel() {
         // Save current form values before rebuilding
-        const oldRadiusInput = document.getElementById('radiusInput');
+        const oldRadiusInput = document.getElementById('pm-radius');
         if (oldRadiusInput) this.lastRadiusValue = oldRadiusInput.value;
-        const oldCornerSelect = document.getElementById('cornerStyleSelect');
+        const oldCornerSelect = document.getElementById('pm-cornerStyle');
         if (oldCornerSelect) this.lastCornerStyle = oldCornerSelect.value;
 
         const form = document.getElementById('tool-properties-form');
@@ -563,6 +577,10 @@ class PathEdit extends Select {
             selectionMessage = `${selectedCount} points selected`;
         }
 
+        const cornerHint = hasSelectedHandles
+            ? `Will apply to ${selectedCount === 1 ? '1 point' : selectedCount + ' points'}`
+            : 'Click points to select, or click Apply to radius all points';
+
         return `
             <div class="alert alert-info mb-3">
                 <strong>${hasSelection ? 'Editing Path Points' : 'Edit Points Tool'}</strong><br>
@@ -570,38 +588,21 @@ class PathEdit extends Select {
                 ${hasSelection ? `<br><span class="badge" style="background-color: ${hasSelectedHandles ? '#9333ea' : '#6c757d'};">${selectionMessage}</span>` : ''}
             </div>
 
-            <button type="button" class="btn btn-primary btn-sm w-100 mb-3" id="applySmoothBtn" ${!hasSelection ? 'disabled' : ''}>
-                <i data-lucide="sparkles"></i> Apply Smoothing
-            </button>
-            <small class="form-text text-muted text-center d-block mb-3">Click repeatedly for more smoothing (no new points added)</small>
+            <div class="mb-3">
+                <button type="button" class="btn btn-primary btn-sm w-100" id="applySmoothBtn" ${!hasSelection ? 'disabled' : ''}>
+                    <i data-lucide="sparkles"></i> Apply Smoothing
+                </button>
+                <div class="form-text">Click repeatedly for more smoothing (no new points added)</div>
+            </div>
 
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h6 class="card-title">Corner Style</h6>
+            ${PropertiesManager.fieldHTML(this.fields.cornerStyle, this.lastCornerStyle)}
+            ${PropertiesManager.fieldHTML(this.fields.radius, this.lastRadiusValue)}
 
-                    <div class="mb-2">
-                        <label for="cornerStyleSelect" class="form-label">Style</label>
-                        <select class="form-select form-select-sm" id="cornerStyleSelect">
-                            <option value="outer" ${this.lastCornerStyle === 'outer' ? 'selected' : ''}>Radius (outer)</option>
-                            <option value="inner" ${this.lastCornerStyle === 'inner' ? 'selected' : ''}>Radius (inner)</option>
-                            <option value="miter" ${this.lastCornerStyle === 'miter' ? 'selected' : ''}>Miter (chamfer)</option>
-                            <option value="dogbone" ${this.lastCornerStyle === 'dogbone' ? 'selected' : ''}>Dogbone</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-2">
-                        <label for="radiusInput" class="form-label">Size</label>
-                        <input type="text" class="form-control form-control-sm" id="radiusInput"
-                               value="${this.lastRadiusValue}" placeholder="5mm or 1/4in">
-                    </div>
-
-                    <button type="button" class="btn btn-success btn-sm w-100" id="applyRadiusBtn" ${!hasSelection ? 'disabled' : ''}>
-                        <i data-lucide="circle-dot"></i> Apply Corner
-                    </button>
-                    <small class="form-text text-muted text-center d-block mt-2">
-                        ${hasSelectedHandles ? `Will apply to ${selectedCount === 1 ? '1 point' : selectedCount + ' points'}` : 'Click points to select, or click Apply to radius all points'}
-                    </small>
-                </div>
+            <div class="mb-3">
+                <button type="button" class="btn btn-success btn-sm w-100" id="applyRadiusBtn" ${!hasSelection ? 'disabled' : ''}>
+                    <i data-lucide="circle-dot"></i> Apply Corner
+                </button>
+                <div class="form-text">${cornerHint}</div>
             </div>
 
             <div class="alert alert-secondary">
@@ -615,15 +616,14 @@ class PathEdit extends Select {
                     • <strong>Hover + Delete</strong> key to remove a point (min ${minPoints} points)<br>
                     • Click on a different path to edit it
                 </small>
-            </div>
-        `;
+            </div>`;
     }
 
     onPropertiesChanged(data) {
         // Save corner style and radius so they persist across panel rebuilds
-        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
+        const cornerStyleSelect = document.getElementById('pm-cornerStyle');
         if (cornerStyleSelect) this.lastCornerStyle = cornerStyleSelect.value;
-        const radiusInput = document.getElementById('radiusInput');
+        const radiusInput = document.getElementById('pm-radius');
         if (radiusInput) this.lastRadiusValue = radiusInput.value;
     }
 
@@ -747,14 +747,14 @@ class PathEdit extends Select {
             });
         }
 
-        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
+        const cornerStyleSelect = document.getElementById('pm-cornerStyle');
         if (cornerStyleSelect) {
             cornerStyleSelect.addEventListener('change', () => {
                 this.lastCornerStyle = cornerStyleSelect.value;
             });
         }
 
-        const radiusInput = document.getElementById('radiusInput');
+        const radiusInput = document.getElementById('pm-radius');
         if (radiusInput) {
             radiusInput.addEventListener('change', () => {
                 this.lastRadiusValue = radiusInput.value;
@@ -782,8 +782,8 @@ class PathEdit extends Select {
             return;
         }
 
-        const radiusInput = document.getElementById('radiusInput');
-        const cornerStyleSelect = document.getElementById('cornerStyleSelect');
+        const radiusInput = document.getElementById('pm-radius');
+        const cornerStyleSelect = document.getElementById('pm-cornerStyle');
 
         if (!radiusInput) {
             console.log('Radius input not found');

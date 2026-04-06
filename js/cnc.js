@@ -1896,7 +1896,7 @@ function doInlay() {
 
 	// Get finishing tool
 	const finishingToolId = props?.finishingToolId;
-	const finishingTool = window.toolpathPropertiesManager.getToolById(finishingToolId);
+	const finishingTool = window.toolPathProperties.getToolById(finishingToolId);
 	if (!finishingTool) {
 		notify('Finishing tool not found', 'error');
 		return;

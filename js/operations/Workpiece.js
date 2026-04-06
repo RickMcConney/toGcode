@@ -1,6 +1,18 @@
 class Workpiece extends Operation {
     constructor() {
         super('Workpiece', 'box', 'Configure your workpiece dimensions and material properties');
+
+        this.fields = {
+            workpieceWidth:     { key: 'workpieceWidth',     label: 'Width (X)',      type: 'dimension', default: 300  },
+            workpieceLength:    { key: 'workpieceLength',    label: 'Length (Y)',     type: 'dimension', default: 200  },
+            workpieceThickness: { key: 'workpieceThickness', label: 'Thickness (Z)',  type: 'dimension', default: 19   },
+            woodSpecies:        { key: 'woodSpecies',        label: 'Wood Species',   type: 'choice',    default: 'Pine', options: [] },
+            gridSize:           { key: 'gridSize',           label: 'Grid Size',      type: 'dimension', default: 10   },
+            showGrid:           { key: 'showGrid',           label: 'Show Grid',      type: 'checkbox',  default: true },
+            snapGrid:           { key: 'snapGrid',           label: 'Snap to Grid',   type: 'checkbox',  default: true },
+            showOrigin:         { key: 'showOrigin',         label: 'Show Origin',    type: 'checkbox',  default: true },
+            showWorkpiece:      { key: 'showWorkpiece',      label: 'Show Workpiece', type: 'checkbox',  default: true },
+        };
     }
 
     // No mouse interactions needed for workpiece tool
@@ -41,49 +53,21 @@ class Workpiece extends Operation {
             </div>`;
     }
 
-    getDisplayOptionsHTML(showGrid, snapGrid, showOrigin, showWorkpiece) {
-        const checkbox = (id, label, checked) =>
-            `<div class="form-check${id === 'snapGrid' ? ' mt-1' : ''}">
-                <input class="form-check-input" type="checkbox" id="${id}" name="${id}" ${checked ? 'checked' : ''}>
-                <label class="form-check-label" for="${id}">${label}</label>
-            </div>`;
-
-        return `
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    ${checkbox('showGrid', 'Show Grid', showGrid)}
-                    ${checkbox('snapGrid', 'Snap to Grid', snapGrid)}
-                </div>
-                <div class="col-md-4">
-                    ${checkbox('showOrigin', 'Show Origin', showOrigin)}
-                </div>
-                <div class="col-md-4">
-                    ${checkbox('showWorkpiece', 'Show Workpiece', showWorkpiece)}
-                </div>
-            </div>`;
-    }
-
     // Properties Editor Interface
     getPropertiesHTML() {
-        const currentWidth = getOption("workpieceWidth") || 300;
-        const currentLength = getOption("workpieceLength") || 200;
+        const currentWidth     = getOption("workpieceWidth")     || 300;
+        const currentLength    = getOption("workpieceLength")    || 200;
         const currentThickness = getOption("workpieceThickness") || 19;
-        const currentGridSize = getOption("gridSize") || 10;
+        const currentGridSize  = getOption("gridSize")           || 10;
+        const currentSpecies   = getOption("woodSpecies")        || 'Pine';
 
-        const displayWidth = formatDimension(currentWidth, true);
-        const displayLength = formatDimension(currentLength, true);
-        const displayThickness = formatDimension(currentThickness, true);
-        const displayGridSize = formatDimension(currentGridSize, true);
-
-        const currentSpecies = getOption("woodSpecies") || 'Pine';
-
-        let speciesOptions = '';
+        // Build dynamic species options
+        const speciesField = { ...this.fields.woodSpecies };
         if (typeof woodSpeciesDatabase !== 'undefined') {
-            Object.keys(woodSpeciesDatabase).forEach(species => {
-                const selected = species === currentSpecies ? 'selected' : '';
-                speciesOptions += `<option value="${species}" ${selected}>${species}</option>`;
-            });
+            speciesField.options = Object.keys(woodSpeciesDatabase).map(s => ({ value: s, label: s }));
         }
+
+        const fh = (field, value) => PropertiesManager.fieldHTML(field, value);
 
         return `
             <style>
@@ -103,43 +87,25 @@ class Workpiece extends Operation {
                 Configure your workpiece dimensions and material properties
             </div>
 
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <label for="workpieceWidth" class="form-label">Width (X)</label>
-                    <input type="text" class="form-control" id="workpieceWidth" name="workpieceWidth" value="${displayWidth}">
-                </div>
-                <div class="col-md-6">
-                    <label for="workpieceLength" class="form-label">Length (Y)</label>
-                    <input type="text" class="form-control" id="workpieceLength" name="workpieceLength" value="${displayLength}">
-                </div>
+            <div class="row g-2">
+                <div class="col-6">${fh(this.fields.workpieceWidth,  formatDimension(currentWidth,     true))}</div>
+                <div class="col-6">${fh(this.fields.workpieceLength, formatDimension(currentLength,    true))}</div>
+            </div>
+            <div class="row g-2">
+                <div class="col-6">${fh(this.fields.workpieceThickness, formatDimension(currentThickness, true))}</div>
+                <div class="col-6">${fh(speciesField, currentSpecies)}</div>
             </div>
 
-            <div class="row mb-3">
-                <div class="col-md-6">
-                    <label for="workpieceThickness" class="form-label">Thickness (Z)</label>
-                    <input type="text" class="form-control" id="workpieceThickness" name="workpieceThickness" value="${displayThickness}">
-                </div>
-                <div class="col-md-6">
-                    <label for="woodSpecies" class="form-label">Wood Species</label>
-                    <select class="form-select" id="woodSpecies" name="woodSpecies">${speciesOptions}</select>
-                </div>
-            </div>
+            ${fh(this.fields.gridSize, formatDimension(currentGridSize, true))}
 
-            <div class="row mb-3 align-items-center">
-                <div class="col-auto">
-                    <label for="gridSize" class="form-label mb-0">Grid Size</label>
-                </div>
-                <div class="col-auto">
-                    <input type="text" class="form-control" id="gridSize" name="gridSize" value="${displayGridSize}" style="width: 100px;">
-                </div>
+            <div class="row g-2">
+                <div class="col-6">${fh(this.fields.showGrid,      getOption("showGrid")      !== false)}</div>
+                <div class="col-6">${fh(this.fields.snapGrid,      getOption("snapGrid")      !== false)}</div>
             </div>
-
-            ${this.getDisplayOptionsHTML(
-                getOption("showGrid") !== false,
-                getOption("snapGrid") !== false,
-                getOption("showOrigin") !== false,
-                getOption("showWorkpiece") !== false
-            )}
+            <div class="row g-2">
+                <div class="col-6">${fh(this.fields.showOrigin,    getOption("showOrigin")    !== false)}</div>
+                <div class="col-6">${fh(this.fields.showWorkpiece, getOption("showWorkpiece") !== false)}</div>
+            </div>
 
             ${this.getOriginGridHTML(getOption("originPosition") || 'middle-center')}
 
@@ -147,8 +113,7 @@ class Workpiece extends Operation {
                 <small class="text-muted">
                     <strong>Note:</strong> Changing workpiece dimensions will automatically re-center the workpiece in the viewport.
                 </small>
-            </div>
-        `;
+            </div>`;
     }
 
     updateFromProperties(data) {
@@ -168,7 +133,7 @@ class Workpiece extends Operation {
             if (tableWidth && newValue > tableWidth) {
                 notify(`Workpiece width clamped to machine table limit (${tableWidth}mm)`, 'warning');
                 newValue = tableWidth;
-                const el = document.getElementById('workpieceWidth');
+                const el = document.getElementById('pm-workpieceWidth');
                 if (el) el.value = useInches ? (newValue / 25.4).toFixed(2) : newValue;
             }
             setOption("workpieceWidth", newValue);
@@ -181,7 +146,7 @@ class Workpiece extends Operation {
             if (tableDepth && newValue > tableDepth) {
                 notify(`Workpiece length clamped to machine table limit (${tableDepth}mm)`, 'warning');
                 newValue = tableDepth;
-                const el = document.getElementById('workpieceLength');
+                const el = document.getElementById('pm-workpieceLength');
                 if (el) el.value = useInches ? (newValue / 25.4).toFixed(2) : newValue;
             }
             setOption("workpieceLength", newValue);

@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-04-02";
+var APP_VERSION = "Ver 2026-04-06";
 
 var mode = "Select";
 var options = [];
@@ -1062,10 +1062,14 @@ function setupSidebarEventHandlers(sidebar) {
         const pathId = item.dataset.pathId;
 
         if (operation) {
-            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', 'Boolean', 'Gemini', 'Text', 'Tabs', 'Offset', 'Pattern', 'Drill'].includes(operation);
+            const isDrawTool = ['Select', 'Workpiece', 'Move', 'Edit', 'Pen', 'Shape', 'Boolean', 'Gemini', 'Text', 'Tabs', 'Offset', 'Pattern'].includes(operation);
 
             if (isDrawTool) {
                 showToolPropertiesEditor(operation);
+                handleOperationClick(operation);
+            } else if (operation === 'Drill') {
+                // Drill lives in the Operations panel but also activates an interactive canvas mode
+                showOperationPropertiesEditor(operation);
                 handleOperationClick(operation);
             } else {
                 showOperationPropertiesEditor(operation);
@@ -1665,20 +1669,16 @@ function generateToolpathForSelection() {
     // Collect form data
     if (currentOperationName == null) return;
 
-    const data = window.toolpathPropertiesManager.collectFormData();
-
-    // Validate
-    const errors = window.toolpathPropertiesManager.validateFormData(currentOperationName, data);
+    const data   = window.toolPathProperties.collectFormData(currentOperationName);
+    const errors = window.toolPathProperties.validateFormData(currentOperationName, data);
     if (errors.length > 0) {
         notify(errors.join(', '), 'error');
         return null;
     }
 
-    // Update defaults for this operation
-    window.toolpathPropertiesManager.updateDefaults(currentOperationName, data);
+    window.toolPathProperties.saveDefaults(currentOperationName, data);
 
-    // Get the selected tool
-    const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+    const selectedTool = window.toolPathProperties.getToolById(data.toolId);
     if (!selectedTool) {
         notify('Selected tool not found', 'error');
         return null;
@@ -1737,8 +1737,8 @@ function generateToolpathForSelection() {
  * Wire depth input to auto-update the name field when name still matches the default pattern.
  */
 function wireDepthToNameAutoUpdate(operationName) {
-    const depthInput = document.getElementById('depth-input');
-    const nameInput = document.getElementById('toolpath-name-input');
+    const depthInput = document.getElementById('pm-depth') || document.getElementById('depth-input');
+    const nameInput  = document.getElementById('pm-toolpathName') || document.getElementById('toolpath-name-input');
     if (!depthInput || !nameInput) return;
 
     // Remember the current default so we know if the user has customized the name
@@ -1749,7 +1749,7 @@ function wireDepthToNameAutoUpdate(operationName) {
         if (nameInput.value !== lastAutoName) return;
         const depth = parseDimension(depthInput.value);
         if (depth > 0) {
-            const newName = formatDimension(depth, false) + ' ' + operationName;
+            const newName = formatDimension(depth, false) + ' deep ' + operationName;
             nameInput.value = newName;
             lastAutoName = newName;
         }
@@ -1781,13 +1781,11 @@ function showOperationPropertiesEditor(operationName) {
         title.textContent = `${operationName} Operation`;
     }
 
-    // Check if this is a toolpath operation that should use the new properties manager
-    const isToolpathOperation = window.toolpathPropertiesManager &&
-        window.toolpathPropertiesManager.hasOperation(operationName);
+    // Check if this is a toolpath operation
+    const isToolpathOperation = window.toolPathProperties?.hasOperation(operationName);
 
     if (isToolpathOperation) {
-        // Use the new toolpath properties manager for CNC operations
-        form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(operationName);
+        form.innerHTML = window.toolPathProperties.getPropertiesHTML(operationName);
 
         // Store the active operation name for path selection handler
         window.activeToolpathOperation = operationName;
@@ -2042,17 +2040,16 @@ function setupToolpathUpdateButton(operationName) {
             return;
         }
 
-        const data = window.toolpathPropertiesManager.collectFormData();
-
-        const errors = window.toolpathPropertiesManager.validateFormData(operationName, data);
+        const data   = window.toolPathProperties.collectFormData(operationName);
+        const errors = window.toolPathProperties.validateFormData(operationName, data);
         if (errors.length > 0) {
             notify(errors.join(', '), 'error');
             return;
         }
 
-        window.toolpathPropertiesManager.updateDefaults(operationName, data);
+        window.toolPathProperties.saveDefaults(operationName, data);
 
-        const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+        const selectedTool = window.toolPathProperties.getToolById(data.toolId);
         if (!selectedTool) {
             notify('Selected tool not found', 'error');
             return;
@@ -2247,7 +2244,7 @@ function showToolpathPropertiesEditor(toolpath) {
     title.textContent = `Edit ${toolpath.operation === 'HelicalDrill' ? 'Helical Drill' : toolpath.operation} Toolpath`;
 
     // Generate properties HTML with existing values
-    if (window.toolpathPropertiesManager && window.toolpathPropertiesManager.hasOperation(propsOperation)) {
+    if (window.toolPathProperties?.hasOperation(propsOperation)) {
         // Build properties from the toolpath's own stored data
         let properties = toolpath.toolpathProperties ? { ...toolpath.toolpathProperties } : {
             toolId: toolpath.tool.recid,
@@ -2261,15 +2258,9 @@ function showToolpathPropertiesEditor(toolpath) {
         if (properties.numLoops === undefined && toolpath.tool.numLoops) properties.numLoops = toolpath.tool.numLoops;
         if (properties.overCut === undefined && toolpath.tool.overCut !== undefined) properties.overCut = toolpath.tool.overCut;
         if (properties.angle === undefined && toolpath.tool.angle !== undefined) properties.angle = toolpath.tool.angle;
-        // Pass existing label so the name field is pre-filled
-        if (toolpath.label) {
-            properties.toolpathName = toolpath.label;
-        }
+        if (toolpath.label) properties.toolpathName = toolpath.label;
 
-        form.innerHTML = window.toolpathPropertiesManager.generatePropertiesHTML(
-            propsOperation,
-            properties
-        );
+        form.innerHTML = window.toolPathProperties.getPropertiesHTML(propsOperation, properties);
 
         // Set up the "Update Toolpath" button using the shared handler
         setupToolpathUpdateButton(propsOperation);
@@ -2416,11 +2407,10 @@ function updateExistingPath(path, form) {
     const data = collectFormData(form);
 
     if (path.creationTool === 'Text') {
-        // For text, use the standard operation pattern
         const operation = window.cncController?.operationManager?.getOperation('Text');
         if (operation) {
+            operation.setEditPath(path);
             operation.updateFromProperties(data);
-            // onPropertiesChanged will handle the update
         }
     }
     else if (path.creationTool === 'Shape') {
@@ -3626,8 +3616,7 @@ function handleOperationClick(operation) {
     // addUndo() will be called by individual operation functions as needed
 
     // Check if this is a toolpath operation managed by the properties panel
-    const isToolpathOperation = window.toolpathPropertiesManager &&
-        window.toolpathPropertiesManager.hasOperation(operation);
+    const isToolpathOperation = window.toolPathProperties?.hasOperation(operation);
 
     // If it's a toolpath operation and we're NOT generating from properties,
     // then we should NOT execute the operation yet - just set the mode
@@ -3740,8 +3729,7 @@ function handleOperationClick(operation) {
 
 function handlePathClick(pathId) {
     // If a machining operation panel is open, replace selection and regenerate
-    if (currentOperationName && window.toolpathPropertiesManager &&
-        window.toolpathPropertiesManager.hasOperation(currentOperationName)) {
+    if (currentOperationName && window.toolPathProperties?.hasOperation(currentOperationName)) {
         const path = svgpaths.find(p => p.id === pathId);
         if (path) {
             selectMgr.unselectAll();
@@ -3761,8 +3749,7 @@ function handlePathClick(pathId) {
             // Check if this operation has properties manager support
             // Map HelicalDrill to Drill for properties lookup
             const opForProps = toolpath.operation === 'HelicalDrill' ? 'Drill' : toolpath.operation;
-            const hasPropertiesSupport = window.toolpathPropertiesManager &&
-                window.toolpathPropertiesManager.hasOperation(opForProps);
+            const hasPropertiesSupport = window.toolPathProperties?.hasOperation(opForProps);
 
             if (hasPropertiesSupport) {
                 // Show toolpath properties editor

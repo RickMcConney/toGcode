@@ -54,15 +54,14 @@ function applyGemini() {
 
 
 
-    var apiKey = document.getElementById('gemini-key').value;
+    var apiKey = document.getElementById('pm-apiKey').value;
     if (!apiKey || apiKey.trim() === '') {
-
         notify("Please enter a Gemini API key");
         return;
     }
-    localStorage.setItem('gemini-key', apiKey );
+    localStorage.setItem('gemini-key', apiKey);
 
-    var prompt = document.getElementById('gemini-prompt').value;
+    var prompt = document.getElementById('pm-prompt').value;
     if (!prompt || prompt.trim() === '') {
         notify("Please enter a prompt");
         return;
@@ -106,53 +105,34 @@ function applyGemini() {
 class Gemini extends Operation {
     constructor() {
         super('Gemini', 'brain', 'Generate SVG paths from text prompt using Gemini AI');
+
+        this.fields = {
+            apiKey: { key: 'apiKey', label: 'Gemini API Key', type: 'text', default: '',
+                      help: 'Get your key at aistudio.google.com' },
+            prompt: { key: 'prompt', label: 'Prompt',         type: 'text', default: 'A rectangle' },
+        };
     }
 
-    getPropertiesHTML(path) {
-        // Get current values from UI if available, otherwise use properties
-        let type = this.properties.type;
-        let apiKey = localStorage.getItem('gemini-key');
-        if(!apiKey) apiKey = "Your api key";
-        let prompt = this.properties.prompt;
-        if(!prompt) prompt = "A rectangle";
-
+    getPropertiesHTML() {
+        const apiKey = localStorage.getItem('gemini-key') || '';
+        const prompt = this.properties.prompt || 'A rectangle';
 
         return `
             <div class="alert alert-info mb-3">
                 <strong>Gemini AI</strong><br>
                 Generate SVG paths from text prompt using Gemini AI
             </div>
+            ${PropertiesManager.fieldHTML(this.fields.apiKey, apiKey)}
+            ${PropertiesManager.fieldHTML(this.fields.prompt, prompt)}
             <div class="mb-3">
-                <label for="gemini-key" class="form-label">Gemini API Key:</label>
-                <input type="text"
-                       class="form-text"
-                       id="gemini-key"
-                       name="gemini-key"
-                       value="${apiKey}"
-                       >
-            </div>
-            <div class="mb-3">
-                <label for="gemini-prompt" class="form-label">Prompt:</label>
-                <input type="text"
-                       class="form-text"
-                       id="gemini-prompt"
-                       name="prompt"
-                       value="${prompt}"
-                       >
-            </div>
-             <div class="mb-3">
-                <button type="button" class="btn btn-primary btn-sm w-100" id="gemini-apply-button" onClick="applyGemini()">
+                <button type="button" class="btn btn-primary btn-sm w-100" id="gemini-apply-button" onclick="applyGemini()">
                     <i data-lucide="check"></i> Apply
                 </button>
-                <div class="form-text small">Select paths Click Apply to apply operation</div>
-        </div>
-        `;
-
-
+                <div class="form-text">Enter a prompt then click Apply to generate paths</div>
+            </div>`;
     }
 
     onPropertiesChanged(data) {
-
         this.properties = { ...this.properties, ...data };
         super.onPropertiesChanged(data);
     }

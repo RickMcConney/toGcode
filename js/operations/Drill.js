@@ -62,10 +62,10 @@ class Drill extends Operation {
      * Get the bit type of the currently selected tool from the properties panel.
      */
     getSelectedBitType() {
-        if (window.toolpathPropertiesManager) {
+        if (window.toolPathProperties) {
             try {
-                var data = window.toolpathPropertiesManager.collectFormData();
-                var tool = window.toolpathPropertiesManager.getToolById(data.toolId);
+                var data = window.toolPathProperties.collectFormData('Drill');
+                var tool = window.toolPathProperties.getToolById(data.toolId);
                 if (tool) return tool.bit;
             } catch (e) {}
         }

@@ -47,99 +47,101 @@ function Heart(r, a2) {
     return model;
 }
 
+// Dimension-type parameter titles — these use text input + parseDimension/formatDimension
+const DIMENSION_PARAM_TITLES = ["radius", "distance", "width", "height", "left", "right", "inner", "outer", "radiusX", "radiusY"];
+
+function isDimensionTitle(title) {
+    const firstWord = title.split(" ")[0].toLowerCase();
+    return DIMENSION_PARAM_TITLES.includes(firstWord);
+}
 
 class Shape extends Operation {
     constructor() {
         super('Shape', 'pentagon', 'Create basic shapes (circle, rectangle, polygon, star, etc.)');
-        this.defaults = {};
 
-        for (let shape of AVAILABLE_SHAPES) {
-            let meta = null;
-            switch (shape.value) {
-                case "Star":
-                    meta = makerjs.models.Star.metaParameters;
-                    meta = meta.slice(0, 3);
-                    meta[0].value = 5;
-                    meta[1].value = 40;
-                    meta[2].value = 20;
-                    break;
-                case "Belt":
-                    meta = makerjs.models.Belt.metaParameters;
-                    break;
-                case "Circle":
-                    meta = [{ title: 'radius', value: 20, min: 1, max: 100 }
-                    ];
-                    break;
-                case "Ellipse":
-                    meta = makerjs.models.Ellipse.metaParameters;
-                    break;
-                case "Polygon":
-                    meta = makerjs.models.Polygon.metaParameters;
-                    meta[1].value = 20;
-                    meta = meta.slice(0, 3);
-                    break;
-                case "Rectangle":
-                    meta = makerjs.models.Rectangle.metaParameters;
-                    meta[0].value = 100;
-                    meta[1].value = 50;
-                    break;
-                case "RoundRectangle":
-                    meta = makerjs.models.RoundRectangle.metaParameters;
-                    meta[0].value = 100;
-                    meta[1].value = 50;
-                    break;
-                case "Sign":
-                    meta = makerjs.models.RoundRectangle.metaParameters;
-                    meta[0].value = 100;
-                    meta[1].value = 50;
-                    break;
-                case "Heart":
-                    meta = [{ title: 'radius', value: 20, min: 1, max: 100 },
-                    { title: "angle", value: 90, min: 60, max: 120 },
-                    ];
-                    break;
-            }
-            if (meta) {
-                this.defaults[shape.value] = meta;
-            }
+        // Raw metaParameter defaults per shape (used for initial defaults)
+        this._metaDefaults = {};
 
+        // PropertiesManager field specs per shape
+        this.fieldSpecs = {};
+
+        const shapeMeta = {
+            Star: (() => {
+                const m = makerjs.models.Star.metaParameters.slice(0, 3);
+                m[0].value = 5; m[1].value = 40; m[2].value = 20;
+                return m;
+            })(),
+            Belt:          makerjs.models.Belt.metaParameters,
+            Circle:        [{ title: 'radius', value: 20, min: 1, max: 100 }],
+            Ellipse:       makerjs.models.Ellipse.metaParameters,
+            Polygon:       (() => {
+                const m = makerjs.models.Polygon.metaParameters.slice(0, 3);
+                m[1].value = 20;
+                return m;
+            })(),
+            Rectangle:     (() => {
+                const m = makerjs.models.Rectangle.metaParameters;
+                m[0].value = 100; m[1].value = 50;
+                return m;
+            })(),
+            RoundRectangle: (() => {
+                const m = makerjs.models.RoundRectangle.metaParameters;
+                m[0].value = 100; m[1].value = 50;
+                return m;
+            })(),
+            Sign:          (() => {
+                const m = makerjs.models.RoundRectangle.metaParameters;
+                m[0].value = 100; m[1].value = 50;
+                return m;
+            })(),
+            Heart:         [
+                { title: 'radius', value: 20, min: 1, max: 100 },
+                { title: 'angle',  value: 90, min: 60, max: 120 }
+            ]
+        };
+
+        for (const shape of AVAILABLE_SHAPES) {
+            const meta = shapeMeta[shape.value];
+            if (!meta) continue;
+            this._metaDefaults[shape.value] = meta;
+
+            // Build PropertiesManager field specs from metaParameters
+            this.fieldSpecs[shape.value] = meta.map(param => {
+                const firstWord = param.title.split(" ")[0].toLowerCase();
+                const key = shape.value + '_' + firstWord;
+                const isDim = DIMENSION_PARAM_TITLES.includes(firstWord);
+
+                // Store paramName back for getArgs positional lookup
+                param.paramName = key;
+
+                return {
+                    key,
+                    label: param.title.charAt(0).toUpperCase() + param.title.slice(1),
+                    type: isDim ? 'dimension' : 'number',
+                    default: param.value,
+                    min: param.min,
+                    max: param.max,
+                    step: isDim ? undefined : 1,
+                    integer: !isDim
+                };
+            });
         }
 
+        this.shapeField = {
+            key: 'shape',
+            label: 'Shape',
+            type: 'choice',
+            default: 'Polygon',
+            options: AVAILABLE_SHAPES.map(s => ({ value: s.value, label: s.label }))
+        };
+
+        // Last-used values (persisted across tool activations within the session)
         this.properties = {};
+        // Currently-editing path (null when creating new)
+        this.currentPath = null;
     }
 
-    isDimension(key) {
-        let dimension = ["radius", "distance", "width", "height", "left", "right", "inner", "outer", "radiusX", "radiusY"];
-        let tokens = key.split("_");
-        if (tokens.length > 1) {
-            let param = tokens[1];
-            if (dimension.includes(param))
-                return true;
-        }
-        return false;
-    }
-
-    getArgs(shape, data) {
-        let param = this.defaults[shape];
-        let arg = [];
-        for (let i = 0; i < param.length; i++) {
-            let name = param[i].paramName;
-            if (this.isDimension(name)) {
-                let value = this.getProperty(name);
-                arg[i] = parseDimension(value);
-            }
-            else
-                arg[i] = this.getProperty(name);
-        }
-        return arg;
-    }
-
-
-    toInternal(value) {
-        return value * viewScale;
-    }
-
-
+    // ── Shape construction ─────────────────────────────────────────────────
 
     walkOptions = {
         onPath: function (wp) {
@@ -149,16 +151,21 @@ class Shape extends Operation {
         }
     };
 
-
+    toInternal(value) {
+        return value * viewScale;
+    }
 
     makeShape(shape, x, y, svgPath, data) {
+        // Collect current field values from DOM and sync into this.properties so that
+        // creationProperties is always fully populated (even when no input was ever changed).
+        const fields = this.fieldSpecs[shape] || [];
+        const values = PropertiesManager.collectValues(fields);
+        this.properties = { ...this.properties, ...values, shape };
 
-        let arg = this.getArgs(shape, data);
+        const arg = fields.map(field => values[field.key] !== undefined ? values[field.key] : field.default);
 
         switch (shape) {
-
             case 'Star':
-
                 this.model = new makerjs.models.Star(arg[0], this.toInternal(arg[1]), this.toInternal(arg[2]), 2);
                 break;
             case 'Belt':
@@ -173,11 +180,12 @@ class Shape extends Operation {
             case 'Polygon':
                 this.model = new makerjs.models.Polygon(arg[0], this.toInternal(arg[1]), arg[2], false);
                 break;
-            case 'Sign':
-                var sign = new makerjs.models.RoundRectangle(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
+            case 'Sign': {
+                const sign = new makerjs.models.RoundRectangle(this.toInternal(arg[0]), this.toInternal(arg[1]), this.toInternal(arg[2]));
                 makerjs.model.walk(sign, this.walkOptions);
                 this.model = sign;
                 break;
+            }
             case 'Rectangle':
                 this.model = new makerjs.models.Rectangle(this.toInternal(arg[0]), this.toInternal(arg[1]));
                 break;
@@ -224,7 +232,6 @@ class Shape extends Operation {
                 visible: true,
                 path: path,
                 bbox: boundingBox(path),
-                // Store creation properties for editing
                 creationTool: 'Shape',
                 creationProperties: {
                     shape: shape,
@@ -237,7 +244,6 @@ class Shape extends Operation {
             selectSidebarNode(svgPath.id);
             this.currentPath = svgPath;
 
-
             svgpathId++;
         }
         else {
@@ -247,7 +253,6 @@ class Shape extends Operation {
             svgPath.bbox = boundingBox(path);
             svgPath.creationProperties.shape = shape;
             svgPath.creationProperties.properties = { ...this.properties };
-            // Reapply stored transforms after regeneration
             if (svgPath.transformHistory) {
                 applyTransformHistory(svgPath);
             }
@@ -260,9 +265,7 @@ class Shape extends Operation {
         const title = document.getElementById('tool-properties-title');
         title.textContent = `Edit ${shape} - ${svgPath.name}`;
 
-        // Regenerate toolpaths linked to this shape (when editing, not creating)
         if (oldId != null && typeof regenerateToolpathsForPaths === 'function') {
-            // If shape type changed, the ID changed — update toolpath references
             if (oldId !== svgPath.id) {
                 toolpaths.forEach(tp => {
                     if (tp.svgId === oldId) tp.svgId = svgPath.id;
@@ -277,128 +280,20 @@ class Shape extends Operation {
         redraw();
     }
 
+    // ── Operation lifecycle ────────────────────────────────────────────────
+
     stop() {
         this.currentPath = null;
     }
+
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
         let shape = this.getShape();
         this.makeShape(shape, mouse.x, mouse.y, null, null);
-
-    }
-
-    updateInPlace(svgPath, data) {
-        var props = svgPath.creationProperties;
-
-        this.makeShape(data.shape, props.center.x, props.center.y, svgPath, data);
-    }
-
-    getValueForProperty(shape, name) {
-        let value = 0;
-        if (this.currentPath && this.currentPath.creationProperties.properties[name] !== undefined) {
-            value = this.currentPath.creationProperties.properties[name];
-        }
-        else if (this.properties && this.properties[name] !== undefined)
-            value = this.properties[name];
-        else {
-            let def = this.defaults[shape];
-            for (let i = 0; i < def.length; i++) {
-                if (name === def[i].paramName) {
-                    value = def[i].value;
-                    break;
-                }
-            }
-        }
-        if (this.isDimension(name)) {
-            value = formatDimension(value, true);
-        }
-        return value;
-    }
-
-    getShape() {
-        return document.getElementById('shape-select').value;
-    }
-
-    getCurrentShape() {
-        if (this.currentPath) {
-            return this.currentPath.creationProperties.shape;
-        }
-        else if (this.properties && this.properties.shape) {
-            return this.properties.shape;
-        }
-        else {
-            return "Polygon";
-        }
-    }
-
-    showProperties(shape) {
-        for (let i = 0; i < AVAILABLE_SHAPES.length; i++) {
-            let s = AVAILABLE_SHAPES[i].value;
-            let display = (s === shape) ? 'block' : 'none';
-            document.getElementById(`${s}-properties`).style.display = display;
-        }
-        document.getElementById('shape-select').value = shape;
-    }
-
-    getHtmlForProperties() {
-        let html = '';
-        for (let i = 0; i < AVAILABLE_SHAPES.length; i++) {
-            let shape = AVAILABLE_SHAPES[i].value;
-            let def = this.defaults[shape];
-            let display = (shape === this.getCurrentShape()) ? 'block' : 'none';
-            html += `<div id="${shape}-properties" style="display: ${display};"><h5 class="mt-3 mb-2">${shape} Properties</h5>`;
-            for (let j = 0; j < def.length; j++) {
-                let prop = def[j];
-                let paramName = shape + '_' + prop.title.split(" ")[0];
-                def[j].paramName = paramName;
-                prop.type = "number";
-                if (this.isDimension(paramName)) {
-                    prop.type = "text";
-                }
-                html += `<label for="${paramName}" class="form-label small"><strong>${prop.title}:</strong></label>
-                <input type="${prop.type}"
-                       class="form-control form-control-sm"
-                       id="${paramName}"
-                       name="${paramName}"
-                       min="${prop.min}"
-                       max="${prop.max}"
-                       value="${this.getValueForProperty(shape, paramName)}">`;
-            }
-            html += `</div>`;
-        }
-        return html;
-    }
-
-
-
-
-
-    getPropertiesHTML(path) {
-
-
-        let type = this.getCurrentShape();
-        return `
-            <div class="alert alert-info mb-3">
-                <strong>Shape Tool</strong><br>
-                Create basic shapes (circle, rectangle, polygon, star, etc.)
-            </div>
-            <div class="mb-3">
-                <label for="shape-select" class="form-label small"><strong>Shape:</strong></label>
-                <select class="form-select form-select-sm" id="shape-select" name="shape">
-                    ${AVAILABLE_SHAPES.map(s =>
-            `<option value="${s.value}" ${type === s.value ? 'selected' : ''}>${s.label}</option>`).join('\n                    ')}
-                </select>
-            </div>
-
-            ${this.getHtmlForProperties()}
-
-        `;
-
     }
 
     setEditPath(path) {
         this.currentPath = path;
-
     }
 
     update(path) {
@@ -407,47 +302,84 @@ class Shape extends Operation {
         this.properties = { ...this.properties, ...path.creationProperties.properties };
     }
 
-    updateProperty(key, value) {
-        document.getElementById(key).value = value;
+    updateInPlace(svgPath, data) {
+        var props = svgPath.creationProperties;
+        this.makeShape(data.shape, props.center.x, props.center.y, svgPath, data);
     }
 
-    getProperty(key) {
-        return document.getElementById(key).value;
+    // ── Properties panel ──────────────────────────────────────────────────
+
+    getCurrentShape() {
+        if (this.currentPath) {
+            return this.currentPath.creationProperties.shape;
+        }
+        if (this.properties && this.properties.shape) {
+            return this.properties.shape;
+        }
+        return 'Polygon';
+    }
+
+    getShape() {
+        return document.getElementById('pm-shape').value;
+    }
+
+    showProperties(shape) {
+        for (let s of AVAILABLE_SHAPES) {
+            const el = document.getElementById(`${s.value}-properties`);
+            if (el) el.style.display = (s.value === shape) ? 'block' : 'none';
+        }
+        const shapeSelect = document.getElementById('pm-shape');
+        if (shapeSelect) shapeSelect.value = shape;
+    }
+
+    getPropertiesHTML(path) {
+        const currentShape = this.getCurrentShape();
+        const pathProperties = this.currentPath?.creationProperties?.properties ?? null;
+
+        let html = `
+            <div class="alert alert-info mb-3">
+                <strong>Shape Tool</strong><br>
+                Create basic shapes (circle, rectangle, polygon, star, etc.)
+            </div>`;
+        html += PropertiesManager.fieldHTML(this.shapeField, currentShape);
+
+        // Per-shape property sections (show/hide via CSS)
+        for (const s of AVAILABLE_SHAPES) {
+            const fields = this.fieldSpecs[s.value] || [];
+            const display = (s.value === currentShape) ? 'block' : 'none';
+            html += `<div id="${s.value}-properties" style="display: ${display};">`;
+            html += `<h5 class="mt-3 mb-2">${s.label} Properties</h5>`;
+            html += PropertiesManager.formHTML(fields, pathProperties, this.properties);
+            html += `</div>`;
+        }
+
+        return html;
+    }
+
+    /**
+     * Override base class to manage our own property parsing.
+     * The base class would merge raw string values from `data` into this.properties
+     * after onPropertiesChanged, overwriting our parsed numbers.
+     */
+    updateFromProperties(data) {
+        this.onPropertiesChanged(data);
     }
 
     onPropertiesChanged(data) {
-
-        let shape = data.shape;
-        if (shape) {
-            this.showProperties(shape);
+        const newShape = data.shape;
+        if (newShape) {
+            this.showProperties(newShape);
         }
 
-        this.properties = { ...this.properties, ...data };
+        const shape = newShape || this.getCurrentShape();
+        const fields = this.fieldSpecs[shape] || [];
 
-        for (let key in this.properties) {
-            let value = this.properties[key];
-
-            if (this.isDimension(key)) {
-                this.properties[key] = parseDimension(value);
-                data[key] = parseDimension(value);
-                this.updateProperty(key, formatDimension(this.properties[key], true));
-            }
-            else {
-                value = parseFloat(value);
-                if (!isNaN(value)) {
-                    this.properties[key] = value;
-                    data[key] = value;
-                }
-                else {
-                    data[key] = this.properties[key];
-                }
-            }
-        }
+        // Collect parsed values from the DOM for the current shape's fields
+        const values = PropertiesManager.collectValues(fields);
+        this.properties = { ...this.properties, ...values, shape };
 
         if (this.currentPath) {
-            this.updateInPlace(this.currentPath, data);
+            this.updateInPlace(this.currentPath, { ...this.properties, shape });
         }
     }
-
-
 }

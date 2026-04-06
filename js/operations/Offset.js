@@ -4,13 +4,20 @@ class OffsetOpp extends Select {
         this.name = 'Offset';
         this.icon = 'fullscreen';
         this.tooltip = 'Create an offset copy of selected paths (inward or outward)';
+        this.fields = {
+            distance:  { key: 'distance',  label: 'Distance',     type: 'dimension', default: 5 },
+            direction: { key: 'direction', label: 'Direction',    type: 'choice',    default: 'outside',
+                         options: [{ value: 'outside', label: 'Outside (expand)' }, { value: 'inside', label: 'Inside (shrink)' }] },
+            joinType:  { key: 'joinType',  label: 'Corner Style', type: 'choice',    default: 'round',
+                         options: [{ value: 'round', label: 'Round' }, { value: 'miter', label: 'Miter (sharp)' }, { value: 'square', label: 'Square' }] }
+        };
+
         this.properties = {
             distance: 5,
             direction: 'outside',
             joinType: 'round'
         };
         this.currentPath = null;
-        // Track generated offset path IDs for in-place updates
         this.generatedIds = [];
         this.sourceIds = [];
     }
@@ -22,9 +29,10 @@ class OffsetOpp extends Select {
             return;
         }
 
-        var distanceMM = parseDimension(document.getElementById('offset-distance').value);
-        var direction = document.getElementById('offset-direction').value;
-        var joinType = document.getElementById('offset-join').value;
+        const formValues = PropertiesManager.collectValues(Object.values(this.fields));
+        var distanceMM = formValues.distance;
+        var direction  = formValues.direction;
+        var joinType   = formValues.joinType;
 
         if (distanceMM <= 0) {
             notify("Offset distance must be greater than 0");
@@ -146,16 +154,15 @@ class OffsetOpp extends Select {
     setEditPath(path) {
         this.currentPath = path;
         if (path && path.creationProperties) {
-            this.properties.distance = path.creationProperties.distance || 5;
-            this.properties.direction = path.creationProperties.direction || 'outside';
-            this.properties.joinType = path.creationProperties.joinType || 'round';
-            // Collect all offset paths sharing the same sourceIds for in-place updates
-            if (path.creationProperties.sourceIds) {
-                var srcIds = path.creationProperties.sourceIds;
-                this.sourceIds = srcIds;
+            const cp = path.creationProperties;
+            this.properties.distance  = cp.distance  ?? 5;
+            this.properties.direction = cp.direction ?? 'outside';
+            this.properties.joinType  = cp.joinType  ?? 'round';
+            if (cp.sourceIds) {
+                this.sourceIds = cp.sourceIds;
                 this.generatedIds = svgpaths
                     .filter(p => p.creationTool === 'Offset' && p.creationProperties &&
-                        p.creationProperties.sourceIds && arraysEqual(p.creationProperties.sourceIds, srcIds))
+                        p.creationProperties.sourceIds && arraysEqual(p.creationProperties.sourceIds, cp.sourceIds))
                     .map(p => p.id);
             }
         }
@@ -163,58 +170,33 @@ class OffsetOpp extends Select {
 
     update(path) {
         if (path && path.creationProperties) {
-            this.properties.distance = path.creationProperties.distance || 5;
-            this.properties.direction = path.creationProperties.direction || 'outside';
-            this.properties.joinType = path.creationProperties.joinType || 'round';
+            const cp = path.creationProperties;
+            this.properties.distance  = cp.distance  ?? 5;
+            this.properties.direction = cp.direction ?? 'outside';
+            this.properties.joinType  = cp.joinType  ?? 'round';
         }
     }
 
     getPropertiesHTML(path) {
-        var dist = formatDimension(this.properties.distance, true);
-        var dir = this.properties.direction || 'outside';
-        var join = this.properties.joinType || 'round';
-
+        const pathProperties = this.currentPath?.creationProperties ?? null;
         return `
             <div class="alert alert-info mb-3">
                 <strong>Offset Tool</strong><br>
                 Create an offset copy of selected paths
             </div>
+            ${PropertiesManager.formHTML(Object.values(this.fields), pathProperties, this.properties)}
             <div class="mb-3">
-                <label for="offset-distance" class="form-label small"><strong>Distance:</strong></label>
-                <input type="text" class="form-control form-control-sm" id="offset-distance" name="distance" value="${dist}">
-            </div>
-            <div class="mb-3">
-                <label for="offset-direction" class="form-label small"><strong>Direction:</strong></label>
-                <select class="form-select form-select-sm" id="offset-direction" name="direction">
-                    <option value="outside" ${dir === 'outside' ? 'selected' : ''}>Outside (expand)</option>
-                    <option value="inside" ${dir === 'inside' ? 'selected' : ''}>Inside (shrink)</option>
-                </select>
-            </div>
-            <div class="mb-3">
-                <label for="offset-join" class="form-label small"><strong>Corner Style:</strong></label>
-                <select class="form-select form-select-sm" id="offset-join" name="joinType">
-                    <option value="round" ${join === 'round' ? 'selected' : ''}>Round</option>
-                    <option value="miter" ${join === 'miter' ? 'selected' : ''}>Miter (sharp)</option>
-                    <option value="square" ${join === 'square' ? 'selected' : ''}>Square</option>
-                </select>
-            </div>
-            <div class="mb-3">
-                <button type="button" class="btn btn-primary btn-sm w-100" id="offset-apply-button" onclick="cncController.operationManager.currentOperation.applyOffset()">
+                <button type="button" class="btn btn-primary btn-sm w-100" id="offset-apply-button"
+                        onclick="cncController.operationManager.currentOperation.applyOffset()">
                     <i data-lucide="check"></i> Apply Offset
                 </button>
                 <div class="form-text small">Select paths, set distance, then click Apply</div>
-            </div>
-        `;
+            </div>`;
     }
 
     onPropertiesChanged(data) {
-        if (data.distance !== undefined) {
-            this.properties.distance = parseDimension(data.distance);
-            var el = document.getElementById('offset-distance');
-            if (el) el.value = formatDimension(this.properties.distance, true);
-        }
-        if (data.direction !== undefined) this.properties.direction = data.direction;
-        if (data.joinType !== undefined) this.properties.joinType = data.joinType;
+        const values = PropertiesManager.collectValues(Object.values(this.fields));
+        this.properties = { ...this.properties, ...values };
         super.onPropertiesChanged(data);
     }
 

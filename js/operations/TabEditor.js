@@ -13,10 +13,16 @@ class TabEditor extends Select {
         // Tab handle size in pixels
         this.tabHandleSize = 8;
 
+        this.fields = {
+            tabLength:    { key: 'tabLength',    label: 'Tab Length',     type: 'dimension', default: 5, help: 'Length of each tab along the path' },
+            tabHeight:    { key: 'tabHeight',    label: 'Tab Height',     type: 'dimension', default: 2, help: 'Height of each tab (material left uncut)' },
+            numberOfTabs: { key: 'numberOfTabs', label: 'Number of Tabs', type: 'number',    default: 4, min: 1, step: 1, integer: true }
+        };
+
         // Default properties for new tabs
         this.properties = {
-            tabLength: 5,      // MM
-            tabHeight: 2,      // MM
+            tabLength: 5,
+            tabHeight: 2,
             numberOfTabs: 4
         };
 
@@ -26,7 +32,6 @@ class TabEditor extends Select {
             try {
                 this.properties = JSON.parse(stored);
             } catch (e) {
-                // If parsing fails, keep defaults
                 console.error('Failed to parse saved tab properties:', e);
             }
         }
@@ -531,33 +536,19 @@ class TabEditor extends Select {
     getPropertiesHTML() {
         this.selectedPath = selectMgr.lastSelected();
 
-        let html = `
-            <div class="alert alert-info mb-3">
-                <strong>Tab Editor</strong><br>
-                Add and position tabs for holding material during cutting
-        `;
-
+        let statusHTML = '';
         if (this.selectedPath) {
             const tabCount = (this.selectedPath.creationProperties && this.selectedPath.creationProperties.tabs)
-                ? this.selectedPath.creationProperties.tabs.length
-                : 0;
-            html += `<br>Path: ${this.selectedPath.name}<br>Tabs: ${tabCount}`;
+                ? this.selectedPath.creationProperties.tabs.length : 0;
+            statusHTML = `<br>Path: ${this.selectedPath.name}<br>Tabs: ${tabCount}`;
         }
 
-        html += `
+        return `
+            <div class="alert alert-info mb-3">
+                <strong>Tab Editor</strong><br>
+                Add and position tabs for holding material during cutting${statusHTML}
             </div>
-            <div class="mb-3">
-                <label class="form-label"><i data-lucide="ruler"></i> Tab Length (MM)</label>
-                <input type="number" class="form-control" id="tabLength" name="tabLength" min="0.5" step="0.5" value="${this.properties.tabLength}">
-            </div>
-            <div class="mb-3">
-                <label class="form-label"><i data-lucide="move-vertical"></i> Tab Height (MM)</label>
-                <input type="number" class="form-control" id="tabHeight" name="tabHeight" min="0.5" step="0.5" value="${this.properties.tabHeight}">
-            </div>
-            <div class="mb-3">
-                <label class="form-label"><i data-lucide="copy"></i> Number of Tabs</label>
-                <input type="number" class="form-control" id="numberOfTabs" name="numberOfTabs" min="1" step="1" value="${this.properties.numberOfTabs}">
-            </div>
+            ${PropertiesManager.formHTML(Object.values(this.fields), null, this.properties)}
             <button class="btn btn-primary btn-sm w-100 mb-2" id="generateTabsBtn">
                 <i data-lucide="plus"></i> Generate Tabs
             </button>
@@ -574,16 +565,12 @@ class TabEditor extends Select {
                     • <strong>Remove All Tabs:</strong> Clears all tabs from selected path<br>
                     • Blue tabs = convex surface, Orange tabs = concave surface
                 </small>
-            </div>
-        `;
-
-        return html;
+            </div>`;
     }
 
     updateFromProperties(data) {
-        this.properties.tabLength = parseFloat(data.tabLength) || 5;
-        this.properties.tabHeight = parseFloat(data.tabHeight) || 2;
-        this.properties.numberOfTabs = parseInt(data.numberOfTabs) || 4;
+        const values = PropertiesManager.collectValues(Object.values(this.fields));
+        this.properties = { ...this.properties, ...values };
         this.saveProperties();
     }
 

@@ -6,7 +6,7 @@ var AVAILABLE_OPERATIONS = [
 
 function applyBooleanOperation() {
     const clipper = new ClipperLib.Clipper();
-    let operation = document.getElementById("boolean-select").value;
+    let operation = document.getElementById("pm-operation").value;
     var inputPaths = [];
 
     if (selectMgr.selectedPaths().length < 2) {
@@ -29,7 +29,7 @@ function applyBooleanOperation() {
     if (operation == "Union") {
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptSubject, true);
         clipper.Execute(
-            ClipperLib.ClipType.ctUnion, // Perform a union operation
+            ClipperLib.ClipType.ctUnion,
             solutionPaths,
             ClipperLib.PolyFillType.pftNonZero,
             ClipperLib.PolyFillType.pftNonZero
@@ -41,7 +41,7 @@ function applyBooleanOperation() {
         if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
-            ClipperLib.ClipType.ctIntersection, // Perform a intersection operation
+            ClipperLib.ClipType.ctIntersection,
             solutionPaths,
             ClipperLib.PolyFillType.pftEvenOdd,
             ClipperLib.PolyFillType.pftEvenOdd
@@ -53,7 +53,7 @@ function applyBooleanOperation() {
         if (index >= 0) inputPaths.splice(index, 1);
         clipper.AddPaths(inputPaths, ClipperLib.PolyType.ptClip, true);
         clipper.Execute(
-            ClipperLib.ClipType.ctDifference, // Perform a intersection operation
+            ClipperLib.ClipType.ctDifference,
             solutionPaths,
             ClipperLib.PolyFillType.pftEvenOdd,
             ClipperLib.PolyFillType.pftEvenOdd
@@ -71,13 +71,9 @@ function applyBooleanOperation() {
         visible: true,
         path: solutionPaths[0],
         bbox: boundingBox(solutionPaths[0]),
-        // Store creation properties for editing
         creationTool: 'Boolean',
-        creationProperties: {
-            operation: operation,
-        }
+        creationProperties: { operation: operation }
     };
-    // Hide the original input paths
     for (var i = 0; i < svgpaths.length; i++) {
         if (selectMgr.isSelected(svgpaths[i])) {
             setVisibility(svgpaths[i].id, false);
@@ -87,7 +83,6 @@ function applyBooleanOperation() {
     svgpaths.push(svgPath);
     addSvgPath(svgPath.id, svgPath.name);
 
-    // Auto-select the newly created polygon
     selectMgr.unselectAll();
     selectMgr.selectPath(svgPath);
 
@@ -101,45 +96,36 @@ class BooleanOpp extends Select {
         this.name = 'Boolean';
         this.icon = 'squares-unite';
         this.tooltip = 'Perform boolean operations (union, intersect, subtract) on selected paths';
+
+        this.operationField = {
+            key: 'operation',
+            label: 'Operation',
+            type: 'choice',
+            default: 'Union',
+            options: AVAILABLE_OPERATIONS
+        };
     }
 
     getPropertiesHTML(path) {
-        // Get current values from UI if available, otherwise use properties
-        let type = this.properties.type;
-
-
+        const pathProperties = this.currentPath?.creationProperties ?? null;
         return `
             <div class="alert alert-info mb-3">
                 <strong>Boolean Tool</strong><br>
                 Perform boolean operations on selected paths
             </div>
+            ${PropertiesManager.fieldHTML(this.operationField,
+                PropertiesManager.resolveValue(this.operationField, pathProperties, this.properties))}
             <div class="mb-3">
-                <label for="boolean-select" class="form-label small"><strong>Operation:</strong></label>
-                <select class="form-select form-select-sm" id="boolean-select" name="boolean-select">
-                    ${AVAILABLE_OPERATIONS.map(s =>
-            `<option value="${s.value}" ${type === s.value ? 'selected' : ''}>${s.label}</option>`).join('\n                    ')}
-                </select>
-            </div>
-
-             <div class="mb-3">
                 <button type="button" class="btn btn-primary btn-sm w-100" id="boolean-apply-button" onClick="applyBooleanOperation()">
                     <i data-lucide="check"></i> Apply
                 </button>
-                <div class="form-text small">Select paths Click Apply to apply operation</div>
-        </div>
-
-        `;
-
-
+                <div class="form-text small">Select paths then click Apply to apply operation</div>
+            </div>`;
     }
-
-
 
     onPropertiesChanged(data) {
-
-        this.properties = { ...this.properties, ...data };
+        const values = PropertiesManager.collectValues([this.operationField]);
+        this.properties = { ...this.properties, ...values };
         super.onPropertiesChanged(data);
     }
-
-
 }

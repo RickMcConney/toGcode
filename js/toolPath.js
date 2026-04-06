@@ -410,11 +410,11 @@ function pushToolPath(paths, name, operation, svgId = null, svgIds = null, label
 // Temporarily apply tool from properties panel, run callback, then restore.
 // Returns true if properties panel was used, false to fall through to default.
 function withDrillProperties(callback) {
-	if (!window.toolpathPropertiesManager || !window.toolpathPropertiesManager.hasOperation('Drill')) return false;
+	if (!window.toolPathProperties?.hasOperation('Drill')) return false;
 	try {
-		const data = window.toolpathPropertiesManager.collectFormData();
-		window.toolpathPropertiesManager.updateDefaults('Drill', data);
-		const selectedTool = window.toolpathPropertiesManager.getToolById(data.toolId);
+		const data = window.toolPathProperties.collectFormData('Drill');
+		window.toolPathProperties.saveDefaults('Drill', data);
+		const selectedTool = window.toolPathProperties.getToolById(data.toolId);
 		if (!selectedTool) return false;
 
 		const originalTool = window.currentTool;

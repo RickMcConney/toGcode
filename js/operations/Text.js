@@ -3,25 +3,57 @@ class Text extends Operation {
     constructor() {
         super('Text', 'type-outline', 'Create text paths using TTF fonts');
 
+        this.textField = {
+            key: 'text',
+            label: 'Text',
+            type: 'text',
+            default: 'Sample Text'
+        };
+
+        this.fontField = {
+            key: 'font',
+            label: 'Font',
+            type: 'choice',
+            default: 'fonts/Roboto-Regular.ttf',
+            options: AVAILABLE_FONTS.map(f => ({ value: f.value, label: f.label }))
+        };
+
         this.currentPath = null;
+    }
+
+    // Build the fontSize field spec at call-time since it depends on runtime options
+    _getFontSizeField() {
+        const useInches = getOption('Inches');
+        const maxDimension = Math.max(getOption('workpieceWidth') || 300, getOption('workpieceLength') || 200);
+        return {
+            key: 'fontSize',
+            label: 'Font Size',
+            type: 'range',
+            default: useInches ? 25.4 : 20,
+            min: useInches ? 0.125 : 5,
+            max: useInches ? Math.ceil(maxDimension / 25.4) : maxDimension,
+            step: useInches ? 0.125 : 1,
+            dimension: true,
+            mmPerUnit: useInches ? 25.4 : 1
+        };
+    }
+
+    _fields() {
+        return [this.textField, this.fontField, this._getFontSizeField()];
     }
 
     getProperties() {
         const useInches = getOption('Inches');
-        const defaultGridSize = getOption("gridSize") || 10;
-        const defaultFontSize = useInches ? 25.4 : (defaultGridSize * 2); // 2 inches or 2x grid
-        const savedFontSize = getOption("textFontSize");
-        const finalFontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
-        const savedFont = getOption("textFont") || 'fonts/Roboto-Regular.ttf';
-        const savedText = getOption("textSample") || 'Sample Text';
-
-        this.properties.fontSize = finalFontSize;
-        this.properties.font = savedFont;
-        this.properties.text = savedText;
+        const defaultGridSize = getOption('gridSize') || 10;
+        const defaultFontSize = useInches ? 25.4 : (defaultGridSize * 2);
+        const savedFontSize = getOption('textFontSize');
+        this.properties.fontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
+        this.properties.font = getOption('textFont') || 'fonts/Roboto-Regular.ttf';
+        this.properties.text = getOption('textSample') || 'Sample Text';
     }
+
     // Lifecycle methods
     start() {
-        // Refresh saved properties when tool is activated
         this.getProperties();
         super.start();
     }
@@ -31,134 +63,40 @@ class Text extends Operation {
         super.stop();
     }
 
-    // Set the path to edit (called from bootstrap-layout when selecting a path)
     setEditPath(path) {
         this.currentPath = path;
     }
 
     onMouseDown(canvas, evt) {
         var mouse = this.normalizeEvent(canvas, evt);
-  
-        // If we have text properties set, create text immediately
         if (this.properties.text && this.properties.text.trim() !== '') {
             this.addText(this.properties.text, mouse.x, mouse.y, this.properties.fontSize, this.properties.font);
-            window.stepWiseHelp?.setStep(3); // Show completion message
-        } 
-    }
-
-    // HTML Generation Helper Methods
-    _generateFontSelect(selectedFont) {
-        return `
-            <div class="mb-3">
-                <label for="font-select" class="form-label">Font</label>
-                <select class="form-select" id="font-select" name="font">
-                    ${AVAILABLE_FONTS.map(font =>
-            `<option value="${font.value}" ${selectedFont === font.value ? 'selected' : ''}>${font.label}</option>`
-        ).join('\n                    ')}
-                </select>
-            </div>`;
-    }
-
-    _generateFontSizeSlider(fontSize) {
-        const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-        const fontSizeValue = fontSize ? parseDimension(parseFloat(fontSize)) : parseDimension(parseFloat(useInches ? 1 : 20));
-        const displaySize = formatDimension(fontSizeValue, true);
-
-        // Dynamic max based on workpiece size
-        const workpieceWidth = getOption("workpieceWidth") || 300;
-        const workpieceLength = getOption("workpieceLength") || 200;
-        const maxDimension = Math.max(workpieceWidth, workpieceLength);
-        const maxSize = useInches ? Math.ceil(maxDimension / 25.4) : maxDimension;
-        const minSize = useInches ? 0.125 : 5;
-        const step = useInches ? 0.125 : 1;
-
-        return `
-            <div class="mb-3">
-                <label for="font-size" class="form-label">Font Size: <span id="font-size-value">${displaySize}</span></label>
-                <input type="range"
-                       class="form-range"
-                       id="font-size"
-                       name="fontSize"
-                       min="${minSize}"
-                       max="${maxSize}"
-                       step="${step}"
-                       value="${useInches ? Math.round((fontSizeValue / 25.4) / step) * step : fontSizeValue}"
-                       data-unit-type="${useInches ? 'inches' : 'mm'}"
-                       oninput="document.getElementById('font-size-value').textContent = formatDimension(parseFloat(this.value) * ${useInches ? 25.4 : 1}, ${useInches}, ${useInches})">
-            </div>`;
-    }
-
-    _generatePropertiesHTML(text, font, fontSize, position = null) {
-        let positionHTML = '';
-        if (position) {
-            const useInches = typeof getOption !== 'undefined' ? getOption('Inches') : false;
-            const pos = toMM(position.x, position.y);
-            const displayX = formatDimension(pos.x, true);
-            const displayY = formatDimension(pos.y, true);
-            positionHTML = `Position: (${displayX}, ${displayY})`;
-        } else {
-            positionHTML = 'Position: ( , )';
+            window.stepWiseHelp?.setStep(3);
         }
+    }
 
+    // Properties Editor Interface
+    getPropertiesHTML() {
+        const pathProperties = this.currentPath?.creationProperties ?? null;
+        if (!pathProperties) this.getProperties(); // ensure this.properties is fresh for new text
         return `
             <div class="alert alert-info mb-3">
                 <strong>Text Tool</strong><br>
                 Create text paths using TTF fonts
             </div>
-            <div class="mb-3">
-                <label for="text-input" class="form-label">Text</label>
-                <input type="text" class="form-control"
-                         id="text-input"
-                         name="text"
-                         rows="3"
-                         value="${text}"</input>
-            </div>
-
-            ${this._generateFontSelect(font)}
-            ${this._generateFontSizeSlider(fontSize)}
-
-        `;
+            ${PropertiesManager.formHTML(this._fields(), pathProperties, this.properties)}`;
     }
 
-    // Properties Editor Interface
-    getPropertiesHTML() {
-        // Check if we're editing an existing path
-        if (this.currentPath && this.currentPath.creationProperties) {
-            return this._generatePropertiesHTML(
-                this.currentPath.creationProperties.text,
-                this.currentPath.creationProperties.font,
-                this.currentPath.creationProperties.fontSize,
-                this.currentPath.creationProperties.position
-            );
-        }
-
-        // Creating new text
-        this.getProperties();
-        return this._generatePropertiesHTML(
-            this.properties.text,
-            this.properties.font,
-            this.properties.fontSize,
-            null  // No position for new text
-        );
+    updateFromProperties(data) {
+        // Manage parsing ourselves so the base class doesn't overwrite with raw slider values
+        this.onPropertiesChanged(data);
     }
 
     onPropertiesChanged(data) {
-        // Update our properties with the new values
-        this.properties = { ...this.properties, ...data };
-
-        // Parse fontSize - convert from inches to mm if needed (always store in mm)
-        const sizeInMM = parseDimension(data.fontSize);
-
-        // Store the converted fontSize back to properties (always in mm)
-        this.properties.fontSize = sizeInMM;
-        data.fontSize = sizeInMM;
-
-        // Save properties for future text instances
-        this._saveTextOptions(data.text, data.font, sizeInMM);
-
-        // Check if we're editing existing text
+        const values = PropertiesManager.collectValues(this._fields());
+        this.properties = { ...this.properties, ...values };
+        this._saveTextOptions(values.text, values.font, values.fontSize);
         if (this.currentPath && this.currentPath.creationProperties) {
-            // Edit mode: update existing text
             this.updateTextInPlace(this.currentPath);
         }
     }

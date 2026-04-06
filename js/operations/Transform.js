@@ -49,6 +49,17 @@ class Transform extends Select {
         this.pivotCenter = null;
         this.rotation = 0; // in degrees
         this.originalPivot = null;
+
+        // Field specs for PropertiesManager
+        this.fields = {
+            deltaX:   { key: 'deltaX',   label: 'Delta X',    type: 'dimension', default: 0 },
+            deltaY:   { key: 'deltaY',   label: 'Delta Y',    type: 'dimension', default: 0 },
+            width:    { key: 'width',    label: 'Width',       type: 'dimension', default: 0 },
+            height:   { key: 'height',   label: 'Height',      type: 'dimension', default: 0 },
+            rotation: { key: 'rotation', label: 'Rotation °',  type: 'number',    default: 0, step: 1 },
+            skewX:    { key: 'skewX',    label: 'Skew X °',    type: 'number',    default: 0, step: 1 },
+            skewY:    { key: 'skewY',    label: 'Skew Y °',    type: 'number',    default: 0, step: 1 },
+        };
     }
 
     start() {
@@ -1099,102 +1110,66 @@ class Transform extends Select {
     // Properties Editor Interface
     getPropertiesHTML() {
         const hasSelectedPaths = this.hasSelectedPaths();
-        // Show center position only if we have a transform box
-        let centerInfo = '';
+
+        // Center display (spans, updated live via PropertiesManager.setValue)
+        let centerInfo;
         if (this.transformBox) {
             const centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
-            const useInches = typeof getOption === 'function' && getOption('Inches');
-
-            const centerXStr = formatDimension(centerMM.x, true);
-            const centerYStr = formatDimension(centerMM.y, true);
             centerInfo = `
                 <div class="alert alert-info mb-3">
                     <strong>Center Position</strong><br>
-                    X: <span id="move-center-x">${centerXStr}</span><br>
-                    Y: <span id="move-center-y">${centerYStr}</span>
-                </div>
-            `;
+                    X: <span id="pm-centerX">${formatDimension(centerMM.x, true)}</span><br>
+                    Y: <span id="pm-centerY">${formatDimension(centerMM.y, true)}</span>
+                </div>`;
         } else {
             centerInfo = `
                 <div class="alert alert-info mb-3">
                     <strong>Move Tool</strong><br>
                     Select objects to apply transformations.
-                </div>
-            `;
+                </div>`;
         }
 
-        const useInches = typeof getOption === 'function' && getOption('Inches');
+        const deltaXmm   = this.deltaX / viewScale;
+        const deltaYmm   = -this.deltaY / viewScale;
+        const widthMM    = this.transformBox ? this.transformBox.width  / viewScale : 0;
+        const heightMM   = this.transformBox ? this.transformBox.height / viewScale : 0;
+        const rotValue   = (this.totalRotation + this.rotation).toFixed(1);
+        const skewXValue = (this.totalSkewX + this.skewX).toFixed(1);
+        const skewYValue = (this.totalSkewY + this.skewY).toFixed(1);
 
-        const deltaXmm = this.deltaX / viewScale;
-        const deltaYmm = -this.deltaY / viewScale;
-        const deltaXValue = useInches ? formatDimension(deltaXmm, true) : deltaXmm.toFixed(2);
-        const deltaYValue = useInches ? formatDimension(deltaYmm, true) : deltaYmm.toFixed(2);
+        const fh = (field, val) => PropertiesManager.fieldHTML(field, val);
 
         return centerInfo + `
             <div class="mb-3">
-                <label class="form-label"><strong>Translation</strong></label>
-                <div class="row">
-                    <div class="col-6">
-                        <label for="move-delta-x" class="form-label">Delta X</label>
-                        <input type="text" class="form-control" id="move-delta-x" name="deltaX"
-                               value="${deltaXValue}">
-                    </div>
-                    <div class="col-6">
-                        <label for="move-delta-y" class="form-label">Delta Y</label>
-                        <input type="text" class="form-control" id="move-delta-y" name="deltaY"
-                               value="${deltaYValue}">
-                    </div>
+                <label class="form-label small"><strong>Translation</strong></label>
+                <div class="row g-2">
+                    <div class="col-6">${fh(this.fields.deltaX, formatDimension(deltaXmm, true))}</div>
+                    <div class="col-6">${fh(this.fields.deltaY, formatDimension(deltaYmm, true))}</div>
                 </div>
             </div>
-
             <div class="mb-3">
-                <label class="form-label"><strong>Dimensions</strong></label>
-                <div class="row">
-                    <div class="col-6">
-                        <label for="move-width" class="form-label">Width</label>
-                        <input type="text" class="form-control" id="move-width" name="width"
-                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.width / viewScale, true) : (this.transformBox.width / viewScale).toFixed(2)) : '0'}">
-                    </div>
-                    <div class="col-6">
-                        <label for="move-height" class="form-label">Height</label>
-                        <input type="text" class="form-control" id="move-height" name="height"
-                               value="${this.transformBox ? (useInches ? formatDimension(this.transformBox.height / viewScale, true) : (this.transformBox.height / viewScale).toFixed(2)) : '0'}">
-                    </div>
+                <label class="form-label small"><strong>Dimensions</strong></label>
+                <div class="row g-2">
+                    <div class="col-6">${fh(this.fields.width,  formatDimension(widthMM,  true))}</div>
+                    <div class="col-6">${fh(this.fields.height, formatDimension(heightMM, true))}</div>
                 </div>
             </div>
-
+            ${fh(this.fields.rotation, rotValue)}
             <div class="mb-3">
-                <label for="move-rotation" class="form-label"><strong>Rotation (degrees)</strong></label>
-                <input type="number" class="form-control" id="move-rotation" name="rotation"
-                       value="${(this.totalRotation + this.rotation).toFixed(1)}" step="1">
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label"><strong>Skew (degrees)</strong></label>
-                <div class="row">
-                    <div class="col-6">
-                        <label for="move-skew-x" class="form-label">Skew X</label>
-                        <input type="number" class="form-control" id="move-skew-x" name="skewX"
-                               value="${(this.totalSkewX + this.skewX).toFixed(1)}" step="1">
-                    </div>
-                    <div class="col-6">
-                        <label for="move-skew-y" class="form-label">Skew Y</label>
-                        <input type="number" class="form-control" id="move-skew-y" name="skewY"
-                               value="${(this.totalSkewY + this.skewY).toFixed(1)}" step="1">
-                    </div>
+                <label class="form-label small"><strong>Skew (degrees)</strong></label>
+                <div class="row g-2">
+                    <div class="col-6">${fh(this.fields.skewX, skewXValue)}</div>
+                    <div class="col-6">${fh(this.fields.skewY, skewYValue)}</div>
                 </div>
             </div>
-
             <div class="alert alert-secondary">
                 <i data-lucide="info"></i>
                 <small>
                     <strong>Move Tool:</strong> ${hasSelectedPaths ?
-                'Drag the center handle to move, corner handles to resize, or the top handle to rotate. Enter exact width/height to resize to specific dimensions.' :
-                'Select objects first, then drag the center handle to move, corner handles to resize, or the top handle to rotate.'
-            }
+                        'Drag the center handle to move, corner handles to resize, or the top handle to rotate. Enter exact width/height to resize to specific dimensions.' :
+                        'Select objects first, then drag the center handle to move, corner handles to resize, or the top handle to rotate.'}
                 </small>
-            </div>
-        `;
+            </div>`;
     }
 
     updateFromProperties(data) {
@@ -1246,7 +1221,6 @@ class Transform extends Select {
     }
 
     updateCenterDisplay() {
-
         let centerMM = { x: 0, y: 0 };
         let currentWidth = 0;
         let currentHeight = 0;
@@ -1254,72 +1228,26 @@ class Transform extends Select {
 
         if (this.transformBox) {
             centerMM = toMM(this.transformBox.centerX, this.transformBox.centerY);
-            currentWidth = this.transformBox.width / viewScale;
+            currentWidth  = this.transformBox.width  / viewScale;
             currentHeight = this.transformBox.height / viewScale;
             rotation = this.totalRotation + this.rotation;
         }
 
-        // Convert center coordinates from pixels to mm
-
-        const useInches = typeof getOption === 'function' && getOption('Inches');
-
-        // Update the display elements if they exist, but avoid updating the currently focused element
-        const activeElement = document.activeElement;
-
-        const centerXElement = document.getElementById('move-center-x');
-        const centerYElement = document.getElementById('move-center-y');
-        const deltaXElement = document.getElementById('move-delta-x');
-        const deltaYElement = document.getElementById('move-delta-y');
-        const widthElement = document.getElementById('move-width');
-        const heightElement = document.getElementById('move-height');
-        const rotationElement = document.getElementById('move-rotation');
-        const skewXElement = document.getElementById('move-skew-x');
-        const skewYElement = document.getElementById('move-skew-y');
-
-        if (centerXElement) {
-            centerXElement.textContent = formatDimension(centerMM.x, true);
-        }
-        if (centerYElement) {
-            centerYElement.textContent = formatDimension(centerMM.y, true);
-        }
-
-        // Only update input fields if they're not currently being edited
         const deltaXmm = this.deltaX / viewScale;
         const deltaYmm = -this.deltaY / viewScale;
-        const deltaXValue = useInches ? formatDimension(deltaXmm, true) : deltaXmm.toFixed(2);
-        const deltaYValue = useInches ? formatDimension(deltaYmm, true) : deltaYmm.toFixed(2);
 
-        if (deltaXElement && deltaXElement !== activeElement) {
-            deltaXElement.value = deltaXValue;
+        // Center spans (setValue uses textContent for non-input elements)
+        PropertiesManager.setValue('centerX', formatDimension(centerMM.x,    true));
+        PropertiesManager.setValue('centerY', formatDimension(centerMM.y,    true));
 
-        }
-        if (deltaYElement && deltaYElement !== activeElement) {
-            deltaYElement.value = deltaYValue;
-
-        }
-
-        // Update width and height fields to show current dimensions
-
-        const widthValue = useInches ? formatDimension(currentWidth, true) : currentWidth.toFixed(2);
-        const heightValue = useInches ? formatDimension(currentHeight, true) : currentHeight.toFixed(2);
-
-        if (widthElement && widthElement !== activeElement) {
-            widthElement.value = widthValue;
-
-        }
-        if (heightElement && heightElement !== activeElement) {
-            heightElement.value = heightValue;
-
-        }
-        if (rotationElement && rotationElement !== activeElement) {
-            rotationElement.value = rotation.toFixed(1);
-        }
-        if (skewXElement && skewXElement !== activeElement) {
-            skewXElement.value = (this.totalSkewX + this.skewX).toFixed(1);
-        }
-        if (skewYElement && skewYElement !== activeElement) {
-            skewYElement.value = (this.totalSkewY + this.skewY).toFixed(1);
-        }
+        // Editable fields (setValue skips focused elements automatically)
+        PropertiesManager.setValue('deltaX',   formatDimension(deltaXmm,     true));
+        PropertiesManager.setValue('deltaY',   formatDimension(deltaYmm,     true));
+        PropertiesManager.setValue('width',    formatDimension(currentWidth,  true));
+        PropertiesManager.setValue('height',   formatDimension(currentHeight, true));
+        PropertiesManager.setValue('rotation', rotation.toFixed(1));
+        PropertiesManager.setValue('skewX',    (this.totalSkewX + this.skewX).toFixed(1));
+        PropertiesManager.setValue('skewY',    (this.totalSkewY + this.skewY).toFixed(1));
     }
 
     applyTransformFromProperties() {
