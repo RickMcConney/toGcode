@@ -130,7 +130,8 @@ class Workpiece extends Operation {
         if ('workpieceWidth' in data) {
             let newValue = parseDimension(data.workpieceWidth, useInches) || 300;
             const tableWidth = getOption("tableWidth");
-            if (tableWidth && newValue > tableWidth) {
+            const value = useInches ? newValue / 25.4 : newValue;
+            if (tableWidth && value > tableWidth) {
                 notify(`Workpiece width clamped to machine table limit (${tableWidth}mm)`, 'warning');
                 newValue = tableWidth;
                 const el = document.getElementById('pm-workpieceWidth');
@@ -143,7 +144,8 @@ class Workpiece extends Operation {
         if ('workpieceLength' in data) {
             let newValue = parseDimension(data.workpieceLength, useInches) || 200;
             const tableDepth = getOption("tableDepth");
-            if (tableDepth && newValue > tableDepth) {
+            const value = useInches ? newValue / 25.4 : newValue;
+            if (tableDepth && value > tableDepth) {
                 notify(`Workpiece length clamped to machine table limit (${tableDepth}mm)`, 'warning');
                 newValue = tableDepth;
                 const el = document.getElementById('pm-workpieceLength');
