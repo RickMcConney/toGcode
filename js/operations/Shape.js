@@ -141,6 +141,14 @@ class Shape extends Operation {
         this.currentPath = null;
     }
 
+    get fields() {
+        const all = { shape: this.shapeField };
+        for (const specs of Object.values(this.fieldSpecs)) {
+            for (const f of specs) all[f.key] = f;
+        }
+        return all;
+    }
+
     // ── Shape construction ─────────────────────────────────────────────────
 
     walkOptions = {

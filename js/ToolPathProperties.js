@@ -17,8 +17,6 @@
 class ToolPathProperties {
 
     constructor() {
-        this._defaults = {};
-        this._loadDefaults();
     }
 
     // All toolpath operations — converted ones use PM, rest delegate to legacy manager
@@ -102,23 +100,6 @@ class ToolPathProperties {
 
     // ── Defaults ──────────────────────────────────────────────────────────────
 
-    _loadDefaults() {
-        try {
-            const saved = JSON.parse(localStorage.getItem('toolpathOperationDefaults') || '{}');
-            // toolpathName is always derived from depth — strip any stale persisted value
-            for (const op of Object.keys(saved)) delete saved[op].toolpathName;
-            this._defaults = saved;
-        } catch (e) {
-            this._defaults = {};
-        }
-    }
-
-    _saveDefaults() {
-        try {
-            localStorage.setItem('toolpathOperationDefaults', JSON.stringify(this._defaults));
-        } catch (e) {}
-    }
-
     _operationDefaults(operationName) {
         const thickness = typeof getOption === 'function' ? (getOption('workpieceThickness') || 10) : 10;
         const base = {
@@ -137,16 +118,14 @@ class ToolPathProperties {
     }
 
     getDefaults(operationName) {
-        if (!this._defaults[operationName]) {
-            this._defaults[operationName] = this._operationDefaults(operationName);
-        }
-        return this._defaults[operationName];
+        const saved = PropertiesManager.loadSaved(operationName);
+        return { ...this._operationDefaults(operationName), ...saved };
     }
 
     saveDefaults(operationName, values) {
-        const { toolpathName, ...rest } = values;   // name is always derived from depth, never persisted
-        this._defaults[operationName] = { ...this.getDefaults(operationName), ...rest };
-        this._saveDefaults();
+        const defaults = this.getDefaults(operationName);
+        const fields = this._operationMeta[operationName]?.buildFields(defaults) ?? [];
+        PropertiesManager.save(operationName, values, fields);
     }
 
     // ── Tool helpers ──────────────────────────────────────────────────────────
@@ -171,7 +150,7 @@ class ToolPathProperties {
         const toolOpts = tools.map(t => ({ value: t.recid, label: `${t.name} (${t.diameter}mm ${t.bit})` }));
 
         return [
-            { key: 'toolpathName', label: 'Name',           type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Profile' },
+            { key: 'toolpathName', label: 'Name', persist: false,           type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Profile' },
             { key: 'toolId',       label: 'Tool',           type: 'choice',    default: tools[0]?.recid ?? null, options: toolOpts },
             { key: 'inside',       label: 'Cutting Side',   type: 'choice',    default: defaults.inside,
               options: [{ value: 'inside', label: 'Inside' }, { value: 'outside', label: 'Outside' }, { value: 'center', label: 'Center' }] },
@@ -193,7 +172,7 @@ class ToolPathProperties {
         const toolOpts = tools.map(t => ({ value: t.recid, label: `${t.name} (${t.diameter}mm ${t.bit})` }));
 
         return [
-            { key: 'toolpathName', label: 'Name',          type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Pocket' },
+            { key: 'toolpathName', label: 'Name', persist: false,          type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Pocket' },
             { key: 'toolId',       label: 'Tool',          type: 'choice',    default: tools[0]?.recid ?? null, options: toolOpts },
             { key: 'strategy',     label: 'Strategy',      type: 'choice',    default: defaults.strategy,
               options: [{ value: 'adaptive', label: 'Adaptive' }, { value: 'raster', label: 'Raster' }, { value: 'contour', label: 'Contour' }],
@@ -216,7 +195,7 @@ class ToolPathProperties {
         const toolOpts = tools.map(t => ({ value: t.recid, label: `${t.name} (${t.diameter}mm ${t.bit})` }));
 
         return [
-            { key: 'toolpathName', label: 'Name',           type: 'text',      default: formatDimension(defaults.depth, false) + ' deep VCarve' },
+            { key: 'toolpathName', label: 'Name', persist: false,           type: 'text',      default: formatDimension(defaults.depth, false) + ' deep VCarve' },
             { key: 'toolId',       label: 'Tool',           type: 'choice',    default: tools[0]?.recid ?? null, options: toolOpts },
             { key: 'inside',       label: 'Cutting Side',   type: 'choice',    default: defaults.inside,
               options: [{ value: 'inside', label: 'Inside' }, { value: 'outside', label: 'Outside' }, { value: 'center', label: 'Center' }] },
@@ -232,7 +211,7 @@ class ToolPathProperties {
         const toolOpts = tools.map(t => ({ value: t.recid, label: `${t.name} (${t.diameter}mm ${t.bit})` }));
 
         return [
-            { key: 'toolpathName', label: 'Name',       type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Drill' },
+            { key: 'toolpathName', label: 'Name', persist: false,       type: 'text',      default: formatDimension(defaults.depth, false) + ' deep Drill' },
             { key: 'toolId',       label: 'Tool',       type: 'choice',    default: tools[0]?.recid ?? null, options: toolOpts },
             { key: 'depth',        label: 'Depth',      type: 'dimension', default: defaults.depth, help: 'Drilling depth' },
             { key: 'step',         label: 'Step Down',  type: 'dimension', default: defaults.step,  help: 'Depth per pass (helical drill only)' },
@@ -278,7 +257,7 @@ class ToolPathProperties {
         const toolOpts = tools.map(t => ({ value: t.recid, label: `${t.name} (${t.diameter}mm ${t.bit})` }));
 
         return [
-            { key: 'toolpathName', label: 'Name',           type: 'text',    default: formatDimension(defaults.depth, false) + ' deep Surfacing' },
+            { key: 'toolpathName', label: 'Name', persist: false,           type: 'text',    default: formatDimension(defaults.depth, false) + ' deep Surfacing' },
             { key: 'toolId',       label: 'Tool',           type: 'choice',  default: tools[0]?.recid ?? null, options: toolOpts },
             { key: 'depth',        label: 'Depth',          type: 'dimension', default: defaults.depth,    help: 'Cutting depth per pass' },
             { key: 'stepover',     label: 'Stepover (%)',   type: 'number',  default: defaults.stepover,

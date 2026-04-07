@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-04-06";
+var APP_VERSION = "Ver 2026-04-07";
 
 var mode = "Select";
 var options = [];
@@ -501,55 +501,10 @@ function removeBoundaryPaths(svgString) {
 }
 
 /**
- * Collect form data from input elements into an object
- * @param {HTMLElement} form - The form or container element
- * @returns {Object} Object with form field names as keys and values
+ * Collect properties for an operation via PropertiesManager.
  */
-function collectFormData(form) {
-    const inputs = form.querySelectorAll('input, select, textarea');
-    const data = {};
-    inputs.forEach(input => {
-        if (input.name) {
-            if (input.type === 'checkbox') {
-                data[input.name] = input.checked;
-            } else if (input.type === 'radio') {
-                if (input.checked) {
-                    data[input.name] = input.value;
-                }
-            } else {
-                data[input.name] = input.value;
-            }
-        }
-    });
-    return data;
-}
-
-/**
- * Collect properties for an operation, using PropertiesManager when the operation
- * declares this.fields so that dimension fields are properly parsed via parseDimension.
- * Also picks up any named form inputs not covered by the field specs (e.g. radio groups).
- * Falls back to raw collectFormData for operations without field specs.
- */
-function collectOperationProperties(operation, form) {
-    if (!operation || !operation.fields) return collectFormData(form);
-
-    const fieldList = Object.values(operation.fields);
-    const data = PropertiesManager.collectValues(fieldList);
-
-    // Also pick up named inputs not covered by the declared fields (e.g. originPosition radio)
-    const pmKeys = new Set(fieldList.map(f => f.key));
-    form.querySelectorAll('input[name], select[name], textarea[name]').forEach(input => {
-        if (pmKeys.has(input.name)) return;
-        if (input.type === 'radio') {
-            if (input.checked) data[input.name] = input.value;
-        } else if (input.type === 'checkbox') {
-            data[input.name] = input.checked;
-        } else {
-            data[input.name] = input.value;
-        }
-    });
-
-    return data;
+function collectOperationProperties(operation) {
+    return PropertiesManager.collectValues(Object.values(operation?.fields ?? {}));
 }
 
 /**
@@ -1604,6 +1559,12 @@ function showToolPropertiesEditor(operationName) {
         title.textContent = `${operationName} Tool`;
     }
     if (operation && typeof operation.getPropertiesHTML === 'function') {
+        // Restore persisted last-used values before rendering
+        if (operation.fields) {
+            const saved = PropertiesManager.loadSaved(operation.name);
+            if (Object.keys(saved).length > 0)
+                operation.properties = { ...operation.properties, ...saved };
+        }
         form.innerHTML = operation.getPropertiesHTML();
 
         // Add event listeners directly to input elements
@@ -1611,8 +1572,10 @@ function showToolPropertiesEditor(operationName) {
         inputs.forEach(input => {
             function handleInputChange() {
                 if (operation && typeof operation.updateFromProperties === 'function') {
-                    const data = collectOperationProperties(operation, form);
+                    const data = collectOperationProperties(operation);
                     operation.updateFromProperties(data);
+                    if (operation.fields)
+                        PropertiesManager.save(operation.name, data, Object.values(operation.fields));
                 }
             }
 
@@ -1628,7 +1591,7 @@ function showToolPropertiesEditor(operationName) {
         buttons.forEach(button => {
             if (button.id === 'generateTabsBtn') {
                 button.addEventListener('click', () => {
-                    const data = collectOperationProperties(operation, form);
+                    const data = collectOperationProperties(operation);
                     operation.updateFromProperties(data);
                     if (typeof operation.generateTabs === 'function') {
                         operation.generateTabs();
@@ -1827,6 +1790,12 @@ function showOperationPropertiesEditor(operationName) {
         // Use the old behavior for drawing tool operations
         const operation = window.cncController?.operationManager?.getOperation(operationName);
         if (operation && typeof operation.getPropertiesHTML === 'function') {
+            // Restore persisted last-used values before rendering
+            if (operation.fields) {
+                const saved = PropertiesManager.loadSaved(operation.name);
+                if (Object.keys(saved).length > 0)
+                    operation.properties = { ...operation.properties, ...saved };
+            }
             form.innerHTML = operation.getPropertiesHTML();
 
             // Add event listeners directly to input elements
@@ -1834,23 +1803,10 @@ function showOperationPropertiesEditor(operationName) {
             inputs.forEach(input => {
                 function handleInputChange() {
                     if (operation && typeof operation.updateFromProperties === 'function') {
-                        // Collect form data manually
-                        const allInputs = form.querySelectorAll('input, select, textarea');
-                        const data = {};
-                        allInputs.forEach(inp => {
-                            if (inp.name) {
-                                if (inp.type === 'checkbox') {
-                                    data[inp.name] = inp.checked;
-                                } else if (inp.type === 'radio') {
-                                    if (inp.checked) {
-                                        data[inp.name] = inp.value;
-                                    }
-                                } else {
-                                    data[inp.name] = inp.value;
-                                }
-                            }
-                        });
+                        const data = collectOperationProperties(operation);
                         operation.updateFromProperties(data);
+                        if (operation.fields)
+                            PropertiesManager.save(operation.name, data, Object.values(operation.fields));
                     }
                 }
 
@@ -2433,7 +2389,7 @@ function showPathPropertiesEditor(path) {
 // Function to update an existing path with new properties
 function updateExistingPath(path, form) {
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-    const data = collectOperationProperties(operation, form);
+    const data = collectOperationProperties(operation);
 
     if (path.creationTool === 'Text') {
         if (operation) {

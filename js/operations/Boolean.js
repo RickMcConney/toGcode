@@ -104,6 +104,7 @@ class BooleanOpp extends Select {
             default: 'Union',
             options: AVAILABLE_OPERATIONS
         };
+        this.fields = { operation: this.operationField };
     }
 
     getPropertiesHTML(path) {

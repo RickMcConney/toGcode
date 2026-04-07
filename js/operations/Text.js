@@ -42,6 +42,10 @@ class Text extends Operation {
         return [this.textField, this.fontField, this._getFontSizeField()];
     }
 
+    get fields() {
+        return Object.fromEntries(this._fields().map(f => [f.key, f]));
+    }
+
     getProperties() {
         const useInches = getOption('Inches');
         const defaultGridSize = getOption('gridSize') || 10;

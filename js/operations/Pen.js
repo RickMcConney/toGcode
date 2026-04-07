@@ -1,6 +1,7 @@
 class Pen extends Operation {
     constructor() {
         super('Pen', 'pen-tool', 'Draw freeform paths by clicking to add points. Click near the first point to close the path, or press Escape to finish an open path.');
+        this.fields = {};
         this.closeDistance = 15; // Distance threshold for auto-closing paths
         this.active = false;
         document.addEventListener('keydown', (evt) => {

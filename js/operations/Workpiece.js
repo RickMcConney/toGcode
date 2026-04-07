@@ -12,6 +12,15 @@ class Workpiece extends Operation {
             snapGrid:           { key: 'snapGrid',           label: 'Snap to Grid',   type: 'checkbox',  default: true },
             showOrigin:         { key: 'showOrigin',         label: 'Show Origin',    type: 'checkbox',  default: true },
             showWorkpiece:      { key: 'showWorkpiece',      label: 'Show Workpiece', type: 'checkbox',  default: true },
+            originPosition:     { key: 'originPosition',     label: 'Origin Position', type: 'radio-grid', default: 'middle-center',
+                cols: 3,
+                options: [
+                    'top-left', 'top-center', 'top-right',
+                    'middle-left', 'middle-center', 'middle-right',
+                    'bottom-left', 'bottom-center', 'bottom-right'
+                ],
+                help: 'Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece'
+            },
         };
     }
 
@@ -26,31 +35,6 @@ class Workpiece extends Operation {
 
     onMouseUp(canvas, evt) {
         // No canvas interaction needed
-    }
-
-    getOriginGridHTML(currentOriginPosition) {
-        const positions = [
-            'top-left', 'top-center', 'top-right',
-            'middle-left', 'middle-center', 'middle-right',
-            'bottom-left', 'bottom-center', 'bottom-right'
-        ];
-        const cells = positions.map(pos =>
-            `<div class="col-4">
-                <div class="grid-cell" onclick="this.querySelector('input').click()">
-                    <input class="form-check-input" type="radio" name="originPosition" value="${pos}"
-                           ${currentOriginPosition === pos ? 'checked' : ''}>
-                </div>
-            </div>`
-        ).join('\n');
-
-        return `
-            <div class="mb-3">
-                <label class="form-label">Origin Position</label>
-                <div class="origin-position-grid">
-                    <div class="row g-1">${cells}</div>
-                </div>
-                <div class="form-text">Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece</div>
-            </div>`;
     }
 
     // Properties Editor Interface
@@ -70,18 +54,6 @@ class Workpiece extends Operation {
         const fh = (field, value) => PropertiesManager.fieldHTML(field, value);
 
         return `
-            <style>
-                .origin-position-grid { max-width: 150px; margin: 0 auto; }
-                .origin-position-grid .form-check-input { margin: 0; transform: scale(0.8); position: relative; }
-                .origin-position-grid .grid-cell {
-                    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-                    border: 1px solid #dee2e6; background-color: #f8f9fa; border-radius: 4px;
-                    padding: 8px; min-height: 30px; cursor: pointer;
-                }
-                .origin-position-grid .grid-cell:hover { background-color: #e9ecef; }
-                .origin-position-grid .grid-cell:has(.form-check-input:checked) { background-color: #cfe2ff; border-color: #0d6efd; }
-            </style>
-
             <div class="alert alert-info mb-3">
                 <strong>Workpiece Setup</strong><br>
                 Configure your workpiece dimensions and material properties
@@ -107,7 +79,7 @@ class Workpiece extends Operation {
                 <div class="col-6">${fh(this.fields.showWorkpiece, getOption("showWorkpiece") !== false)}</div>
             </div>
 
-            ${this.getOriginGridHTML(getOption("originPosition") || 'middle-center')}
+            ${fh(this.fields.originPosition, getOption("originPosition") || 'middle-center')}
 
             <div class="alert alert-light">
                 <small class="text-muted">

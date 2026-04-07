@@ -1196,14 +1196,18 @@ class Transform extends Select {
         }
 
         // Handle width/height changes by calculating appropriate scale factors
+        // Guard against zero/empty values (user mid-typing) - applying scaleX=0 collapses
+        // the shape and commits it, making recovery impossible since originalWidth becomes 0.
         if (data.width !== undefined && this.transformBox) {
             const widthMM = parseDimension(data.width, useInches);
+            if (widthMM <= 0) return;
             const originalWidth = this.transformBox.width / viewScale;
             this.scaleX = originalWidth > 0 ? widthMM / originalWidth : 1;
             this.scaleX = parseFloat(this.scaleX.toFixed(2));
         }
         if (data.height !== undefined && this.transformBox) {
             const heightMM = parseDimension(data.height, useInches);
+            if (heightMM <= 0) return;
             const originalHeight = this.transformBox.height / viewScale;
             this.scaleY = originalHeight > 0 ? heightMM / originalHeight : 1;
             this.scaleY = parseFloat(this.scaleY.toFixed(2));

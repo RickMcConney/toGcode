@@ -8,14 +8,16 @@
  * {
  *   key:     'myField',         // DOM id suffix (id="pm-{key}") and form name
  *   label:   'My Field',        // Display label
- *   type:    'dimension',       // dimension | number | choice | checkbox
+ *   type:    'dimension',       // dimension | number | choice | checkbox | radio-grid
  *   default: 20,                // Fallback value when no last-used or path value
  *   min:     1,                 // (dimension/number) minimum value
  *   max:     100,               // (dimension/number) maximum value
  *   step:    1,                 // (number) step increment
  *   integer: false,             // (number) parse as integer instead of float
- *   options: [{value, label}],  // (choice) array of options
- *   help:    'Hint text'        // Optional helper text shown below input
+ *   options: [{value, label}],  // (choice/radio-grid) array of options
+ *   cols:    3,                 // (radio-grid) number of columns, default 3
+ *   help:    'Hint text',       // Optional helper text shown below input
+ *   persist: false              // Set false to exclude this field from localStorage persistence
  * }
  *
  * Value resolution priority (three-way):
@@ -50,12 +52,13 @@ class PropertiesManager {
      */
     static fieldHTML(field, value) {
         switch (field.type) {
-            case 'dimension': return this._dimensionHTML(field, value);
-            case 'number':    return this._numberHTML(field, value);
-            case 'text':      return this._textHTML(field, value);
-            case 'choice':    return this._choiceHTML(field, value);
-            case 'checkbox':  return this._checkboxHTML(field, value);
-            case 'range':     return this._rangeHTML(field, value);
+            case 'dimension':  return this._dimensionHTML(field, value);
+            case 'number':     return this._numberHTML(field, value);
+            case 'text':       return this._textHTML(field, value);
+            case 'choice':     return this._choiceHTML(field, value);
+            case 'checkbox':   return this._checkboxHTML(field, value);
+            case 'range':      return this._rangeHTML(field, value);
+            case 'radio-grid': return this._radioGridHTML(field, value);
             default:
                 console.warn(`PropertiesManager: unknown field type "${field.type}" for key "${field.key}"`);
                 return '';
@@ -86,6 +89,12 @@ class PropertiesManager {
     static collectValues(fields) {
         const data = {};
         for (const field of fields) {
+            // radio-grid has no single container element — handle before the getElementById guard
+            if (field.type === 'radio-grid') {
+                const checked = document.querySelector(`input[name="${field.key}"]:checked`);
+                if (checked) data[field.key] = checked.value;
+                continue;
+            }
             const el = document.getElementById(`pm-${field.key}`);
             if (!el) continue;
             switch (field.type) {
@@ -127,11 +136,17 @@ class PropertiesManager {
      */
     static setValue(key, value) {
         const el = document.getElementById(`pm-${key}`);
-        if (!el || el === document.activeElement) return;
-        if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
-            el.value = value;
+        if (el) {
+            if (el === document.activeElement) return;
+            if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
+                el.value = value;
+            } else {
+                el.textContent = value;
+            }
         } else {
-            el.textContent = value;
+            // radio-grid: each radio has id="pm-{key}-{value}", no single container element
+            const radio = document.getElementById(`pm-${key}-${value}`);
+            if (radio && radio.type === 'radio') radio.checked = true;
         }
     }
 
@@ -149,6 +164,39 @@ class PropertiesManager {
                 el.value = formatDimension(values[field.key], true);
             }
         }
+    }
+
+    /**
+     * Load persisted values for a namespace from localStorage.
+     * @param {string} namespace - Operation name used as storage key
+     * @returns {Object} saved values, or {} if nothing saved
+     */
+    static loadSaved(namespace) {
+        try {
+            return JSON.parse(localStorage.getItem(`pm.${namespace}`)) ?? {};
+        } catch (e) { return {}; }
+    }
+
+    /**
+     * Persist values for a namespace to localStorage.
+     * Fields with persist: false are excluded from storage.
+     * @param {string}       namespace - Operation name used as storage key
+     * @param {Object}       values    - Values to save (keyed by field key)
+     * @param {Array|Object} fields    - Field specs (array or object) to check for persist: false
+     */
+    static save(namespace, values, fields) {
+        const noPersist = new Set(
+            (Array.isArray(fields) ? fields : Object.values(fields || {}))
+                .filter(f => f.persist === false)
+                .map(f => f.key)
+        );
+        try {
+            const toSave = { ...this.loadSaved(namespace) };
+            for (const [k, v] of Object.entries(values)) {
+                if (!noPersist.has(k)) toSave[k] = v;
+            }
+            localStorage.setItem(`pm.${namespace}`, JSON.stringify(toSave));
+        } catch (e) {}
     }
 
     // ── Private HTML generators ─────────────────────────────────────────────
@@ -238,6 +286,41 @@ class PropertiesManager {
                 <label class="form-check-label small" for="pm-${field.key}">
                     <strong>${field.label}</strong>
                 </label>
+            </div>${field.help ? `
+            <div class="form-text">${field.help}</div>` : ''}
+        </div>`;
+    }
+
+    static _radioGridHTML(field, value) {
+        const cols = field.cols || 3;
+        const colClass = `col-${12 / cols}`;
+        const cells = (field.options || []).map(opt => {
+            const v = typeof opt === 'string' ? opt : opt.value;
+            const checked = v === value ? 'checked' : '';
+            return `<div class="${colClass}">
+                <div class="pm-radio-cell" onclick="document.getElementById('pm-${field.key}-${v}').click()">
+                    <input class="form-check-input" type="radio"
+                           id="pm-${field.key}-${v}" name="${field.key}"
+                           value="${v}" ${checked}>
+                </div>
+            </div>`;
+        }).join('\n');
+
+        return `<style>
+            .pm-radio-grid { max-width: 150px; margin: 0 auto; }
+            .pm-radio-cell {
+                aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+                border: 1px solid #dee2e6; background-color: #f8f9fa; border-radius: 4px;
+                padding: 8px; min-height: 30px; cursor: pointer;
+            }
+            .pm-radio-cell:hover { background-color: #e9ecef; }
+            .pm-radio-cell:has(.form-check-input:checked) { background-color: #cfe2ff; border-color: #0d6efd; }
+            .pm-radio-cell .form-check-input { margin: 0; transform: scale(0.8); }
+        </style>
+        <div class="mb-3 pm-field">
+            <label class="form-label small"><strong>${field.label}:</strong></label>
+            <div class="pm-radio-grid">
+                <div class="row g-1">${cells}</div>
             </div>${field.help ? `
             <div class="form-text">${field.help}</div>` : ''}
         </div>`;
