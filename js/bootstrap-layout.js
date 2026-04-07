@@ -525,6 +525,34 @@ function collectFormData(form) {
 }
 
 /**
+ * Collect properties for an operation, using PropertiesManager when the operation
+ * declares this.fields so that dimension fields are properly parsed via parseDimension.
+ * Also picks up any named form inputs not covered by the field specs (e.g. radio groups).
+ * Falls back to raw collectFormData for operations without field specs.
+ */
+function collectOperationProperties(operation, form) {
+    if (!operation || !operation.fields) return collectFormData(form);
+
+    const fieldList = Object.values(operation.fields);
+    const data = PropertiesManager.collectValues(fieldList);
+
+    // Also pick up named inputs not covered by the declared fields (e.g. originPosition radio)
+    const pmKeys = new Set(fieldList.map(f => f.key));
+    form.querySelectorAll('input[name], select[name], textarea[name]').forEach(input => {
+        if (pmKeys.has(input.name)) return;
+        if (input.type === 'radio') {
+            if (input.checked) data[input.name] = input.value;
+        } else if (input.type === 'checkbox') {
+            data[input.name] = input.checked;
+        } else {
+            data[input.name] = input.value;
+        }
+    });
+
+    return data;
+}
+
+/**
  * Replace event listener on an element by cloning it
  * This removes all existing event listeners and adds a new one
  * @param {HTMLElement} element - The element to update
@@ -1583,7 +1611,7 @@ function showToolPropertiesEditor(operationName) {
         inputs.forEach(input => {
             function handleInputChange() {
                 if (operation && typeof operation.updateFromProperties === 'function') {
-                    const data = collectFormData(form);
+                    const data = collectOperationProperties(operation, form);
                     operation.updateFromProperties(data);
                 }
             }
@@ -1600,7 +1628,7 @@ function showToolPropertiesEditor(operationName) {
         buttons.forEach(button => {
             if (button.id === 'generateTabsBtn') {
                 button.addEventListener('click', () => {
-                    const data = collectFormData(form);
+                    const data = collectOperationProperties(operation, form);
                     operation.updateFromProperties(data);
                     if (typeof operation.generateTabs === 'function') {
                         operation.generateTabs();
@@ -2404,10 +2432,10 @@ function showPathPropertiesEditor(path) {
 
 // Function to update an existing path with new properties
 function updateExistingPath(path, form) {
-    const data = collectFormData(form);
+    const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
+    const data = collectOperationProperties(operation, form);
 
     if (path.creationTool === 'Text') {
-        const operation = window.cncController?.operationManager?.getOperation('Text');
         if (operation) {
             operation.setEditPath(path);
             operation.updateFromProperties(data);
