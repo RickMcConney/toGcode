@@ -1967,7 +1967,7 @@ class ToolpathAnimation {
     const parseResult = parseGcodeFile(gcode, parseConfig);
     const parsedMovements = parseResult.movements;
     const toolsArray = parseResult.tools;
-    // movements[i] corresponds to G-code line i (0-based indexing)
+    const parsedLineMap = parseResult.lineMap || null;
     timers.parseGcodeTime = performance.now() - timers.parseStart;
 
     // Add starting movement from safe position (0, 0, 5) to first actual position
@@ -1990,6 +1990,15 @@ class ToolpathAnimation {
         t: -1,  // No tool
         m: 1    // Rapid move
       });
+    }
+
+    // Build lineMap for the full movements array (with synthetic entry at index 0)
+    const lineMap = [];
+    if (firstPosition) {
+      lineMap.push(undefined); // synthetic first entry has no G-code line
+    }
+    if (parsedLineMap) {
+      for (let i = 0; i < parsedLineMap.length; i++) lineMap.push(parsedLineMap[i]);
     }
 
     // Add all parsed movements (avoid spread to prevent stack overflow with large arrays)
@@ -2015,7 +2024,7 @@ class ToolpathAnimation {
 
     // Calculate cumulative times for animation based on feed rates
     timers.animationStart = performance.now();
-    this.calculateAnimationTiming(movements);
+    this.calculateAnimationTiming(movements, lineMap.length > 0 ? lineMap : null);
     timers.animationTime = performance.now() - timers.animationStart;
 
     // Build line-to-time map for direct line-based seeking and time display
@@ -2126,13 +2135,12 @@ class ToolpathAnimation {
     }
   }
 
-  calculateAnimationTiming(movements) {
+  calculateAnimationTiming(movements, lineMap) {
     // Calculate cumulative times for each movement based on distance and feed rate
     // This allows animation speed to be proportional to actual feed rates
     //
     // movements - array with optimized structure: {x, y, z, f, t, m}
-    //   Index 0 is synthetic initial movement (lineNumber = undefined)
-    //   Index i >= 1 corresponds to G-code line i-1 (0-based)
+    // lineMap - optional array mapping movement index to original G-code line number
 
     this.movementTiming = [];  // Array of {x, y, z, cumulativeTime, feedRate, isG1, distance, gcodeLineNumber}
     let cumulativeTime = 0;  // In seconds
@@ -2161,11 +2169,12 @@ class ToolpathAnimation {
       cumulativeTime += segmentTime;
 
       // Determine G-code line number (0-based indexing)
-      // Index 0 is synthetic initial movement (lineNumber = undefined)
-      // Index i >= 1 corresponds to G-code line i-1 (0-based)
+      // Use lineMap if available (handles G2/G3 arc expansion), else fall back to i-1
       let gcodeLineNumber = undefined;
-      if (i > 0) {
-        gcodeLineNumber = i - 1;  // 0-based G-code line number
+      if (lineMap && i < lineMap.length) {
+        gcodeLineNumber = lineMap[i];
+      } else if (i > 0) {
+        gcodeLineNumber = i - 1;
       }
 
       this.movementTiming.push({

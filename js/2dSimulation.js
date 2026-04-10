@@ -70,10 +70,11 @@ function setupSimulation2D() {
             return false;
         }
 
-        // Store movements and tools for animation and seeking
-        // movements[i] corresponds to G-code line i (0-based indexing)
+        // Store movements, tools, and line mapping for animation and seeking
+        // lineMap[i] = original G-code line number for movements[i]
         simulation2D.movements = movements;
         simulation2D.tools = tools;
+        simulation2D.lineMap = parseResult.lineMap || null;
 
         // Also keep gcodeLines for display (split original gcode)
         simulation2D.gcodeLines = simulation2D.gcode
@@ -500,11 +501,8 @@ function drawMaterialRemovalCircles() {
     ctx.lineJoin = 'round';
 
     // Get the current line index (how far we've progressed through G-code)
-    // During animation, include the current line being interpolated (even if just started)
-    let endLineIndex = simulation2D.currentLineIndex;
-    if (simulation2D.isRunning) {
-        endLineIndex = simulation2D.currentLineIndex + 1;
-    }
+    // Always include the current line (+1) so it draws when paused/single-stepping too
+    let endLineIndex = simulation2D.currentLineIndex + 1;
 
 
     // Draw segments from 0 to current line
@@ -857,7 +855,10 @@ function runSimulation2D() {
 
     // Update G-code viewer highlight (0-based indexing)
     if (typeof gcodeView !== 'undefined' && gcodeView) {
-        gcodeView.setCurrentLine(simulation2D.currentLineIndex);
+        var displayLine = simulation2D.lineMap
+            ? simulation2D.lineMap[simulation2D.currentLineIndex]
+            : simulation2D.currentLineIndex;
+        gcodeView.setCurrentLine(displayLine);
     }
 
     // Trigger canvas redraw (draws with interpolation)
@@ -1088,7 +1089,8 @@ function stopSimulation2D() {
  */
 function setSimulation2DLineNumber(targetLineNum) {
     // Input: targetLineNum is 0-indexed G-code line number (from G-code viewer with 0-based indexing)
-    // movements[i] corresponds to G-code line i (0-based indexing)
+    // Because G2/G3 arcs are expanded into multiple movements, movements[] is longer than gcodeLines[].
+    // Use lineMap to find the last movement index that corresponds to this G-code line.
 
     // Ensure setup is done
     if (simulation2D.precomputedPoints.length === 0) {
@@ -1098,18 +1100,22 @@ function setSimulation2DLineNumber(targetLineNum) {
         }
     }
 
-    // Find the last precomputed point at or before this G-code line
-    // Array index IS the line number (0-indexed)
+    // Find the last movement index whose lineMap entry is <= targetLineNum.
+    // lineMap[i] = original G-code line number for movement i.
+    // For expanded arcs, multiple consecutive movements share the same G-code line number,
+    // so we want the LAST movement for that line (to show the complete arc).
     let pointIndex = 0;
-    if (simulation2D.precomputedPoints && simulation2D.precomputedPoints.length > 0) {
-        for (let i = 0; i < simulation2D.precomputedPoints.length; i++) {
-            // Compare: array index i (0-indexed) with targetLineNum (0-indexed)
-            if (i <= targetLineNum) {
+    if (simulation2D.lineMap && simulation2D.lineMap.length > 0) {
+        for (let i = 0; i < simulation2D.lineMap.length; i++) {
+            if (simulation2D.lineMap[i] <= targetLineNum) {
                 pointIndex = i;
             } else {
                 break;
             }
         }
+    } else {
+        // No lineMap — fall back to direct index (no arc expansion)
+        pointIndex = Math.min(targetLineNum, simulation2D.precomputedPoints.length - 1);
     }
 
     // Stop any running/pending operations and pause the simulation
@@ -1122,16 +1128,19 @@ function setSimulation2DLineNumber(targetLineNum) {
         simulation2D.animationFrameId = null;
     }
 
-    // Set current point index and reset progress within segment
+    // Set current point index — mark segment as complete so it draws fully
     simulation2D.currentLineIndex = pointIndex;
-    simulation2D.currentLineProgress = 0;  // Start at beginning of segment for interpolation
+    simulation2D.currentLineProgress = 1.0;  // Show segment fully drawn when seeking
 
     // Update display
     updateSimulation2DDisplay();
 
-    // Update G-code viewer highlight (array index IS the line number)
+    // Update G-code viewer highlight (map movement index to original G-code line)
     if (typeof gcodeView !== 'undefined' && gcodeView) {
-        gcodeView.setCurrentLine(pointIndex);  // pointIndex is array index = line number (0-indexed)
+        var displayLine = simulation2D.lineMap
+            ? simulation2D.lineMap[pointIndex]
+            : pointIndex;
+        gcodeView.setCurrentLine(displayLine);
     }
 
     // Trigger redraw (will draw up to currentLineIndex)
@@ -1167,14 +1176,16 @@ function setSimulation2DLineNumber(targetLineNum) {
  * Update the control display with current simulation state
  */
 function updateSimulation2DDisplay() {
-    // Update line number (use 0-based indexing)
+    // Update line number display — show G-code line numbers, not movement indices
     const lineDisplay = document.getElementById('2d-step-display');
     if (lineDisplay && simulation2D.movements && simulation2D.movements.length > 0) {
-        // Array index IS the line number (0-based)
-        const currentLineNum = simulation2D.currentLineIndex+1;
+        // Map movement index back to G-code line number for display
+        const currentLineNum = simulation2D.lineMap
+            ? (simulation2D.lineMap[simulation2D.currentLineIndex] || 0) + 1
+            : simulation2D.currentLineIndex + 1;
 
-        // Total G-code lines
-        const totalLineNum = simulation2D.movements.length;
+        // Total G-code lines (not movements — those include expanded arcs)
+        const totalLineNum = simulation2D.gcodeLines ? simulation2D.gcodeLines.length : simulation2D.movements.length;
 
         lineDisplay.textContent = `${currentLineNum} / ${totalLineNum}`;
     }
@@ -1201,12 +1212,15 @@ function updateSimulation2DDisplay() {
         timeTotalDisplay.textContent = formatTimeMMSS(simulation2D.totalSimulationTime);
     }
 
-    // Update progress slider if present (use 0-based G-code line numbers)
+    // Update progress slider if present — map movement index to G-code line number
     const progressSlider = document.getElementById('simulation-step');
     if (progressSlider && simulation2D.movements && simulation2D.movements.length > 0) {
-        // Slider value is the array index (which IS the line number in 0-based indexing)
-        progressSlider.value = simulation2D.currentLineIndex;
-        progressSlider.max = simulation2D.movements.length - 1;  // Max index = array length - 1
+        const gcodeLineCount = simulation2D.gcodeLines ? simulation2D.gcodeLines.length : simulation2D.movements.length;
+        const currentGcodeLine = simulation2D.lineMap
+            ? (simulation2D.lineMap[simulation2D.currentLineIndex] || 0)
+            : simulation2D.currentLineIndex;
+        progressSlider.value = currentGcodeLine;
+        progressSlider.max = gcodeLineCount - 1;
     }
 
     // Update Z depth display (interpolated within current segment)

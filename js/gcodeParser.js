@@ -11,7 +11,7 @@ const CUT = 1;            // G1 - Linear cutting move
 
 // Pre-compiled regex patterns for performance (avoid recreating on every iteration)
 const TOOL_REGEX = /Tool:\s*ID=(\d+)\s+Type=([A-Za-z ]+)\s+Diameter=([\d.]+)\s+Angle=([\d.]+)(?:\s+StepDown=([\d.]+))?/;
-const COORD_REGEX = /([XYZ])([\d.-]+)/gi;
+const COORD_REGEX = /([XYZIJ])([\d.-]+)/gi;
 const FEED_REGEX = /F([\d.-]+)/i;
 
 /**
@@ -62,6 +62,8 @@ function createGcodeParseConfig(profile) {
         return {
             rapidCommand: 'G0',
             cutCommand: 'G1',
+            cwArcCommand: 'G2',
+            ccwArcCommand: 'G3',
             rapidAxes: ['X', 'Y', 'Z'],
             cutAxes: ['X', 'Y', 'Z'],
             rapidInversions: { X: false, Y: false, Z: false },
@@ -72,9 +74,22 @@ function createGcodeParseConfig(profile) {
     const rapidInfo = parseGcodeTemplate(profile.rapidTemplate || 'G0 X Y Z F');
     const cutInfo = parseGcodeTemplate(profile.cutTemplate || 'G1 X Y Z F');
 
+    // Extract arc commands from templates (first token)
+    var cwArcCmd = 'G2', ccwArcCmd = 'G3';
+    if (profile.cwArcTemplate) {
+        var tokens = profile.cwArcTemplate.trim().split(/\s+/);
+        if (tokens[0]) cwArcCmd = tokens[0];
+    }
+    if (profile.ccwArcTemplate) {
+        var tokens = profile.ccwArcTemplate.trim().split(/\s+/);
+        if (tokens[0]) ccwArcCmd = tokens[0];
+    }
+
     return {
         rapidCommand: rapidInfo.command,
         cutCommand: cutInfo.command,
+        cwArcCommand: cwArcCmd,
+        ccwArcCommand: ccwArcCmd,
         rapidAxes: rapidInfo.axes,
         cutAxes: cutInfo.axes,
         rapidInversions: rapidInfo.inversions,
@@ -117,6 +132,7 @@ function parseGcodeFile(gcode, parseConfig) {
 
     const lines = gcode.split('\n');
     const movements = [];
+    const lineMap = [];         // lineMap[movementIndex] = original G-code line number
     const tools = [];           // Deduplicated tool list
     const toolMap = new Map();  // toolId -> index mapping for fast lookup
 
@@ -131,6 +147,7 @@ function parseGcodeFile(gcode, parseConfig) {
         // Skip empty lines - reference shared non-movement object
         if (!trimmed) {
             movements.push(SHARED_NON_MOVEMENT);
+            lineMap.push(lineIndex);
             continue;
         }
 
@@ -178,6 +195,7 @@ function parseGcodeFile(gcode, parseConfig) {
 
             // Comment lines reference shared non-movement object
             movements.push(SHARED_NON_MOVEMENT);
+            lineMap.push(lineIndex);
             continue;
         }
 
@@ -190,6 +208,9 @@ function parseGcodeFile(gcode, parseConfig) {
         let axes = null;
         let inversions = null;
 
+        let isArc = false;
+        let arcCW = false;
+
         if (command === parseConfig.rapidCommand) {
             isCutting = false;
             axes = parseConfig.rapidAxes;
@@ -198,13 +219,24 @@ function parseGcodeFile(gcode, parseConfig) {
             isCutting = true;
             axes = parseConfig.cutAxes;
             inversions = parseConfig.cutInversions;
+        } else if (command === parseConfig.cwArcCommand) {
+            isArc = true;
+            arcCW = true;
+            axes = parseConfig.cutAxes;
+            inversions = parseConfig.cutInversions;
+        } else if (command === parseConfig.ccwArcCommand) {
+            isArc = true;
+            arcCW = false;
+            axes = parseConfig.cutAxes;
+            inversions = parseConfig.cutInversions;
         } else {
             // Not a movement command we recognize - reference shared non-movement
             movements.push(SHARED_NON_MOVEMENT);
+            lineMap.push(lineIndex);
             continue;
         }
 
-        // Extract coordinates from line using pre-compiled regex
+        // Extract coordinates from line using pre-compiled regex (now includes I, J)
         const coordinates = {};
         let coordMatch;
         while ((coordMatch = COORD_REGEX.exec(trimmed)) !== null) {
@@ -214,26 +246,6 @@ function parseGcodeFile(gcode, parseConfig) {
         // Reset regex for next line
         COORD_REGEX.lastIndex = 0;
 
-        // Apply inversions and create final position
-        const newPos = { x: currentX, y: currentY, z: currentZ };
-
-        // Process coordinates in the order specified by the template
-        for (const axis of axes) {
-            if (coordinates.hasOwnProperty(axis)) {
-                let value = coordinates[axis];
-
-                // Apply inversion if specified
-                if (inversions[axis]) {
-                    value = -value;
-                }
-
-                // Map axis to x, y, z
-                if (axis === 'X') newPos.x = value;
-                else if (axis === 'Y') newPos.y = value;
-                else if (axis === 'Z') newPos.z = value;
-            }
-        }
-
         // Extract feed rate (only if line contains 'F')
         if (trimmed.includes('F') || trimmed.includes('f')) {
             const feedMatch = trimmed.match(FEED_REGEX);
@@ -242,31 +254,119 @@ function parseGcodeFile(gcode, parseConfig) {
             }
         }
 
-        // Create optimized movement object (6 fields instead of 14)
-        // m: RAPID (0) = G0 rapid move, CUT (1) = G1 cutting move
-        const movement = {
-            x: newPos.x,
-            y: newPos.y,
-            z: newPos.z,
-            f: currentFeedRate,
-            t: currentToolIndex,
-            m: isCutting ? CUT : RAPID  // CUT (1) = G1, RAPID (0) = G0
-        };
+        if (isArc) {
+            // G2/G3 arc command — expand to linear segments for simulation
+            const endPos = { x: currentX, y: currentY, z: currentZ };
 
-        movements.push(movement);
+            for (const axis of axes) {
+                if (coordinates.hasOwnProperty(axis)) {
+                    let value = coordinates[axis];
+                    if (inversions[axis]) value = -value;
+                    if (axis === 'X') endPos.x = value;
+                    else if (axis === 'Y') endPos.y = value;
+                    else if (axis === 'Z') endPos.z = value;
+                }
+            }
 
-        // Update current position
-        currentX = newPos.x;
-        currentY = newPos.y;
-        currentZ = newPos.z;
+            // I, J are relative offsets from current position to arc center
+            const ci = coordinates.I || 0;
+            const cj = coordinates.J || 0;
+            const cx = currentX + ci;
+            const cy = currentY + cj;
+
+            // Calculate start and end angles
+            const startAngle = Math.atan2(currentY - cy, currentX - cx);
+            const endAngle = Math.atan2(endPos.y - cy, endPos.x - cx);
+
+            // Calculate angular span
+            let span;
+            if (arcCW) {
+                span = startAngle - endAngle;
+                if (span <= 0) span += 2 * Math.PI;
+            } else {
+                span = endAngle - startAngle;
+                if (span <= 0) span += 2 * Math.PI;
+            }
+
+            // Handle full circles (start == end)
+            const dx = endPos.x - currentX;
+            const dy = endPos.y - currentY;
+            if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
+                span = 2 * Math.PI;
+            }
+
+            // Number of segments: ~1 per 5 degrees, minimum 8
+            const numSegments = Math.max(8, Math.ceil(span / (5 * Math.PI / 180)));
+            const radius = Math.sqrt((currentX - cx) * (currentX - cx) + (currentY - cy) * (currentY - cy));
+
+            // Z interpolation for helical arcs
+            const zStart = currentZ;
+            const zEnd = endPos.z;
+
+            for (let seg = 1; seg <= numSegments; seg++) {
+                const frac = seg / numSegments;
+                const angle = arcCW
+                    ? startAngle - span * frac
+                    : startAngle + span * frac;
+
+                const segX = cx + radius * Math.cos(angle);
+                const segY = cy + radius * Math.sin(angle);
+                const segZ = zStart + (zEnd - zStart) * frac;
+
+                movements.push({
+                    x: segX,
+                    y: segY,
+                    z: segZ,
+                    f: currentFeedRate,
+                    t: currentToolIndex,
+                    m: CUT
+                });
+                lineMap.push(lineIndex);
+            }
+
+            // Update current position to arc endpoint
+            currentX = endPos.x;
+            currentY = endPos.y;
+            currentZ = endPos.z;
+        } else {
+            // Linear move (G0/G1)
+            const newPos = { x: currentX, y: currentY, z: currentZ };
+
+            for (const axis of axes) {
+                if (coordinates.hasOwnProperty(axis)) {
+                    let value = coordinates[axis];
+                    if (inversions[axis]) value = -value;
+                    if (axis === 'X') newPos.x = value;
+                    else if (axis === 'Y') newPos.y = value;
+                    else if (axis === 'Z') newPos.z = value;
+                }
+            }
+
+            const movement = {
+                x: newPos.x,
+                y: newPos.y,
+                z: newPos.z,
+                f: currentFeedRate,
+                t: currentToolIndex,
+                m: isCutting ? CUT : RAPID
+            };
+
+            movements.push(movement);
+            lineMap.push(lineIndex);
+
+            currentX = newPos.x;
+            currentY = newPos.y;
+            currentZ = newPos.z;
+        }
     }
 
-    // Return movements and tools
-    // movements[i] corresponds to G-code line i (0-based indexing)
-    // Tools array is shared across all movements that reference it by index
+    // Return movements, tools, and line mapping
+    // lineMap[i] = original G-code line number for movements[i]
+    // When G2/G3 arcs are expanded, multiple movements map to the same line
     return {
         movements: movements,
         tools: tools,
-        sharedNonMovement: SHARED_NON_MOVEMENT  // For reference if needed
+        lineMap: lineMap,
+        sharedNonMovement: SHARED_NON_MOVEMENT
     };
 }

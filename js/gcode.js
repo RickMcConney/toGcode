@@ -155,12 +155,15 @@ function toMMZ(z) {
 }
 
 // Convert coordinates to G-code units (mm or inches based on profile setting)
+// mm: 2 decimal places, inches: 4 decimal places
 function toGcodeUnits(x, y, useInches) {
 	var mm = toMM(x, y);
 	if (!useInches) {
-		return mm;
+		return {
+			x: Math.round(mm.x * 100) / 100,
+			y: Math.round(mm.y * 100) / 100
+		};
 	}
-	// Convert to inches and round to 4 decimal places
 	return {
 		x: Math.round(mm.x / MM_PER_INCH * 10000) / 10000,
 		y: Math.round(mm.y / MM_PER_INCH * 10000) / 10000
@@ -168,12 +171,12 @@ function toGcodeUnits(x, y, useInches) {
 }
 
 // Convert Z coordinate to G-code units (mm or inches based on profile setting)
+// mm: 2 decimal places, inches: 4 decimal places
 function toGcodeUnitsZ(z, useInches) {
 	var mm = z;
 	if (!useInches) {
-		return mm;
+		return Math.round(mm * 100) / 100;
 	}
-	// Convert to inches and round to 4 decimal places
 	return Math.round(mm / MM_PER_INCH * 10000) / 10000;
 }
 
@@ -193,6 +196,14 @@ function toGcodeUnitsZ(z, useInches) {
 // - Spindle speed: "M3 S" outputs spindle speed when params.s is provided
 function applyGcodeTemplate(template, params) {
 	if (!template) return '';
+
+	// Round coordinates: 2 decimal places for mm, 4 for inches
+	var useInches = currentGcodeProfile && currentGcodeProfile.gcodeUnits === 'inches';
+	var decimals = useInches ? 4 : 2;
+	function fmt(v) {
+		if (typeof v !== 'number') return v;
+		return parseFloat(v.toFixed(decimals));
+	}
 
 	var output = template;
 
@@ -238,7 +249,7 @@ function applyGcodeTemplate(template, params) {
 		var xValue = params[axisMap['X'] || 'x'];
 		if (xValue !== undefined && xValue !== null) {
 			if (inversions['X']) xValue = -xValue;
-			output = output.replace(/-?X\b/, 'X' + xValue);
+			output = output.replace(/-?X\b/, 'X' + fmt(xValue));
 		} else {
 			// Remove X if not provided
 			output = output.replace(/-?X\b/, '').trim();
@@ -250,7 +261,7 @@ function applyGcodeTemplate(template, params) {
 		var yValue = params[axisMap['Y'] || 'y'];
 		if (yValue !== undefined && yValue !== null) {
 			if (inversions['Y']) yValue = -yValue;
-			output = output.replace(/-?Y\b/, 'Y' + yValue);
+			output = output.replace(/-?Y\b/, 'Y' + fmt(yValue));
 		} else {
 			// Remove Y if not provided
 			output = output.replace(/-?Y\b/, '').trim();
@@ -262,7 +273,7 @@ function applyGcodeTemplate(template, params) {
 		var zValue = params[axisMap['Z'] || 'z'];
 		if (zValue !== undefined && zValue !== null) {
 			if (inversions['Z']) zValue = -zValue;
-			output = output.replace(/-?Z\b/, 'Z' + zValue);
+			output = output.replace(/-?Z\b/, 'Z' + fmt(zValue));
 		} else {
 			// Remove Z if not provided
 			output = output.replace(/-?Z\b/, '').trim();
@@ -271,15 +282,29 @@ function applyGcodeTemplate(template, params) {
 
 	// Process F parameter
 	if (params.f !== undefined && params.f !== null) {
-		output = output.replace(/\bF\b/g, 'F' + params.f);
+		output = output.replace(/\bF\b/g, 'F' + fmt(params.f));
 	} else {
 		// Remove F if not provided
 		output = output.replace(/\bF\b/g, '').trim();
 	}
 
+	// Process I parameter (arc center X offset)
+	if (params.i !== undefined && params.i !== null) {
+		output = output.replace(/\bI\b/g, 'I' + fmt(params.i));
+	} else {
+		output = output.replace(/\bI\b/g, '').trim();
+	}
+
+	// Process J parameter (arc center Y offset)
+	if (params.j !== undefined && params.j !== null) {
+		output = output.replace(/\bJ\b/g, 'J' + fmt(params.j));
+	} else {
+		output = output.replace(/\bJ\b/g, '').trim();
+	}
+
 	// Process S parameter (spindle speed)
 	if (params.s !== undefined && params.s !== null) {
-		output = output.replace(/\bS\b/g, 'S' + params.s);
+		output = output.replace(/\bS\b/g, 'S' + fmt(params.s));
 	} else {
 		// Remove S if not provided
 		output = output.replace(/\bS\b/g, '').trim();
@@ -299,6 +324,267 @@ function formatComment(text, profile) {
 	var closingChar = commentChar === '(' ? ')' : '';
 
 	return commentChar + text + closingChar;
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Arc Fitting — detect arcs in polyline paths and emit G2/G3 commands
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fit a circle through three points. Returns { cx, cy, r } or null if collinear.
+ */
+function fitCircle3(p1, p2, p3) {
+	var ax = p1.x, ay = p1.y;
+	var bx = p2.x, by = p2.y;
+	var cx = p3.x, cy = p3.y;
+
+	var D = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+	if (Math.abs(D) < 1e-10) return null; // collinear
+
+	var ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / D;
+	var uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / D;
+	var r = Math.sqrt((ax - ux) * (ax - ux) + (ay - uy) * (ay - uy));
+
+	return { cx: ux, cy: uy, r: r };
+}
+
+/**
+ * Check if a point lies on a circle within tolerance.
+ */
+function pointOnCircle(px, py, cx, cy, r, tolerance) {
+	var dist = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+	return Math.abs(dist - r) <= tolerance;
+}
+
+/**
+ * Determine if the arc from p1 to p2 via intermediate points is clockwise.
+ * Uses the cross product of vectors from center to start and center to end.
+ */
+function isArcClockwise(points, cx, cy) {
+	// Determine arc direction by accumulating the signed angular change
+	// along consecutive points. This is robust regardless of arc span or
+	// how many points are sampled.
+	var totalAngle = 0;
+	var prevAngle = Math.atan2(points[0].y - cy, points[0].x - cx);
+
+	for (var k = 1; k < points.length; k++) {
+		var angle = Math.atan2(points[k].y - cy, points[k].x - cx);
+		var delta = angle - prevAngle;
+		// Normalize delta to [-PI, PI]
+		if (delta > Math.PI) delta -= 2 * Math.PI;
+		if (delta < -Math.PI) delta += 2 * Math.PI;
+		totalAngle += delta;
+		prevAngle = angle;
+	}
+
+	// totalAngle > 0 means angles are increasing = CCW in world (Y-down screen).
+	// In G-code (Y-up): screen CCW = G-code CW (G2).
+	// totalAngle < 0 means angles are decreasing = CW in world (Y-down screen).
+	// In G-code (Y-up): screen CW = G-code CCW (G3).
+	return totalAngle > 0;
+}
+
+/**
+ * Check if an arc spans more than ~350 degrees (near full circle).
+ * These need to be split into two arcs for most controllers.
+ */
+function arcSpanDegrees(arcPoints, cx, cy) {
+	// Compute the actual angular span by accumulating signed angle changes
+	// along the arc points. Returns the absolute span in degrees.
+	var totalAngle = 0;
+	var prevAngle = Math.atan2(arcPoints[0].y - cy, arcPoints[0].x - cx);
+
+	for (var k = 1; k < arcPoints.length; k++) {
+		var angle = Math.atan2(arcPoints[k].y - cy, arcPoints[k].x - cx);
+		var delta = angle - prevAngle;
+		if (delta > Math.PI) delta -= 2 * Math.PI;
+		if (delta < -Math.PI) delta += 2 * Math.PI;
+		totalAngle += delta;
+		prevAngle = angle;
+	}
+
+	return Math.abs(totalAngle) * 180 / Math.PI;
+}
+
+/**
+ * Fit arcs to a polyline path. Returns an array of segments:
+ *   { type: 'line', x, y }
+ *   { type: 'arc', x, y, i, j, cw }
+ *
+ * The tolerance is in world units (viewScale units, not mm).
+ * All coordinates in the returned segments are in the same space as the input.
+ */
+function fitArcsToPath(points, toleranceMM) {
+	if (!points || points.length < 3) {
+		// Not enough points for arc detection — return all as lines
+		return points.map(function(p) { return { type: 'line', x: p.x, y: p.y }; });
+	}
+
+	var tolerance = toleranceMM * viewScale; // convert mm tolerance to world units
+	var minArcPoints = 4;  // minimum points to consider an arc (start + 3 more)
+	var maxRadius = 10000 * viewScale; // reject arcs with huge radius (nearly straight lines)
+	var segments = [];
+	var i = 0;
+
+	while (i < points.length) {
+		if (i + minArcPoints - 1 >= points.length) {
+			// Not enough remaining points for an arc — emit as lines
+			for (var k = i; k < points.length; k++) {
+				segments.push({ type: 'line', x: points[k].x, y: points[k].y });
+			}
+			break;
+		}
+
+		// Try to fit an arc starting at point i
+		// Use well-spaced points for a more stable initial circle fit.
+		// When consecutive points are very close together, 3 adjacent points
+		// are nearly collinear, making the circle fit numerically unstable.
+		var remaining = points.length - i;
+		var span = Math.min(remaining - 1, 10); // look ahead up to 10 points
+		var midIdx0 = i + Math.floor(span / 2);
+		var endIdx0 = i + span;
+		var circle = fitCircle3(points[i], points[midIdx0], points[endIdx0]);
+
+		// Fall back to consecutive points if the spread fit fails
+		if (!circle || circle.r > maxRadius || circle.r < tolerance) {
+			circle = fitCircle3(points[i], points[i + 1], points[i + 2]);
+		}
+
+		if (!circle || circle.r > maxRadius || circle.r < tolerance) {
+			// Can't fit arc here — emit as line and advance
+			segments.push({ type: 'line', x: points[i].x, y: points[i].y });
+			i++;
+			continue;
+		}
+
+		// Extend the arc as far as possible
+		var arcEnd = i + 2;
+		while (arcEnd + 1 < points.length) {
+			var nextPt = points[arcEnd + 1];
+			if (!pointOnCircle(nextPt.x, nextPt.y, circle.cx, circle.cy, circle.r, tolerance)) {
+				break;
+			}
+			arcEnd++;
+
+			// Periodically refit the circle using start, mid, end for better accuracy
+			if ((arcEnd - i) % 5 === 0) {
+				var midIdx = Math.floor((i + arcEnd) / 2);
+				var refit = fitCircle3(points[i], points[midIdx], points[arcEnd]);
+				if (refit && refit.r <= maxRadius) {
+					// Verify all points still fit with the refitted circle
+					var allFit = true;
+					for (var c = i + 1; c < arcEnd; c++) {
+						if (!pointOnCircle(points[c].x, points[c].y, refit.cx, refit.cy, refit.r, tolerance)) {
+							allFit = false;
+							break;
+						}
+					}
+					if (allFit) circle = refit;
+				}
+			}
+		}
+
+		if (arcEnd - i < minArcPoints - 1) {
+			// Too few points matched — emit as line
+			segments.push({ type: 'line', x: points[i].x, y: points[i].y });
+			i++;
+			continue;
+		}
+
+		// We have an arc from points[i] to points[arcEnd]
+		var arcPoints = points.slice(i, arcEnd + 1);
+		var cw = isArcClockwise(arcPoints, circle.cx, circle.cy);
+		var startPt = points[i];
+		var endPt = points[arcEnd];
+
+		// Check arc span — if > 350 degrees, split into two semicircular arcs
+		var span = arcSpanDegrees(arcPoints, circle.cx, circle.cy);
+
+		if (span > 350) {
+			// Full or near-full circle — split at the midpoint
+			var midIdx = Math.floor((i + arcEnd) / 2);
+			var midPt = points[midIdx];
+
+			// First emit the start point as a line (moveto)
+			segments.push({ type: 'line', x: startPt.x, y: startPt.y });
+
+			// First half arc: start -> mid
+			segments.push({
+				type: 'arc', x: midPt.x, y: midPt.y,
+				i: circle.cx - startPt.x, j: circle.cy - startPt.y,
+				cw: cw
+			});
+			// Second half arc: mid -> end
+			segments.push({
+				type: 'arc', x: endPt.x, y: endPt.y,
+				i: circle.cx - midPt.x, j: circle.cy - midPt.y,
+				cw: cw
+			});
+		} else {
+			// Normal arc
+			// Emit start point as line (establishes position)
+			segments.push({ type: 'line', x: startPt.x, y: startPt.y });
+
+			// I, J are relative offsets from arc start to center
+			segments.push({
+				type: 'arc', x: endPt.x, y: endPt.y,
+				i: circle.cx - startPt.x, j: circle.cy - startPt.y,
+				cw: cw
+			});
+		}
+
+		i = arcEnd;
+	}
+
+	return segments;
+}
+
+/**
+ * Emit G-code for a 2D path (XY only, Z handled separately) with arc fitting.
+ * If arcs are disabled or templates are empty, falls back to pure G1 output.
+ *
+ * @param {Array} path        - Array of {x, y} points in world coordinates
+ * @param {Object} profile    - G-code profile with templates
+ * @param {boolean} useInches - Whether to convert to inches
+ * @param {number} feedXY     - XY feed rate (already in output units)
+ * @returns {string} G-code output
+ */
+function emitPathWithArcs(path, profile, useInches, feedXY) {
+	var output = '';
+	var arcsEnabled = profile.useArcs && profile.cwArcTemplate && profile.ccwArcTemplate;
+
+	if (!arcsEnabled || path.length < 4) {
+		// Fallback: pure G1 output
+		for (var j = 0; j < path.length; j++) {
+			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
+		}
+		return output;
+	}
+
+	var segments = fitArcsToPath(path, 0.05); // 0.05mm tolerance
+
+	for (var s = 0; s < segments.length; s++) {
+		var seg = segments[s];
+		if (seg.type === 'arc') {
+			var endCoord = toGcodeUnits(seg.x, seg.y, useInches);
+			// I, J are in world units — convert to output units
+			var iMM = seg.i / viewScale;
+			var jMM = -seg.j / viewScale; // flip Y for G-code coordinate system
+			if (useInches) {
+				iMM = iMM / MM_PER_INCH;
+				jMM = jMM / MM_PER_INCH;
+			}
+			var tmpl = seg.cw ? profile.cwArcTemplate : profile.ccwArcTemplate;
+			output += applyGcodeTemplate(tmpl, { x: endCoord.x, y: endCoord.y, i: iMM, j: jMM, f: feedXY }) + '\n';
+		} else {
+			var coord = toGcodeUnits(seg.x, seg.y, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: coord.x, y: coord.y, f: feedXY }) + '\n';
+		}
+	}
+
+	return output;
 }
 
 
@@ -361,6 +647,9 @@ function _setupGcodeProfile() {
 		cutTemplate: 'G1 X Y Z F',
 		spindleOnGcode: 'M3 S',
 		spindleOffGcode: 'M5',
+		cwArcTemplate: 'G2 X Y I J F',
+		ccwArcTemplate: 'G3 X Y I J F',
+		useArcs: true,
 		commentChar: '(',
 		commentsEnabled: true,
 		gcodeUnits: 'mm'
@@ -393,6 +682,9 @@ function _generateGcodeHeader(profile, spindleSpeed, useInches) {
 	if (profile.startGcode && profile.startGcode.trim() !== '') {
 		output += profile.startGcode + '\n';
 	}
+
+	// Set G-code units: G21 for mm, G20 for inches
+	output += (useInches ? 'G20' : 'G21') + '\n';
 
 	// Add spindle on command if provided
 	if (profile.spindleOnGcode && profile.spindleOnGcode.trim() !== '') {
@@ -617,11 +909,8 @@ function _generateSurfacingOperationGcode(toolpath, profile, useInches, settings
 			output += applyGcodeTemplate(profile.cutTemplate, { x: start.x, y: start.y, f: feedXY }) + '\n';
 		}
 
-		// Cut across the pass
-		for (var j = 1; j < path.length; j++) {
-			var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-		}
+		// Cut across the pass (with arc fitting if enabled)
+		output += emitPathWithArcs(path.slice(1), profile, useInches, feedXY);
 	}
 
 	return output;
@@ -878,16 +1167,53 @@ function _generatePocketOperationGcode(toolpath, profile, useInches, settings) {
 				output += generateRampIn(path, toolpath.tool.diameter, z, toolStep, safeHeight, profile, useInches, feedXY, feedZ);
 			}
 
-			// Cut entire path
-			for (var j = 1; j < path.length; j++) {
-				var p = toGcodeUnits(path[j].x, path[j].y, useInches);
-				output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, f: feedXY }) + '\n';
-			}
+			// Cut entire path (with arc fitting if enabled)
+			output += emitPathWithArcs(path.slice(1), profile, useInches, feedXY);
 
 			lastPathEnd = path[path.length - 1];
 		}
 	}
 
+	return output;
+}
+
+/**
+ * Emit a run of profile points at constant Z with arc fitting.
+ * Each point gets the same Z value (normal cutting depth, not tab-lifted).
+ */
+function emitProfileRun(points, z, profile, useInches, feedXY) {
+	if (points.length === 0) return '';
+	var zCoord = toGcodeUnitsZ(z, useInches);
+	var arcsEnabled = profile.useArcs && profile.cwArcTemplate && profile.ccwArcTemplate;
+
+	if (!arcsEnabled || points.length < 4) {
+		var output = '';
+		for (var i = 0; i < points.length; i++) {
+			var p = toGcodeUnits(points[i].x, points[i].y, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zCoord, f: feedXY }) + '\n';
+		}
+		return output;
+	}
+
+	var segments = fitArcsToPath(points, 0.05);
+	var output = '';
+	for (var s = 0; s < segments.length; s++) {
+		var seg = segments[s];
+		if (seg.type === 'arc') {
+			var endCoord = toGcodeUnits(seg.x, seg.y, useInches);
+			var iMM = seg.i / viewScale;
+			var jMM = -seg.j / viewScale;
+			if (useInches) {
+				iMM = iMM / MM_PER_INCH;
+				jMM = jMM / MM_PER_INCH;
+			}
+			var tmpl = seg.cw ? profile.cwArcTemplate : profile.ccwArcTemplate;
+			output += applyGcodeTemplate(tmpl, { x: endCoord.x, y: endCoord.y, i: iMM, j: jMM, f: feedXY }) + '\n';
+		} else {
+			var coord = toGcodeUnits(seg.x, seg.y, useInches);
+			output += applyGcodeTemplate(profile.cutTemplate, { x: coord.x, y: coord.y, z: zCoord, f: feedXY }) + '\n';
+		}
+	}
 	return output;
 }
 
@@ -943,6 +1269,7 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 			var currentlyLifted = false;
 			var firstMarkerPos = null;
 			var startedLifted = false;
+			var regularRun = []; // accumulate non-tab points for arc fitting
 
 			for (var j = 0; j < augmentedPath.length; j++) {
 				var pt = augmentedPath[j];
@@ -1000,6 +1327,11 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 				else {
 					// Process augmented path point with possible marker
 					if (pt.marker) {
+						// Flush accumulated regular points before tab transition
+						if (regularRun.length > 0) {
+							output += emitProfileRun(regularRun, z, profile, useInches, feedXY);
+							regularRun = [];
+						}
 						var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
 
 						if (pt.marker === 'lift') {
@@ -1018,18 +1350,27 @@ function _generateProfileOperationGcode(toolpath, profile, useInches, settings) 
 						}
 					}
 					else {
-						// Regular path point
-						if (currentlyLifted) {
+						// Regular path point — accumulate for arc fitting
+						if (!currentlyLifted) {
+							regularRun.push(pt);
+						} else {
+							// Lifted over tab — flush any accumulated run, then emit lifted point
+							if (regularRun.length > 0) {
+								output += emitProfileRun(regularRun, z, profile, useInches, feedXY);
+								regularRun = [];
+							}
 							var tabLift = getTabLiftAmount(z, tabs, workpieceThickness, tabHeightMM);
 							var zLiftedCoord = toGcodeUnitsZ(z + tabLift, useInches);
 							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zLiftedCoord, f: feedXY }) + '\n';
 						}
-						else {
-							var zNormalCoord = toGcodeUnitsZ(z, useInches);
-							output += applyGcodeTemplate(profile.cutTemplate, { x: p.x, y: p.y, z: zNormalCoord, f: feedXY }) + '\n';
-						}
 					}
 				}
+			}
+
+			// Flush any remaining accumulated regular points
+			if (regularRun.length > 0) {
+				output += emitProfileRun(regularRun, z, profile, useInches, feedXY);
+				regularRun = [];
 			}
 
 			// If we started lifted due to tab at path start, cut remaining material at end of pass

@@ -379,6 +379,53 @@ class ToolPathProperties {
         meta.extraValidate?.(data, errors);
         return errors;
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Post Processor (G-code Profile) properties
+    // ══════════════════════════════════════════════════════════════════════════
+
+    _postProcessorFields() {
+        return [
+            { key: 'startGcode',      label: 'Start G-code',       type: 'textarea', default: 'G0 G54 G17 G21 G90 G94', rows: 2 },
+            { key: 'gcodeUnits',      label: 'G-code Units',       type: 'choice',   default: 'mm',
+              options: [{ value: 'mm', label: 'Millimeters (G21)' }, { value: 'inches', label: 'Inches (G20)' }],
+              help: 'Units for coordinate output in G-code (independent of display units)' },
+            { key: 'spindleOnGcode',  label: 'Spindle On',         type: 'text',     default: 'M3 S',
+              help: 'Use S placeholder for spindle speed' },
+            { key: 'rapidTemplate',   label: 'Rapid Template',     type: 'text',     default: 'G0 X Y Z F',
+              help: 'Use X Y Z F placeholders' },
+            { key: 'cutTemplate',     label: 'Cut Template',       type: 'text',     default: 'G1 X Y Z F',
+              help: 'Use X Y Z F placeholders' },
+            { key: 'toolChangeGcode', label: 'Tool Change',        type: 'textarea', default: 'M5\nG0 Z5\n(Tool Change)\nM0', rows: 2 },
+            { key: 'spindleOffGcode', label: 'Spindle Off',        type: 'text',     default: 'M5' },
+            { key: 'endGcode',        label: 'End G-code',         type: 'textarea', default: 'G0 Z5\nG0 X0 Y0', rows: 2 },
+            { key: 'cwArcTemplate',   label: 'CW Arc (G2)',        type: 'text',     default: 'G2 X Y I J F',
+              help: 'Use X Y I J F placeholders. Leave blank to disable arc output.' },
+            { key: 'ccwArcTemplate',  label: 'CCW Arc (G3)',       type: 'text',     default: 'G3 X Y I J F',
+              help: 'Use X Y I J F placeholders. Leave blank to disable arc output.' },
+            { key: 'useArcs',         label: 'Use Arc Commands',   type: 'checkbox', default: true,
+              help: 'Detect arcs in toolpaths and output G2/G3 instead of many G1 segments' },
+            { key: 'commentChar',     label: 'Comment Character',  type: 'text',     default: '(', maxlength: 1 },
+            { key: 'commentsEnabled', label: 'Enable Comments',    type: 'checkbox', default: true },
+        ];
+    }
+
+    getPostProcessorHTML(profile) {
+        const fields = this._postProcessorFields();
+        return PropertiesManager.formHTML(fields, profile, null);
+    }
+
+    collectPostProcessorData() {
+        return PropertiesManager.collectValues(this._postProcessorFields());
+    }
+
+    loadPostProcessorProfile(profile) {
+        const fields = this._postProcessorFields();
+        for (const field of fields) {
+            const value = profile[field.key] !== undefined ? profile[field.key] : field.default;
+            PropertiesManager.setValue(field.key, value);
+        }
+    }
 }
 
 if (typeof window !== 'undefined') {

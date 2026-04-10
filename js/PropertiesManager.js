@@ -55,6 +55,7 @@ class PropertiesManager {
             case 'dimension':  return this._dimensionHTML(field, value);
             case 'number':     return this._numberHTML(field, value);
             case 'text':       return this._textHTML(field, value);
+            case 'textarea':   return this._textareaHTML(field, value);
             case 'choice':     return this._choiceHTML(field, value);
             case 'checkbox':   return this._checkboxHTML(field, value);
             case 'range':      return this._rangeHTML(field, value);
@@ -122,6 +123,9 @@ class PropertiesManager {
                 case 'text':
                     data[field.key] = el.value;
                     break;
+                case 'textarea':
+                    data[field.key] = el.value;
+                    break;
             }
         }
         return data;
@@ -138,7 +142,9 @@ class PropertiesManager {
         const el = document.getElementById(`pm-${key}`);
         if (el) {
             if (el === document.activeElement) return;
-            if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
+            if (el.type === 'checkbox') {
+                el.checked = !!value;
+            } else if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
                 el.value = value;
             } else {
                 el.textContent = value;
@@ -202,11 +208,24 @@ class PropertiesManager {
     // ── Private HTML generators ─────────────────────────────────────────────
 
     static _textHTML(field, value) {
+        const maxlength = field.maxlength ? `maxlength="${field.maxlength}"` : '';
         return `<div class="mb-3 pm-field">
             <label for="pm-${field.key}" class="form-label small"><strong>${field.label}:</strong></label>
             <input type="text" class="form-control form-control-sm"
                    id="pm-${field.key}" name="${field.key}"
-                   value="${String(value).replace(/"/g, '&quot;')}">${field.help ? `
+                   value="${String(value).replace(/"/g, '&quot;')}" ${maxlength}>${field.help ? `
+            <div class="form-text">${field.help}</div>` : ''}
+        </div>`;
+    }
+
+    static _textareaHTML(field, value) {
+        const rows = field.rows || 2;
+        const maxlength = field.maxlength ? `maxlength="${field.maxlength}"` : '';
+        return `<div class="mb-3 pm-field">
+            <label for="pm-${field.key}" class="form-label small"><strong>${field.label}:</strong></label>
+            <textarea class="form-control form-control-sm"
+                   id="pm-${field.key}" name="${field.key}"
+                   rows="${rows}" ${maxlength}>${String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>${field.help ? `
             <div class="form-text">${field.help}</div>` : ''}
         </div>`;
     }
