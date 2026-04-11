@@ -1079,6 +1079,7 @@ function cleanup3DView() {
     if (scene) scene.remove(toolGroup);
     toolGroup = null;
   }
+  _cachedToolKey = null;  // Reset so tool geometry is regenerated on reopen
 
   // Dispose toolpath visualizer (stored in toolpathAnimation, but check if accessible)
   if (toolpathVisualizer && toolpathVisualizer.mesh) {

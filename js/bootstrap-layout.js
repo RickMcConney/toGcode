@@ -4,7 +4,7 @@
  */
 
 // Version number based on latest commit date
-var APP_VERSION = "Ver 2026-04-10";
+var APP_VERSION = "Ver 2026-04-11";
 
 var mode = "Select";
 var options = [];
@@ -2530,6 +2530,12 @@ function create3DSimulationControls() {
     document.getElementById('3d-stop-simulation').addEventListener('click', () => {
         if (typeof stopSimulation3D === 'function') {
             stopSimulation3D();
+        }
+        // Switch back to 2D view (matches 2D stop button behavior)
+        const tab2D = document.getElementById('2d-tab');
+        if (tab2D) {
+            const bsTab = bootstrap.Tab.getOrCreateInstance(tab2D);
+            bsTab.show();
         }
     });
 

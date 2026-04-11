@@ -1136,49 +1136,57 @@ function generatePocketPaths(outerPath, islandPaths, pocketRadius, stepover, ang
 	// Build contour paths: inside-to-outside so each pass only cuts one stepover width.
 	// Only skip outermost level (level 0) if the finishing tool is large enough to cover it
 	// AND there are deeper levels or raster to actually clear the interior.
-	let innerContours = [];
-	let outerContours = [];
 	let skipOutermost = (finishingRadius >= pocketRadius) && (totalLevels > 1 || switchLevel < totalLevels);
 	let startLevel = skipOutermost ? 1 : 0;
 
-	// Emit contour fragments for levels switchLevel-1 down to startLevel (inside-to-outside)
+	// Group contour fragments by level (inside-to-outside order).
+	// Optimize within each level for minimal travel, but preserve level ordering
+	// so clearing always proceeds from the innermost contour outward.
+	let contoursByLevel = {};
 	for (let lvl = switchLevel - 1; lvl >= startLevel; lvl--) {
+		let levelPaths = [];
 		for (let i = 0; i < allContours.length; i++) {
 			if (contourLevels[i] !== lvl) continue;
 			let contour = allContours[i].slice();
 			if (direction == "climb") contour = reversePath(contour);
-			let entry = { tpath: contour, isContour: true, passStart: true };
-			if (lvl === startLevel) {
-				outerContours.push(entry);
-			} else {
-				innerContours.push(entry);
-			}
+			levelPaths.push({ tpath: contour, isContour: true, passStart: true });
+		}
+		if (levelPaths.length > 0) {
+			contoursByLevel[lvl] = levelPaths;
 		}
 	}
 
-	// Add island contours to the outer pass (cut last with boundary)
+	// Add island contours to the outermost level (cut last with boundary)
 	if (!skipOutermost) {
+		if (!contoursByLevel[startLevel]) contoursByLevel[startLevel] = [];
 		for (let island of machinedIslands) {
 			let islandContour = island.slice();
 			if (direction != "climb") islandContour = reversePath(islandContour);
-			outerContours.push({ tpath: islandContour, isContour: true, passStart: true });
+			contoursByLevel[startLevel].push({ tpath: islandContour, isContour: true, passStart: true });
+		}
+	}
+
+	// Build ordered contour lists: inner levels and outermost level separately.
+	// Optimize path order within each level but keep level ordering strict (inside-to-outside).
+	let innerContours = [];
+	let outerContours = contoursByLevel[startLevel] ? optimizePathListOrder(contoursByLevel[startLevel]) : [];
+	for (let lvl = switchLevel - 1; lvl > startLevel; lvl--) {
+		if (contoursByLevel[lvl]) {
+			innerContours.push(...optimizePathListOrder(contoursByLevel[lvl]));
 		}
 	}
 
 	// Generate raster infill for the remaining interior (from switchLevel inward).
 	if (switchLevel < totalLevels) {
 		let infillPaths = generateRasterInfill(machinedOuter, machinedIslands, islandPaths, switchLevel, stepover, pocketRadius, angle);
-		// Raster and inner contours can be optimized together, but the outer
-		// boundary contour must always be cut last for a clean finish.
-		let optimizedInterior = optimizePathListOrder([...infillPaths, ...innerContours]);
-		let optimizedOuter = optimizePathListOrder(outerContours);
-		let result = [...optimizedInterior, ...optimizedOuter];
+		// Raster infill is innermost, then inner contours, then outer boundary last.
+		let result = [...infillPaths, ...innerContours, ...outerContours];
 		return eliminateUnnecessaryRetracts(result, machinedIslands, islandPaths);
 	}
 
 	// Pure contour mode (no raster needed for small/narrow pockets)
-	// Optimize contour order and start points for minimal travel
-	let result = optimizePathListOrder([...innerContours, ...outerContours]);
+	// Inner contours first (inside-to-outside), then outermost boundary last.
+	let result = [...innerContours, ...outerContours];
 	return eliminateUnnecessaryRetracts(result, machinedIslands, islandPaths);
 }
 

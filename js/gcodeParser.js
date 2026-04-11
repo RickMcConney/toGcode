@@ -67,7 +67,8 @@ function createGcodeParseConfig(profile) {
             rapidAxes: ['X', 'Y', 'Z'],
             cutAxes: ['X', 'Y', 'Z'],
             rapidInversions: { X: false, Y: false, Z: false },
-            cutInversions: { X: false, Y: false, Z: false }
+            cutInversions: { X: false, Y: false, Z: false },
+            useInches: false
         };
     }
 
@@ -93,7 +94,8 @@ function createGcodeParseConfig(profile) {
         rapidAxes: rapidInfo.axes,
         cutAxes: cutInfo.axes,
         rapidInversions: rapidInfo.inversions,
-        cutInversions: cutInfo.inversions
+        cutInversions: cutInfo.inversions,
+        useInches: profile.gcodeUnits === 'inches'
     };
 }
 
@@ -139,6 +141,10 @@ function parseGcodeFile(gcode, parseConfig) {
     let currentX = 0, currentY = 0, currentZ = 0;
     let currentFeedRate = 1000;
     let currentToolIndex = -1;  // Index into tools array (-1 = no tool)
+
+    // Scale factor to convert G-code coordinates to mm for simulation
+    // When G-code is in inches, multiply by 25.4 to get mm
+    const toMmScale = parseConfig.useInches ? 25.4 : 1;
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const line = lines[lineIndex];
@@ -237,20 +243,25 @@ function parseGcodeFile(gcode, parseConfig) {
         }
 
         // Extract coordinates from line using pre-compiled regex (now includes I, J)
+        // Apply inch-to-mm conversion if G-code is in inches so movements are always in mm
         const coordinates = {};
         let coordMatch;
         while ((coordMatch = COORD_REGEX.exec(trimmed)) !== null) {
             const axis = coordMatch[1].toUpperCase();
-            coordinates[axis] = parseFloat(coordMatch[2]);
+            coordinates[axis] = parseFloat(coordMatch[2]) * toMmScale;
         }
         // Reset regex for next line
         COORD_REGEX.lastIndex = 0;
 
         // Extract feed rate (only if line contains 'F')
+        // Convert to mm/min if G-code is in inches
         if (trimmed.includes('F') || trimmed.includes('f')) {
             const feedMatch = trimmed.match(FEED_REGEX);
             if (feedMatch) {
-                currentFeedRate = parseFloat(feedMatch[1]) || currentFeedRate;
+                const rawFeed = parseFloat(feedMatch[1]);
+                if (rawFeed) {
+                    currentFeedRate = rawFeed * toMmScale;
+                }
             }
         }
 

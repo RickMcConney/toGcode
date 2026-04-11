@@ -332,6 +332,63 @@ function formatComment(text, profile) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Check if a sequence of points forms a smooth arc, not a zigzag.
+ * Two checks:
+ * 1. Angular monotonicity — points must progress in a consistent direction
+ *    around the fitted circle (no angular reversals).
+ * 2. Heading smoothness — the XY travel direction between consecutive points
+ *    must not reverse sharply. A true arc has gradual heading changes; a zigzag
+ *    has ~180° direction reversals at each turn. Any turn > 90° is rejected.
+ */
+function isAngularlyMonotonic(points, cx, cy) {
+	if (points.length < 3) return true;
+
+	// Check 1: angular monotonicity around the circle center
+	var prevAngle = Math.atan2(points[0].y - cy, points[0].x - cx);
+	var direction = 0; // 0 = undetermined, 1 = CCW, -1 = CW
+
+	for (var k = 1; k < points.length; k++) {
+		var angle = Math.atan2(points[k].y - cy, points[k].x - cx);
+		var delta = angle - prevAngle;
+		if (delta > Math.PI) delta -= 2 * Math.PI;
+		if (delta < -Math.PI) delta += 2 * Math.PI;
+		prevAngle = angle;
+
+		// Skip near-zero angular changes (coincident or very close points)
+		if (Math.abs(delta) < 1e-6) continue;
+
+		var sign = delta > 0 ? 1 : -1;
+		if (direction === 0) {
+			direction = sign;
+		} else if (sign !== direction) {
+			return false; // angular direction reversed — not a smooth arc
+		}
+	}
+
+	// Check 2: no sharp heading reversals in the XY path.
+	// For each triplet of consecutive points, compute the turn angle.
+	// A real arc turns gradually; zigzag rasters reverse by ~180°.
+	for (var k = 1; k < points.length - 1; k++) {
+		var dx1 = points[k].x - points[k - 1].x;
+		var dy1 = points[k].y - points[k - 1].y;
+		var dx2 = points[k + 1].x - points[k].x;
+		var dy2 = points[k + 1].y - points[k].y;
+
+		var len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+		var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+		if (len1 < 1e-10 || len2 < 1e-10) continue; // skip degenerate segments
+
+		// Dot product gives cos(turn angle); negative means > 90° turn
+		var dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
+		if (dot < 0) {
+			return false; // sharp turn > 90° — zigzag, not an arc
+		}
+	}
+
+	return true;
+}
+
+/**
  * Fit a circle through three points. Returns { cx, cy, r } or null if collinear.
  */
 function fitCircle3(p1, p2, p3) {
@@ -436,45 +493,73 @@ function fitArcsToPath(points, toleranceMM) {
 			break;
 		}
 
-		// Try to fit an arc starting at point i
-		// Use well-spaced points for a more stable initial circle fit.
-		// When consecutive points are very close together, 3 adjacent points
-		// are nearly collinear, making the circle fit numerically unstable.
-		var remaining = points.length - i;
-		var span = Math.min(remaining - 1, 10); // look ahead up to 10 points
-		var midIdx0 = i + Math.floor(span / 2);
-		var endIdx0 = i + span;
-		var circle = fitCircle3(points[i], points[midIdx0], points[endIdx0]);
+		// Try to fit an arc starting at point i, using consecutive points.
+		// We try several starting offsets (i, i+1, i+2...) because the current
+		// point may be on a straight segment before a curve begins.
+		var circle = null;
+		var arcStart = i;
+		var arcEnd = -1;
 
-		// Fall back to consecutive points if the spread fit fails
-		if (!circle || circle.r > maxRadius || circle.r < tolerance) {
-			circle = fitCircle3(points[i], points[i + 1], points[i + 2]);
+		for (var tryStart = i; tryStart <= i + 3 && tryStart + 2 < points.length; tryStart++) {
+			var tryCircle = fitCircle3(points[tryStart], points[tryStart + 1], points[tryStart + 2]);
+			if (tryCircle && tryCircle.r <= maxRadius && tryCircle.r >= tolerance) {
+				// Verify the 4th point (if available) also fits — rules out 3 collinear-ish points
+				// producing a spurious huge-radius circle
+				if (tryStart + 3 < points.length) {
+					if (pointOnCircle(points[tryStart + 3].x, points[tryStart + 3].y, tryCircle.cx, tryCircle.cy, tryCircle.r, tolerance) &&
+						isAngularlyMonotonic(points.slice(tryStart, tryStart + 4), tryCircle.cx, tryCircle.cy)) {
+						circle = tryCircle;
+						arcStart = tryStart;
+						arcEnd = tryStart + 3;
+						break;
+					}
+				} else {
+					if (isAngularlyMonotonic(points.slice(tryStart, tryStart + 3), tryCircle.cx, tryCircle.cy)) {
+						circle = tryCircle;
+						arcStart = tryStart;
+						arcEnd = tryStart + 2;
+						break;
+					}
+				}
+			}
 		}
 
-		if (!circle || circle.r > maxRadius || circle.r < tolerance) {
-			// Can't fit arc here — emit as line and advance
+		if (!circle) {
+			// No arc found starting near point i — emit as line and advance
 			segments.push({ type: 'line', x: points[i].x, y: points[i].y });
 			i++;
 			continue;
 		}
 
+		// Emit any skipped straight-line points before the arc starts
+		for (var sk = i; sk < arcStart; sk++) {
+			segments.push({ type: 'line', x: points[sk].x, y: points[sk].y });
+		}
+
 		// Extend the arc as far as possible
-		var arcEnd = i + 2;
 		while (arcEnd + 1 < points.length) {
 			var nextPt = points[arcEnd + 1];
 			if (!pointOnCircle(nextPt.x, nextPt.y, circle.cx, circle.cy, circle.r, tolerance)) {
 				break;
 			}
+			// Check that adding this point preserves monotonic angular progression.
+			// Use the last 3 points (previous two + candidate) to detect direction reversals
+			// that indicate zigzag patterns rather than smooth arcs.
+			var checkStart = Math.max(arcStart, arcEnd - 1);
+			var checkPts = points.slice(checkStart, arcEnd + 2); // includes nextPt
+			if (!isAngularlyMonotonic(checkPts, circle.cx, circle.cy)) {
+				break;
+			}
 			arcEnd++;
 
 			// Periodically refit the circle using start, mid, end for better accuracy
-			if ((arcEnd - i) % 5 === 0) {
-				var midIdx = Math.floor((i + arcEnd) / 2);
-				var refit = fitCircle3(points[i], points[midIdx], points[arcEnd]);
+			if ((arcEnd - arcStart) % 5 === 0) {
+				var midIdx = Math.floor((arcStart + arcEnd) / 2);
+				var refit = fitCircle3(points[arcStart], points[midIdx], points[arcEnd]);
 				if (refit && refit.r <= maxRadius) {
 					// Verify all points still fit with the refitted circle
 					var allFit = true;
-					for (var c = i + 1; c < arcEnd; c++) {
+					for (var c = arcStart + 1; c < arcEnd; c++) {
 						if (!pointOnCircle(points[c].x, points[c].y, refit.cx, refit.cy, refit.r, tolerance)) {
 							allFit = false;
 							break;
@@ -485,17 +570,17 @@ function fitArcsToPath(points, toleranceMM) {
 			}
 		}
 
-		if (arcEnd - i < minArcPoints - 1) {
+		if (arcEnd - arcStart < minArcPoints - 1) {
 			// Too few points matched — emit as line
 			segments.push({ type: 'line', x: points[i].x, y: points[i].y });
 			i++;
 			continue;
 		}
 
-		// We have an arc from points[i] to points[arcEnd]
-		var arcPoints = points.slice(i, arcEnd + 1);
+		// We have an arc from points[arcStart] to points[arcEnd]
+		var arcPoints = points.slice(arcStart, arcEnd + 1);
 		var cw = isArcClockwise(arcPoints, circle.cx, circle.cy);
-		var startPt = points[i];
+		var startPt = points[arcStart];
 		var endPt = points[arcEnd];
 
 		// Check arc span — if > 350 degrees, split into two semicircular arcs
@@ -503,7 +588,7 @@ function fitArcsToPath(points, toleranceMM) {
 
 		if (span > 350) {
 			// Full or near-full circle — split at the midpoint
-			var midIdx = Math.floor((i + arcEnd) / 2);
+			var midIdx = Math.floor((arcStart + arcEnd) / 2);
 			var midPt = points[midIdx];
 
 			// First emit the start point as a line (moveto)
