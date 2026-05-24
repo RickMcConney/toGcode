@@ -505,10 +505,14 @@ function getTextCreationValues(textOperation) {
     textOperation.getProperties();
     const savedFontSize = typeof getOption === 'function' ? getOption('textFontSize') : null;
     const defaultFontSize = getTextCreationDefaultFontSize(textOperation);
+    const defaultFontValue = textOperation.fontField.options?.[0]?.value || textOperation.fontField.default;
+    const selectedFont = getFontOptionByValue(textOperation.properties.font)
+        ? textOperation.properties.font
+        : defaultFontValue;
 
     return {
         text: textOperation.properties.text ?? textOperation.textField.default,
-        font: textOperation.properties.font ?? textOperation.fontField.default,
+        font: selectedFont,
         fontSize: savedFontSize ?? defaultFontSize ?? textOperation.properties.fontSize ?? textOperation._getFontSizeField().default,
         align: textOperation.properties.align ?? textOperation.alignField.default,
         lineHeight: textOperation.properties.lineHeight ?? textOperation.lineHeightField.default
@@ -530,18 +534,38 @@ function renderTextCreationForm() {
 }
 
 function buildTextCreationCompactForm(textOperation, values) {
+    textOperation.refreshFontOptions?.();
+    const escapeHtml = value => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const uploadAction = `
+        <button type="button" class="dropdown-item text-creation-font-option text-creation-font-option--upload" id="pm-font-upload-trigger">
+            <span class="text-creation-font-option__name">
+                <i data-lucide="upload"></i>
+                Upload font
+            </span>
+        </button>
+        <div class="dropdown-divider"></div>
+    `;
     const fontOptions = (textOperation.fontField.options || []).map(option => {
+        const optionLabel = escapeHtml(option.label);
+        const optionValue = escapeHtml(option.value);
+        const optionFamily = escapeHtml(option.previewFamily || '');
         const previewFamily = option.previewFamily
             ? ` style="font-family: '${option.previewFamily}', sans-serif;"`
             : '';
         const selectedClass = option.value === values.font ? ' is-selected' : '';
+        const localBadge = option.isLocal ? '<span class="badge text-bg-light text-creation-font-badge">Local</span>' : '';
         return `
             <button type="button"
                     class="dropdown-item text-creation-font-option${selectedClass}"
-                    data-font-value="${option.value}"
-                    data-font-label="${option.label}"
-                    data-font-family="${option.previewFamily || ''}">
-                <span class="text-creation-font-option__name"${previewFamily}>${option.label}</span>
+                    data-font-value="${optionValue}"
+                    data-font-label="${optionLabel}"
+                    data-font-family="${optionFamily}">
+                <span class="text-creation-font-option__name"${previewFamily}>${optionLabel}</span>
+                ${localBadge}
                 <span class="text-creation-font-option__preview"${previewFamily}>Aa Bb 123</span>
             </button>
         `;
@@ -574,7 +598,7 @@ function buildTextCreationCompactForm(textOperation, values) {
                 <div class="text-creation-toolbar-row">
                     <div class="text-creation-control text-creation-control--font flex-grow-1">
                         <label for="pm-font-trigger" class="form-label small text-uppercase text-muted mb-1">Font</label>
-                        <input type="hidden" id="pm-font" name="font" value="${selectedFontOption?.value || values.font}">
+                        <input type="hidden" id="pm-font" name="font" value="${escapeHtml(selectedFontOption?.value || values.font)}">
                         <div class="dropdown text-creation-font-dropdown">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle text-creation-font-trigger"
                                     type="button"
@@ -582,12 +606,14 @@ function buildTextCreationCompactForm(textOperation, values) {
                                     data-bs-toggle="dropdown"
                                     data-bs-auto-close="true"
                                     aria-expanded="false">
-                                <span class="text-creation-font-trigger__label"${selectedFontFamily}>${selectedFontOption?.label || ''}</span>
+                                <span class="text-creation-font-trigger__label"${selectedFontFamily}>${escapeHtml(selectedFontOption?.label || '')}</span>
                             </button>
                             <div class="dropdown-menu text-creation-font-menu">
+                                ${uploadAction}
                                 ${fontOptions}
                             </div>
                         </div>
+                        <input type="file" id="pm-font-upload" class="d-none" accept=".ttf,.otf">
                     </div>
                     <div class="text-creation-control text-creation-control--align">
                         <label class="form-label small text-uppercase text-muted mb-1 d-block">Align</label>
@@ -641,18 +667,30 @@ function initializeTextCreationCompactForm(textOperation, values) {
     const fontTrigger = document.getElementById('pm-font-trigger');
     const fontTriggerLabel = fontTrigger?.querySelector('.text-creation-font-trigger__label') || null;
     const fontOptions = document.querySelectorAll('.text-creation-font-option');
+    const fontUploadInput = document.getElementById('pm-font-upload');
+    const fontUploadTrigger = document.getElementById('pm-font-upload-trigger');
     const fontSizeInput = document.getElementById('pm-fontSize');
     const fontSizeDisplay = document.getElementById('pm-fontSize-display');
     const alignInput = document.getElementById('pm-align');
     const alignRadios = document.querySelectorAll('.text-creation-align-group input[type="radio"]');
 
+    const getCurrentFontSizeValue = () => {
+        if (!fontSizeInput) return values.fontSize;
+        const sliderValue = Number(fontSizeInput.value);
+        const mmPerUnit = Number(fontSizeInput.dataset.mmPerUnit || 1) || 1;
+        return fontSizeInput.dataset.dimensionRange === 'true'
+            ? sliderValue * mmPerUnit
+            : sliderValue;
+    };
+
     if (fontInput && fontTrigger && fontTriggerLabel && fontOptions.length > 0) {
         const updateSelectedFont = fontValue => {
             const option = (textOperation.fontField.options || []).find(entry => entry.value === fontValue);
-            fontInput.value = option?.value || fontValue;
-            fontTriggerLabel.textContent = option?.label || '';
-            fontTriggerLabel.style.fontFamily = option?.previewFamily
-                ? `'${option.previewFamily}', sans-serif`
+            const fallbackOption = (textOperation.fontField.options || [])[0] || null;
+            fontInput.value = option?.value || fallbackOption?.value || values.font;
+            fontTriggerLabel.textContent = option?.label || fallbackOption?.label || '';
+            fontTriggerLabel.style.fontFamily = (option?.previewFamily || fallbackOption?.previewFamily)
+                ? `'${option?.previewFamily || fallbackOption?.previewFamily}', sans-serif`
                 : '';
             fontOptions.forEach(button => {
                 button.classList.toggle('is-selected', button.dataset.fontValue === fontInput.value);
@@ -663,10 +701,60 @@ function initializeTextCreationCompactForm(textOperation, values) {
 
         fontOptions.forEach(button => {
             button.addEventListener('click', function() {
+                if (this.id === 'pm-font-upload-trigger') {
+                    return;
+                }
                 updateSelectedFont(this.dataset.fontValue);
                 const dropdown = bootstrap.Dropdown.getOrCreateInstance(fontTrigger);
                 dropdown.hide();
             });
+        });
+    }
+
+    if (fontUploadTrigger && fontUploadInput) {
+        fontUploadTrigger.addEventListener('click', () => {
+            fontUploadInput.click();
+        });
+
+        fontUploadInput.addEventListener('change', async function() {
+            const file = this.files?.[0] || null;
+            const error = document.getElementById('text-creation-error');
+            const dropdown = fontTrigger ? bootstrap.Dropdown.getOrCreateInstance(fontTrigger) : null;
+            if (!file) return;
+
+            if (error) {
+                error.textContent = '';
+                error.style.display = 'none';
+            }
+
+            fontUploadTrigger.disabled = true;
+            try {
+                const registeredFont = await registerLocalFont(file, { persist: true });
+                textOperation.refreshFontOptions?.();
+                const nextValues = {
+                    ...getTextCreationValues(textOperation),
+                    text: document.getElementById('pm-text')?.value ?? values.text,
+                    font: registeredFont.id,
+                    fontSize: getCurrentFontSizeValue(),
+                    align: document.getElementById('pm-align')?.value || values.align,
+                    lineHeight: Number(document.getElementById('pm-lineHeight')?.value || values.lineHeight)
+                };
+                const form = document.getElementById('text-creation-form');
+                if (form) {
+                    form.innerHTML = buildTextCreationCompactForm(textOperation, nextValues);
+                    initializeTextCreationCompactForm(textOperation, nextValues);
+                }
+                dropdown?.hide();
+            } catch (uploadError) {
+                console.error('Failed to register local font:', uploadError);
+                if (error) {
+                    error.textContent = uploadError?.message || 'Unable to load this font file.';
+                    error.style.display = 'block';
+                }
+            } finally {
+                fontUploadTrigger.disabled = false;
+                fontUploadInput.value = '';
+            }
         });
     }
 

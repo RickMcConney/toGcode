@@ -20,10 +20,11 @@ class Text extends Operation {
             label: 'Font',
             type: 'choice',
             default: 'fonts/Roboto-Regular.ttf',
-            options: AVAILABLE_FONTS.map(f => ({
+            options: getAvailableFonts().map(f => ({
                 value: f.value,
                 label: f.label,
-                previewFamily: f.previewFamily || f.label
+                previewFamily: f.previewFamily || f.label,
+                isLocal: f.isLocal === true
             }))
         };
 
@@ -161,16 +162,34 @@ class Text extends Operation {
     }
 
     getProperties() {
+        this.refreshFontOptions();
         const useInches = getOption('Inches');
         const defaultGridSize = getOption('gridSize') || 10;
         const defaultFontSize = useInches ? 25.4 : (defaultGridSize * 2);
         const savedFontSize = getOption('textFontSize');
+        const savedFont = getOption('textFont') || this.fontField.default;
+        const currentFont = this.properties.font;
         this.properties.fontSize = (savedFontSize !== null && savedFontSize !== undefined) ? savedFontSize : defaultFontSize;
-        this.properties.font = getOption('textFont') || 'fonts/Roboto-Regular.ttf';
+        this.properties.font = isLocalFontValue(currentFont) && getFontOptionByValue(currentFont)
+            ? currentFont
+            : savedFont;
         this.properties.text = getOption('textSample') || 'Sample Text';
         this.properties.align = getOption('textAlign') || 'center';
         this.properties.lineHeight = Number(getOption('textLineHeight')) || 1.2;
         this.properties.lockRatio = getOption('textLockRatio') !== false;
+    }
+
+    refreshFontOptions() {
+        this.fontField.options = getAvailableFonts().map(font => ({
+            value: font.value,
+            label: font.label,
+            previewFamily: font.previewFamily || font.label,
+            isLocal: font.isLocal === true
+        }));
+
+        if (!getFontOptionByValue(this.fontField.default)) {
+            this.fontField.default = this.fontField.options[0]?.value || this.fontField.default;
+        }
     }
 
     start() {
@@ -321,6 +340,7 @@ class Text extends Operation {
 
     getPropertiesHTML() {
         const pathProperties = this.currentPath?.creationProperties ?? null;
+        this.refreshFontOptions();
         if (!pathProperties) this.getProperties();
         return `
             <div class="alert alert-info mb-3">
@@ -899,7 +919,7 @@ class Text extends Operation {
     _saveTextOptions(text, font, sizeInMM, align, lineHeight) {
         if (typeof setOption !== 'undefined') {
             setOption('textFontSize', sizeInMM);
-            if (font) {
+            if (font && !isLocalFontValue(font)) {
                 setOption('textFont', font);
             }
             if (text !== undefined) {
@@ -1088,15 +1108,9 @@ class Text extends Operation {
     }
 
     addText(text, x, y, sizeInMM = 20, fontname, options = {}) {
-        let fontUrl = fontname;
-
         return new Promise(resolve => {
-            opentype.load(fontUrl, (err, font) => {
-                if (err) {
-                    console.error('Could not load font:', err);
-                    var fontEntry = AVAILABLE_FONTS.find(f => f.value === fontname);
-                    var displayName = fontEntry ? fontEntry.label : 'Unknown';
-                    notify('Failed to load font "' + displayName + '". Check your internet connection.', 'error');
+            this._resolveFont(fontname).then(font => {
+                if (!font) {
                     resolve(null);
                     return;
                 }
@@ -1104,6 +1118,37 @@ class Text extends Operation {
                 const createdPath = this.createTextPath(font, text, x, y, sizeInMM, fontname, options);
                 redraw();
                 resolve(createdPath);
+            });
+        });
+    }
+
+    _resolveFont(fontValue) {
+        return new Promise(resolve => {
+            const localFont = getLocalFontEntry(fontValue);
+            if (localFont?.font) {
+                resolve(localFont.font);
+                return;
+            }
+
+            if (typeof opentype === 'undefined' || typeof opentype.load !== 'function') {
+                notify('Font loader is not available.', 'error');
+                resolve(null);
+                return;
+            }
+
+            opentype.load(fontValue, (err, font) => {
+                if (err) {
+                    console.error('Could not load font:', err);
+                    const displayName = getFontLabel(fontValue);
+                    const localMessage = isLocalFontValue(fontValue)
+                        ? 'This local font is not available in the current session or project file.'
+                        : 'Check your internet connection.';
+                    notify('Failed to load font "' + displayName + '". ' + localMessage, 'error');
+                    resolve(null);
+                    return;
+                }
+
+                resolve(font || null);
             });
         });
     }
@@ -1223,20 +1268,12 @@ class Text extends Operation {
         if (!path || !path.creationProperties) return;
         const relatedPaths = [path];
 
-        if (typeof opentype !== 'undefined') {
-            opentype.load(data.font, (err, font) => {
-                if (err) {
-                    var fontEntry = AVAILABLE_FONTS.find(f => f.value === data.font);
-                    var displayName = fontEntry ? fontEntry.label : 'Unknown';
-                    notify('Failed to load font "' + displayName + '". Check your internet connection.', 'error');
-                    return;
-                }
-                if (font) {
-                    this.updateTextPathsInPlace(relatedPaths, font, data);
-                    redraw();
-                }
-            });
-        }
+        this._resolveFont(data.font).then(font => {
+            if (font) {
+                this.updateTextPathsInPlace(relatedPaths, font, data);
+                redraw();
+            }
+        });
     }
 
     updateTextPathsInPlace(textPaths, font, data) {

@@ -357,6 +357,28 @@
     white-space: nowrap;
 }
 
+.text-creation-font-option--upload {
+    justify-content: flex-start;
+}
+
+.text-creation-font-option--upload .text-creation-font-option__name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.text-creation-font-option--upload .text-creation-font-option__name svg {
+    width: 14px;
+    height: 14px;
+}
+
+.text-creation-font-badge {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .text-creation-control--align {
     flex: 0 0 auto;
 }

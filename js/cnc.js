@@ -519,6 +519,7 @@ async function saveProject() {
 		origin: origin,
 		tools: tools,
 		options: options,
+		localFonts: typeof serializeLocalFonts === 'function' ? serializeLocalFonts() : [],
 		gcodeProfile: currentGcodeProfile,  // Save the full post-processor profile
 		stlModels: typeof window.saveSTLModels === 'function' ? window.saveSTLModels() : null
 	};
@@ -616,17 +617,34 @@ function loadProject(json) {
 		}
 	}
 
-	restoreSvgpaths(svgpaths, null);
-	restoreToolpaths(toolpaths);
+	const restoreFonts = typeof restoreLocalFonts === 'function'
+		? restoreLocalFonts(project.localFonts || [])
+		: Promise.resolve();
 
-	// Restore STL models from saved data
-	if (project.stlModels && typeof window.loadSTLModels === 'function') {
-		window.loadSTLModels(project.stlModels);
-	}
+	restoreFonts.then(() => {
+		restoreSvgpaths(svgpaths, null);
+		restoreToolpaths(toolpaths);
 
-	cncController.setMode("Select");
-	if (typeof updateSnapButton === 'function') updateSnapButton();
-	redraw();
+		// Restore STL models from saved data
+		if (project.stlModels && typeof window.loadSTLModels === 'function') {
+			window.loadSTLModels(project.stlModels);
+		}
+
+		cncController.setMode("Select");
+		if (typeof updateSnapButton === 'function') updateSnapButton();
+		redraw();
+	}).catch(error => {
+		console.error('Failed to restore local fonts from project:', error);
+		notify('Some local fonts could not be restored from this project.', 'error');
+		restoreSvgpaths(svgpaths, null);
+		restoreToolpaths(toolpaths);
+		if (project.stlModels && typeof window.loadSTLModels === 'function') {
+			window.loadSTLModels(project.stlModels);
+		}
+		cncController.setMode("Select");
+		if (typeof updateSnapButton === 'function') updateSnapButton();
+		redraw();
+	});
 }
 
 function newProject() {
@@ -647,6 +665,7 @@ function newProject() {
 	undoList = [];
 	clearToolPaths();
 	clearSvgPaths();
+	if (typeof clearLocalFonts === 'function') clearLocalFonts();
 	if (typeof window.clearSTLModels === 'function') window.clearSTLModels();
 	window._importedGcode = null;
 	window._cachedGcode = null;
