@@ -1838,8 +1838,19 @@ function isShapeEditorPath(path) {
     ));
 }
 
+function isLockedShapeEditorPath(path) {
+    if (!path) {
+        return false;
+    }
+
+    return path.locked === true
+        || path.locked === 'true'
+        || path.creationProperties?.properties?.lockObject === true
+        || path.creationProperties?.properties?.lockObject === 'true';
+}
+
 function getSelectedShapeEditorPaths(anchorPath = null) {
-    const selectedPaths = selectMgr.selectedPaths().filter(isShapeEditorPath);
+    const selectedPaths = selectMgr.selectedPaths().filter(path => isShapeEditorPath(path) && !isLockedShapeEditorPath(path));
     if (selectedPaths.length < 2) {
         return [];
     }
@@ -2046,6 +2057,11 @@ function bindShapeGroupPopup(paths, transformOperation, operationName) {
     const form = document.getElementById('tool-properties-form');
     if (!form) return;
 
+    const editablePaths = Array.isArray(paths)
+        ? paths.filter(path => path && !isLockedShapeEditorPath(path))
+        : [];
+    if (editablePaths.length < 2) return;
+
     bindSelectionAlignmentPanel(form);
 
     form.querySelectorAll('#shape-group-transform-panel input, #shape-group-transform-panel select, #shape-group-transform-panel textarea').forEach(input => {
@@ -2075,7 +2091,7 @@ function bindShapeGroupPopup(paths, transformOperation, operationName) {
                 const data = window.toolPathProperties.collectFormData(operationName);
                 const sanitized = sanitizeToolpathProperties(data);
 
-                paths.forEach(path => {
+                editablePaths.forEach(path => {
                     path.toolpathProperties = sanitized ? { ...sanitized } : {};
                     path.toolpathProperties.operation = data.operation || operationName;
                     if (syncToolpath) {
@@ -2152,7 +2168,9 @@ function isFloatingPropertiesPopupVisible() {
 }
 
 function showShapeGroupPropertiesEditor(paths) {
-    const groupPaths = Array.isArray(paths) ? paths.filter(isShapeEditorPath) : [];
+    const groupPaths = Array.isArray(paths)
+        ? paths.filter(path => isShapeEditorPath(path) && !isLockedShapeEditorPath(path))
+        : [];
     if (groupPaths.length < 2) {
         return false;
     }

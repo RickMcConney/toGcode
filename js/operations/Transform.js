@@ -103,7 +103,7 @@ class Transform extends Select {
 
     // Recover totalRotation/totalSkew from selected paths' transformHistory
     recoverTotalsFromHistory() {
-        const selected = selectMgr.selectedPaths();
+        const selected = this.getTransformSelectedPaths(true);
         if (selected.length === 0) {
             this.totalRotation = 0;
             this.totalSkewX = 0;
@@ -143,7 +143,13 @@ class Transform extends Select {
 
     // Helper method to setup transform box with pivot center
     setupTransformBox() {
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
+        if (!this.transformBox) {
+            this.initialTransformBox = null;
+            this.pivotCenter = null;
+            this.originalPivot = null;
+            return;
+        }
         this.initialTransformBox = { ...this.transformBox };
 
         if (this.pivotCenter == null) {
@@ -159,7 +165,7 @@ class Transform extends Select {
     // Helper method to store original paths for transformation reference
     storeOriginalPaths() {
 
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             let path = svgpath.path;
             svgpath.originalPath = [];
@@ -378,11 +384,11 @@ class Transform extends Select {
                     : null;
 
                 svgpaths.forEach(path => {
-                    if (selectMgr.isSelected(path)) {
+                    if (selectMgr.isSelected(path) && !this.isPathLocked(path)) {
                         path.bbox = boundingBox(path.path);
                     }
                 });
-                this.transformBox = this.createTransformBox(svgpaths);
+                this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
                 this.updatePivotAfterTransform(prevCenter);
 
                 this.dragStartX = mouseWorld.x;
@@ -413,9 +419,9 @@ class Transform extends Select {
                     const prevCenter = this.transformBox ?
                         { x: this.transformBox.centerX, y: this.transformBox.centerY } : null;
                     svgpaths.forEach(p => {
-                        if (selectMgr.isSelected(p)) p.bbox = boundingBox(p.path);
+                        if (selectMgr.isSelected(p) && !this.isPathLocked(p)) p.bbox = boundingBox(p.path);
                     });
-                    this.transformBox = this.createTransformBox(svgpaths);
+                    this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
                     // Move pivot and originalPivot to follow the shape
                     if (prevCenter && this.pivotCenter) {
                         const dx = this.transformBox.centerX - prevCenter.x;
@@ -528,7 +534,7 @@ class Transform extends Select {
         this.scaleX = scaleX;
         this.scaleY = scaleY;
         this.scale(scaleX, scaleY);
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
         this.updateCenterDisplay();
     }
 
@@ -560,7 +566,7 @@ class Transform extends Select {
         this.rotation = snappedAngleDeg - this.totalRotation;
 
         this.rotate(this.rotation);
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
         this.updateCenterDisplay();
     }
 
@@ -593,7 +599,7 @@ class Transform extends Select {
         }
 
         this.skew(this.skewX, this.skewY);
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
         this.updateCenterDisplay();
     }
 
@@ -622,7 +628,7 @@ class Transform extends Select {
 
         const cx = this.initialTransformBox.centerX;
         const cy = this.initialTransformBox.centerY;
-        selectMgr.selectedPaths().forEach(path => {
+        this.getTransformSelectedPaths(true).forEach(path => {
             if (path.creationProperties) {
                 if (!path.transformHistory) path.transformHistory = [];
                 path.transformHistory.push({
@@ -636,6 +642,15 @@ class Transform extends Select {
                 });
             }
         });
+    }
+
+    getTransformSelectedPaths(editableOnly = false) {
+        const selectedPaths = selectMgr.selectedPaths();
+        if (!editableOnly) {
+            return selectedPaths;
+        }
+
+        return selectedPaths.filter(path => !this.isPathLocked(path));
     }
 
     isEditableShapePath(path) {
@@ -714,7 +729,7 @@ class Transform extends Select {
             return;
         }
 
-        selectMgr.selectedPaths().forEach(path => {
+        this.getTransformSelectedPaths(true).forEach(path => {
             if (!this.isEditableShapePath(path)) {
                 return;
             }
@@ -858,7 +873,7 @@ class Transform extends Select {
         if (this.hasSelectedPaths()) {
             // Update bboxes for all selected paths
             svgpaths.forEach(path => {
-                if (selectMgr.isSelected(path)) {
+                if (selectMgr.isSelected(path) && !this.isPathLocked(path)) {
                     path.bbox = boundingBox(path.path);
                 }
             });
@@ -866,11 +881,11 @@ class Transform extends Select {
             const prevCenter = this.transformBox ?
                 { x: this.transformBox.centerX, y: this.transformBox.centerY } : null;
 
-            this.transformBox = this.createTransformBox(svgpaths);
+            this.transformBox = this.createTransformBox(this.getTransformSelectedPaths(true));
             this.initialTransformBox = { ...this.transformBox };
 
             if (Transform.state == Transform.DRAGGING) {
-                selectMgr.selectedPaths().forEach(path => {
+                this.getTransformSelectedPaths(true).forEach(path => {
                     this.syncImportedSvgMetadataFromCurrentGeometry(path);
                 });
             }
@@ -891,11 +906,11 @@ class Transform extends Select {
             }
 
             if (wasTransforming) {
-                onPathsChanged(selectMgr.selectedPaths().map(p => p.id));
+                onPathsChanged(this.getTransformSelectedPaths(true).map(p => p.id));
             }
 
             if (wasTransforming) {
-                const selectedPaths = selectMgr.selectedPaths();
+                const selectedPaths = this.getTransformSelectedPaths(true);
                 selectedPaths.forEach(path => {
                     if (path.toolpathProperties && typeof scheduleShapeMachiningToolpathSync === 'function') {
                         scheduleShapeMachiningToolpathSync(path, { createIfMissing: true });
@@ -927,7 +942,7 @@ class Transform extends Select {
     }
 
     center() {
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(path => {
             const originalPath = path.originalPath;
             if (originalPath) {
@@ -947,7 +962,7 @@ class Transform extends Select {
         const cx = this.initialTransformBox.centerX;
         const cy = this.initialTransformBox.centerY;
 
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             const path = svgpath.originalPath;
             if (path) {
@@ -989,7 +1004,7 @@ class Transform extends Select {
         const tanX = Math.tan(-skewXDeg * Math.PI / 180);
         const tanY = Math.tan(skewYDeg * Math.PI / 180);
 
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             const path = svgpath.originalPath;
             if (path) {
@@ -1028,7 +1043,7 @@ class Transform extends Select {
         const px = this.pivotCenter.x;
         const py = this.pivotCenter.y;
 
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             const path = svgpath.originalPath;
             if (path) {
@@ -1067,7 +1082,7 @@ class Transform extends Select {
     mirrorX() {
         const { centerX, centerY } = this.transformBox;
         const cx = 2 * centerX;
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             let path = svgpath.path;
             for (let i = 0; i < path.length; i++) {
@@ -1104,7 +1119,7 @@ class Transform extends Select {
     mirrorY() {
         const { centerX, centerY } = this.transformBox;
         const cy = 2 * centerY;
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(svgpath => {
             let path = svgpath.path;
             for (let i = 0; i < path.length; i++) {
@@ -1141,21 +1156,28 @@ class Transform extends Select {
 
 
     hasSelectedPaths() {
-        return !selectMgr.noSelection();
+        return this.getTransformSelectedPaths(true).length > 0;
+    }
+
+    translateSelected(dx, dy) {
+        this.getTransformSelectedPaths(true).forEach(svgpath => this.translate(svgpath, dx, dy));
     }
 
     createTransformBox(paths) {
+        if (!Array.isArray(paths) || paths.length === 0) {
+            return null;
+        }
+
         let minX = Infinity, minY = Infinity;
         let maxX = -Infinity, maxY = -Infinity;
 
-        // Calculate bounding box for all selected paths
+        // Calculate bounding box for the provided paths
         paths.forEach(path => {
-            if (selectMgr.isSelected(path)) {
-                minX = Math.min(minX, path.bbox.minx);
-                minY = Math.min(minY, path.bbox.miny);
-                maxX = Math.max(maxX, path.bbox.maxx);
-                maxY = Math.max(maxY, path.bbox.maxy);
-            }
+            if (!path?.bbox) return;
+            minX = Math.min(minX, path.bbox.minx);
+            minY = Math.min(minY, path.bbox.miny);
+            maxX = Math.max(maxX, path.bbox.maxx);
+            maxY = Math.max(maxY, path.bbox.maxy);
         });
 
         if (minX === Infinity) return null; // No selected paths
@@ -1471,7 +1493,7 @@ class Transform extends Select {
     }
 
     getAlignmentPanelHTML() {
-        const canAlignSelection = selectMgr.selectedPaths().length >= 1;
+        const canAlignSelection = this.getTransformSelectedPaths(true).length >= 1;
         const disabledAttr = canAlignSelection ? '' : ' disabled';
 
         const button = (alignment, label, icon) => `
@@ -1526,7 +1548,7 @@ class Transform extends Select {
             return;
         }
 
-        const selectedPaths = selectMgr.selectedPaths();
+        const selectedPaths = this.getTransformSelectedPaths(true);
         if (selectedPaths.length < 1) {
             return;
         }
@@ -1536,7 +1558,7 @@ class Transform extends Select {
             return;
         }
 
-        const selectionBounds = this.createTransformBox(svgpaths);
+        const selectionBounds = this.createTransformBox(selectedPaths);
         if (!selectionBounds) {
             return;
         }
@@ -1577,7 +1599,7 @@ class Transform extends Select {
             ? { x: this.transformBox.centerX, y: this.transformBox.centerY }
             : null;
 
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(selectedPaths);
         this.initialTransformBox = this.transformBox ? { ...this.transformBox } : null;
         this.storeOriginalPaths();
         this.updatePivotAfterTransform(previousCenter);
@@ -1773,7 +1795,7 @@ class Transform extends Select {
             this.applyTransformFromProperties();
             this.updateCenterDisplay();
 
-            const selectedPaths = selectMgr.selectedPaths();
+            const selectedPaths = this.getTransformSelectedPaths(true);
             const changedIds = selectedPaths.map(path => path.id).filter(id => id != null);
 
             if (changedIds.length > 0 && typeof onPathsChanged === 'function') {
@@ -1820,7 +1842,7 @@ class Transform extends Select {
         if (!this.initialTransformBox) return;
 
         // Apply transformation to all selected paths
-        let selected = selectMgr.selectedPaths();
+        let selected = this.getTransformSelectedPaths(true);
         selected.forEach(path => {
 
             const originalPath = path.originalPath;
@@ -1922,7 +1944,7 @@ class Transform extends Select {
 
         this.bakeShapeTransformMetadata();
 
-        this.transformBox = this.createTransformBox(svgpaths);
+        this.transformBox = this.createTransformBox(selected);
         this.initialTransformBox = { ...this.transformBox };
         this.storeOriginalPaths();
 

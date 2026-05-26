@@ -538,9 +538,16 @@ class Select extends Operation {
             || path.creationTool === 'ImportedSVG'
             || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         ));
+        const editableShapePaths = selectedShapePaths.filter(path => !this.isPathLocked(path));
 
-        if (isOnDrawTab && selectedShapePaths.length > 1 && typeof showShapeGroupPropertiesEditor === 'function') {
-            showShapeGroupPropertiesEditor(selectedShapePaths);
+        if (isOnDrawTab && editableShapePaths.length > 1 && typeof showShapeGroupPropertiesEditor === 'function') {
+            showShapeGroupPropertiesEditor(editableShapePaths);
+            redraw();
+            return;
+        }
+
+        if (isOnDrawTab && selectedShapePaths.length > 1 && editableShapePaths.length === 1 && typeof openPathEditor === 'function') {
+            openPathEditor(editableShapePaths[0]);
             redraw();
             return;
         }
