@@ -1873,6 +1873,33 @@ function getUnifiedToolpathSourceIds(toolpath) {
     return sourceIds.slice().sort();
 }
 
+function getSelectionAlignmentPanelHTML() {
+    const transformOperation = window.cncController?.operationManager?.getOperation('Move');
+    if (!transformOperation || typeof transformOperation.getAlignmentPanelHTML !== 'function') {
+        return '';
+    }
+
+    return transformOperation.getAlignmentPanelHTML();
+}
+
+function prependSelectionAlignmentPanel(content = '') {
+    const panelHtml = getSelectionAlignmentPanelHTML();
+    if (!panelHtml) {
+        return content || '';
+    }
+
+    return panelHtml + (content || '');
+}
+
+function bindSelectionAlignmentPanel(container) {
+    const transformOperation = window.cncController?.operationManager?.getOperation('Move');
+    if (!container || !transformOperation || typeof transformOperation.bindPropertiesUI !== 'function') {
+        return;
+    }
+
+    transformOperation.bindPropertiesUI(container);
+}
+
 function buildShapeCutPopupHTML(shapeOperation, path, operationName) {
     const toolpathProperties = window.toolPathProperties;
     const cutHtml = toolpathProperties.getPropertiesHTML(operationName, path?.toolpathProperties || null, {
@@ -1895,7 +1922,7 @@ function buildShapeCutPopupHTML(shapeOperation, path, operationName) {
                 <div class="tab-content shape-cut-tab-content">
                     <div class="tab-pane fade show active" id="shape-cut-panel-shape" role="tabpanel" aria-labelledby="shape-cut-tab-shape">
                         <div id="shape-properties-panel">
-                            ${shapeOperation.renderGeometryFields(getPopupEditableProperties(shapeOperation, path))}
+                            ${prependSelectionAlignmentPanel(shapeOperation.renderGeometryFields(getPopupEditableProperties(shapeOperation, path)))}
                         </div>
                     </div>
                     <div class="tab-pane fade" id="shape-cut-panel-cut" role="tabpanel" aria-labelledby="shape-cut-tab-cut">
@@ -1939,7 +1966,7 @@ function buildShapeGroupPopupHTML(transformOperation, paths, operationName, opti
                 <div class="tab-content shape-cut-tab-content">
                     <div class="tab-pane fade show active" id="shape-cut-panel-shape" role="tabpanel" aria-labelledby="shape-cut-tab-shape">
                         <div id="shape-group-transform-panel">
-                            ${transformMeta.cleanedHtml || ''}
+                            ${prependSelectionAlignmentPanel(transformMeta.cleanedHtml || '')}
                         </div>
                     </div>
                     <div class="tab-pane fade" id="shape-cut-panel-cut" role="tabpanel" aria-labelledby="shape-cut-tab-cut">
@@ -1972,6 +1999,8 @@ function getShapeCutOperationName(path, shapeOperation) {
 function bindShapeCutPopup(path, shapeOperation, operationName) {
     const form = document.getElementById('tool-properties-form');
     if (!form) return;
+
+    bindSelectionAlignmentPanel(form);
 
     if (typeof shapeOperation.bindPropertiesUI === 'function') {
         const shapePanel = form.querySelector('#shape-properties-panel') || form;
@@ -2016,6 +2045,8 @@ function bindShapeCutPopup(path, shapeOperation, operationName) {
 function bindShapeGroupPopup(paths, transformOperation, operationName) {
     const form = document.getElementById('tool-properties-form');
     if (!form) return;
+
+    bindSelectionAlignmentPanel(form);
 
     form.querySelectorAll('#shape-group-transform-panel input, #shape-group-transform-panel select, #shape-group-transform-panel textarea').forEach(input => {
         function handleTransformChange() {
@@ -2226,11 +2257,12 @@ function showToolPropertiesEditor(operationName) {
                 operation.properties = { ...operation.properties, ...saved };
         }
         const propertiesMeta = extractPropertiesPanelMeta(operation.getPropertiesHTML());
-        form.innerHTML = propertiesMeta.cleanedHtml || '';
+        form.innerHTML = prependSelectionAlignmentPanel(propertiesMeta.cleanedHtml || '');
 
         if (operation && typeof operation.bindPropertiesUI === 'function') {
             operation.bindPropertiesUI(form);
         }
+        bindSelectionAlignmentPanel(form);
 
         // Add event listeners directly to input elements
         const inputs = form.querySelectorAll('input, select, textarea');
@@ -2809,10 +2841,12 @@ function showOperationPropertiesEditor(operationName) {
         const propertiesMeta = extractPropertiesPanelMeta(window.toolPathProperties.getPropertiesHTML(operationName, null, {
             showUpdateButton: hasAssociatedShape
         }));
-        form.innerHTML = propertiesMeta.cleanedHtml || '';
+        form.innerHTML = prependSelectionAlignmentPanel(propertiesMeta.cleanedHtml || '');
  
         // Store the active operation name for path selection handler
         window.activeToolpathOperation = operationName;
+
+        bindSelectionAlignmentPanel(form);
 
         if (hasAssociatedShape) {
             setActiveToolpaths(existingToolpaths);
@@ -2848,11 +2882,12 @@ function showOperationPropertiesEditor(operationName) {
                     operation.properties = { ...operation.properties, ...saved };
             }
             const propertiesMeta = extractPropertiesPanelMeta(operation.getPropertiesHTML());
-            form.innerHTML = propertiesMeta.cleanedHtml || '';
+            form.innerHTML = prependSelectionAlignmentPanel(propertiesMeta.cleanedHtml || '');
 
             if (operation && typeof operation.bindPropertiesUI === 'function') {
                 operation.bindPropertiesUI(form);
             }
+            bindSelectionAlignmentPanel(form);
 
             // Add event listeners directly to input elements
             const inputs = form.querySelectorAll('input, select, textarea');
@@ -3516,7 +3551,7 @@ function showPathPropertiesEditor(path) {
         if (operation?.icon && !propertiesMeta.titleHtml.includes('data-lucide=')) {
             propertiesMeta.titleHtml = `<i data-lucide="${operation.icon}"></i> ${propertiesMeta.titleHtml}`;
         }
-        form.innerHTML = propertiesMeta.cleanedHtml || '';
+        form.innerHTML = prependSelectionAlignmentPanel(propertiesMeta.cleanedHtml || '');
         
         if (operation && typeof operation.update === 'function') {
             operation.update(path);
@@ -3525,12 +3560,14 @@ function showPathPropertiesEditor(path) {
         if (operation && typeof operation.bindPropertiesUI === 'function') {
             operation.bindPropertiesUI(form);
         }
+        bindSelectionAlignmentPanel(form);
         // Set the edit context before getting properties HTML
 
     } else {
         // Fallback for operations without properties
-        propertiesHTML = '<p class="text-muted">No editable properties available for this path.</p>';
+        propertiesHTML = prependSelectionAlignmentPanel('<p class="text-muted">No editable properties available for this path.</p>');
         form.innerHTML = propertiesHTML;
+        bindSelectionAlignmentPanel(form);
     }
 
     setFloatingPropertiesPopupContext({ type: 'shape', id: path.id, operationName: path.creationTool });

@@ -1456,6 +1456,214 @@ class Transform extends Select {
         return null;
     }
 
+    bindPropertiesUI(container) {
+        if (!container) return;
+
+        container.querySelectorAll('[data-align-selection]').forEach(button => {
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                const alignment = button.dataset.alignSelection;
+                if (alignment) {
+                    this.alignSelectedPaths(alignment);
+                }
+            });
+        });
+    }
+
+    getAlignmentPanelHTML() {
+        const canAlignSelection = selectMgr.selectedPaths().length >= 1;
+        const disabledAttr = canAlignSelection ? '' : ' disabled';
+
+        const button = (alignment, label, icon) => `
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm d-flex align-items-center justify-content-center"
+                    data-align-selection="${alignment}"
+                    aria-label="${label}"
+                    title="${label}"
+                    style="padding: 0.2rem 0.35rem; min-width: 28px; min-height: 26px;"${disabledAttr}>
+                <i data-lucide="${icon}" style="width: 12px; height: 12px;"></i>
+            </button>`;
+
+        return `
+            <div class="mb-3">
+                <label class="form-label small d-block text-center"><strong>Alignment</strong></label>
+                <div class="d-grid gap-1">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Horizontal alignment">
+                        ${button('left', 'Left', 'align-horizontal-justify-start')}
+                        ${button('center', 'Center', 'align-horizontal-justify-center')}
+                        ${button('right', 'Right', 'align-horizontal-justify-end')}
+                    </div>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Vertical alignment">
+                        ${button('top', 'Top', 'align-vertical-justify-start')}
+                        ${button('middle', 'Middle', 'align-vertical-justify-center')}
+                        ${button('bottom', 'Bottom', 'align-vertical-justify-end')}
+                    </div>
+                </div>
+                ${canAlignSelection ? '' : '<div class="form-text text-center">Select at least 1 shape to enable alignment.</div>'}
+            </div>`;
+    }
+
+    getWorkpieceAlignmentBounds() {
+        const width = (Number(getOption('workpieceWidth')) || 0) * viewScale;
+        const height = (Number(getOption('workpieceLength')) || 0) * viewScale;
+
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+
+        return {
+            minx: 0,
+            miny: 0,
+            maxx: width,
+            maxy: height,
+            centerX: width / 2,
+            centerY: height / 2
+        };
+    }
+
+    alignSelectedPaths(alignment) {
+        if (!this.hasSelectedPaths()) {
+            return;
+        }
+
+        const selectedPaths = selectMgr.selectedPaths();
+        if (selectedPaths.length < 1) {
+            return;
+        }
+
+        const workpieceBounds = this.getWorkpieceAlignmentBounds();
+        if (!workpieceBounds) {
+            return;
+        }
+
+        const selectionBounds = this.createTransformBox(svgpaths);
+        if (!selectionBounds) {
+            return;
+        }
+
+        let dx = 0;
+        let dy = 0;
+
+        if (alignment === 'left') {
+            dx = workpieceBounds.minx - selectionBounds.minx;
+        } else if (alignment === 'center') {
+            dx = workpieceBounds.centerX - selectionBounds.centerX;
+        } else if (alignment === 'right') {
+            dx = workpieceBounds.maxx - selectionBounds.maxx;
+        } else if (alignment === 'top') {
+            dy = workpieceBounds.miny - selectionBounds.miny;
+        } else if (alignment === 'middle') {
+            dy = workpieceBounds.centerY - selectionBounds.centerY;
+        } else if (alignment === 'bottom') {
+            dy = workpieceBounds.maxy - selectionBounds.maxy;
+        }
+
+        if (dx === 0 && dy === 0) {
+            return;
+        }
+
+        addUndo(false, true, false);
+
+        selectedPaths.forEach(path => {
+            if (!path) {
+                return;
+            }
+
+            this.translate(path, dx, dy);
+            this.syncPathMetadataAfterTranslation(path, dx, dy);
+        });
+
+        const previousCenter = this.transformBox
+            ? { x: this.transformBox.centerX, y: this.transformBox.centerY }
+            : null;
+
+        this.transformBox = this.createTransformBox(svgpaths);
+        this.initialTransformBox = this.transformBox ? { ...this.transformBox } : null;
+        this.storeOriginalPaths();
+        this.updatePivotAfterTransform(previousCenter);
+        this.resetTransformState();
+        this.updateCenterDisplay();
+
+        const changedIds = selectedPaths.map(path => path.id).filter(id => id != null);
+        if (changedIds.length > 0 && typeof onPathsChanged === 'function') {
+            onPathsChanged(changedIds);
+        }
+
+        selectedPaths.forEach(path => {
+            if (path?.toolpathProperties && typeof scheduleShapeMachiningToolpathSync === 'function') {
+                scheduleShapeMachiningToolpathSync(path, { createIfMissing: true, delay: 0 });
+            }
+        });
+
+        redraw();
+    }
+
+    syncPathMetadataAfterTranslation(path, dx, dy) {
+        if (!path) {
+            return;
+        }
+
+        if (path.creationTool === 'ImportedSVG') {
+            this.syncImportedSvgMetadataFromCurrentGeometry(path);
+            if (typeof addOrReplaceSvgPath === 'function') {
+                addOrReplaceSvgPath(path.id, path.id, path.name);
+            }
+            return;
+        }
+
+        const operation = path.creationTool
+            ? window.cncController?.operationManager?.getOperation(path.creationTool)
+            : null;
+
+        if (operation && typeof operation.getPathShapeProperties === 'function') {
+            if (typeof operation.syncMetadataFromPath === 'function') {
+                operation.syncMetadataFromPath(path);
+            }
+
+            const properties = operation.getPathShapeProperties(path);
+            const center = path?.creationProperties?.center || {
+                x: (path.bbox.minx + path.bbox.maxx) / 2,
+                y: (path.bbox.miny + path.bbox.maxy) / 2
+            };
+            const nextCenter = {
+                x: center.x + dx,
+                y: center.y + dy
+            };
+            const nextProperties = {
+                ...properties,
+                x: operation.toExternal ? operation.toExternal(nextCenter.x) : properties.x,
+                y: operation.toExternal ? operation.toExternal(nextCenter.y) : properties.y
+            };
+
+            path.creationProperties = {
+                ...path.creationProperties,
+                center: nextCenter,
+                properties: typeof operation.buildStoredProperties === 'function'
+                    ? operation.buildStoredProperties(nextProperties)
+                    : {
+                        ...(path.creationProperties?.properties || {}),
+                        ...nextProperties
+                    }
+            };
+            return;
+        }
+
+        if (operation && typeof operation.getPathTextProperties === 'function') {
+            const bbox = path.bbox || (path.path ? boundingBox(path.path) : null);
+            if (!bbox) {
+                return;
+            }
+
+            path.creationProperties = {
+                ...path.creationProperties,
+                center: {
+                    x: (bbox.minx + bbox.maxx) / 2,
+                    y: (bbox.miny + bbox.maxy) / 2
+                }
+            };
+        }
+    }
+
     // Properties Editor Interface
     getPropertiesHTML() {
         const hasSelectedPaths = this.hasSelectedPaths();
