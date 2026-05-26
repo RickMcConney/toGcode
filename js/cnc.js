@@ -948,6 +948,10 @@ function doEditPoints() {
 	cncController.setMode("Edit");
 }
 
+function doLine() {
+	cncController.setMode("Line");
+}
+
 function doBoolean() {
 	cncController.setMode("Boolean");
 }

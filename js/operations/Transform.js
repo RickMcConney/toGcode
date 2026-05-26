@@ -576,6 +576,7 @@ class Transform extends Select {
     isEditableShapePath(path) {
         return !!(path && path.creationProperties && (
             path.creationTool === 'Shape'
+            || path.creationTool === 'Line'
             || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         ));
     }
@@ -677,6 +678,26 @@ class Transform extends Select {
                 height: Math.max(0, Number(properties.height) * Math.abs(snapshot.scaleY)),
                 angle: nextAngle < 0 ? nextAngle + 360 : nextAngle
             };
+
+            if (path.creationTool === 'Line') {
+                const scaledLength = Math.max(0, Number(properties.length) * Math.abs(snapshot.scaleX));
+                const storedProperties = {
+                    x: operation.toExternal ? operation.toExternal(nextCenter.x) : properties.x,
+                    y: operation.toExternal ? operation.toExternal(nextCenter.y) : properties.y,
+                    length: scaledLength,
+                    angle: nextAngle < 0 ? nextAngle + 360 : nextAngle,
+                    lockObject: properties.lockObject,
+                    name: properties.name
+                };
+
+                path.creationProperties = {
+                    ...path.creationProperties,
+                    center: nextCenter,
+                    properties: storedProperties
+                };
+                delete path.transformHistory;
+                return;
+            }
 
             path.creationProperties = {
                 ...path.creationProperties,

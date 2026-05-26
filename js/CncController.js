@@ -18,6 +18,7 @@ class CncController {
     this.operationManager.registerOperation(new Text());
     this.operationManager.registerOperation(new Transform());
     this.operationManager.registerOperation(new PathEdit());
+    this.operationManager.registerOperation(new Line());
     this.operationManager.registerOperation(new BooleanOpp());
     this.operationManager.registerOperation(new OffsetOpp());
     this.operationManager.registerOperation(new PatternOpp());
@@ -86,7 +87,7 @@ class CncController {
       }
 
       const isShapeTool = (window.SHAPE_TOOL_NAMES || []).includes(clickedPath.creationTool);
-      if (clickedPath.creationTool === 'Shape' || isShapeTool || clickedPath.creationTool === 'Offset' || clickedPath.creationTool === 'Pattern') {
+      if (clickedPath.creationTool === 'Shape' || isShapeTool || clickedPath.creationTool === 'Offset' || clickedPath.creationTool === 'Pattern' || clickedPath.creationTool === 'Line') {
         selectMgr.unselectAll();
         selectMgr.selectPath(clickedPath);
         handlePathClick(clickedPath.id);

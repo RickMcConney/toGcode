@@ -29,6 +29,7 @@ class OperationManager {
     const CURSOR_MAP = {
       Pan: 'grab', Origin: 'grab',
       Move: 'move',
+      Line: 'crosshair',
       Pen: 'crosshair',
       Text: 'text'
     };

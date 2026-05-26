@@ -475,6 +475,7 @@ class Select extends Operation {
 
             const isShapePath = path && path.creationProperties
                 && (path.creationTool === 'Shape'
+                    || path.creationTool === 'Line'
                     || path.creationTool === 'Text'
                     || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool));
             if (isShapePath && !evt.shiftKey) {
@@ -532,6 +533,7 @@ class Select extends Operation {
         const selectedPaths = this.selectedPaths();
         const selectedShapePaths = selectedPaths.filter(path => path && path.creationProperties && (
             path.creationTool === 'Shape'
+            || path.creationTool === 'Line'
             || path.creationTool === 'Text'
             || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         ));
@@ -553,6 +555,7 @@ class Select extends Operation {
         if (pathToShow) {
             const currentOp = window.cncController.operationManager.currentOperation.name;
             const isShapePath = pathToShow.creationTool === 'Shape'
+                || pathToShow.creationTool === 'Line'
                 || pathToShow.creationTool === 'Text'
                 || (window.SHAPE_TOOL_NAMES || []).includes(pathToShow.creationTool);
             if (isOnDrawTab && !isShapePath && currentOp !== 'Move' && currentOp !== 'Boolean' && currentOp !== 'Offset' && currentOp !== 'Pattern') {

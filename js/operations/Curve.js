@@ -793,6 +793,16 @@ class Curve extends Operation {
         redraw();
     }
 
+    setEditPath(path) {
+        if (!path || path.creationTool !== this.name) {
+            this.editPath = null;
+            redraw();
+            return;
+        }
+
+        this.enterEditMode(path);
+    }
+
     _saveAndEnterEdit(svgPath) {
         svgpaths.push(svgPath);
         addSvgPath(svgPath.id, svgPath.name);

@@ -990,6 +990,7 @@ function getObjectTypeLabel(path) {
     if (path.creationTool === 'Pattern') return 'Pattern';
     if (path.creationTool === 'Offset') return 'Offset';
     if (path.creationTool === 'Curve') return 'Curve';
+	if (path.creationTool === 'Line') return 'Line';
     if (path.creationTool === 'Pen') return 'Pen';
     if (path.svgGroupId) return 'Imported SVG';
     return 'Shape';
@@ -1434,10 +1435,15 @@ function setupSidebarEventHandlers(sidebar) {
         }
 
         if (operation) {
-            const isDrawTool = ['Select', 'Move', 'Edit', 'Shape', 'Text', 'Boolean', 'Tabs', 'Offset', 'Pattern', 'Measure', ...(window.SHAPE_TOOL_NAMES || [])].includes(operation);
+            const isDrawTool = ['Select', 'Move', 'Edit', 'Line', 'Shape', 'Text', 'Boolean', 'Tabs', 'Offset', 'Pattern', 'Measure', ...(window.SHAPE_TOOL_NAMES || [])].includes(operation);
 
             if (item.dataset.autoCreateText === 'true') {
                 createTextWithModal();
+                return;
+            }
+
+            if (item.dataset.autoCreateLine === 'true') {
+                createLineAtCanvasCenter();
                 return;
             }
 
@@ -1797,6 +1803,19 @@ function createTextWithModal() {
     }
 }
 
+function createLineAtCanvasCenter() {
+    const lineOperation = window.cncController?.operationManager?.getOperation('Line');
+    if (!lineOperation || typeof lineOperation.createAtCanvasCenter !== 'function') {
+        return null;
+    }
+
+    const createdPath = lineOperation.createAtCanvasCenter();
+    if (!createdPath) return null;
+
+    openPathEditor(createdPath);
+    return createdPath;
+}
+
 function getPopupEditableProperties(operation, path) {
     if (!operation || !path) return null;
     if (typeof operation.getPathShapeProperties === 'function') {
@@ -1812,6 +1831,7 @@ function isShapeEditorPath(path) {
     return !!(path && path.creationProperties && (
         path.creationTool === 'Text'
         || path.creationTool === 'Shape'
+        || path.creationTool === 'Line'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
     ));
 }
@@ -1854,6 +1874,7 @@ function getUnifiedToolpathSourceIds(toolpath) {
 function buildShapeCutPopupHTML(shapeOperation, path, operationName) {
     const toolpathProperties = window.toolPathProperties;
     const cutHtml = toolpathProperties.getPropertiesHTML(operationName, path?.toolpathProperties || null, {
+        sourcePath: path,
         showUpdateButton: false
     });
     const cutMeta = extractPropertiesPanelMeta(cutHtml);
@@ -1934,6 +1955,9 @@ function getShapeCutOperationName(path, shapeOperation) {
     if (path?.creationTool === 'Text' || shapeOperation?.name === 'Text') {
         return 'Profile';
     }
+	if (path?.creationTool === 'Line' || shapeOperation?.name === 'Line') {
+		return 'Profile';
+	}
     const shapeType = path?.creationProperties?.shape || shapeOperation?.fixedShape || null;
     return shapeType === 'DrillShape' ? 'Drill' : 'Profile';
 }
@@ -3426,6 +3450,7 @@ function showPathPropertiesEditor(path) {
 
     const isShapePath = path.creationTool === 'Shape'
         || path.creationTool === 'Text'
+        || path.creationTool === 'Line'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool);
     const shapeCutOperationName = getShapeCutOperationName(path, operation);
 
@@ -3517,7 +3542,7 @@ function updateExistingPath(path, form, changedKey = null) {
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
     const data = collectOperationProperties(operation);
 
-    if (path.creationTool === 'Text' || path.creationTool === 'Shape' || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)) {
+    if (path.creationTool === 'Text' || path.creationTool === 'Shape' || path.creationTool === 'Line' || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)) {
         // For shapes, update in place
         updateShapeInPlace(path, data, changedKey);
     }
@@ -4059,6 +4084,9 @@ function handleOperationClick(operation) {
         case 'Edit':
             doEditPoints();
             break;
+        case 'Line':
+            doLine();
+            break;
         case 'Boolean':
             doBoolean();
             cncController.setMode("Select");
@@ -4139,6 +4167,7 @@ function canEditCreatedPath(path) {
 
     return path.creationTool === 'Text'
         || path.creationTool === 'Shape'
+        || path.creationTool === 'Line'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         || path.creationTool === 'Offset'
         || path.creationTool === 'Pattern';
@@ -4779,6 +4808,10 @@ function addOperation(name, icon, tooltip, displayName = name) {
             item.dataset.autoCreateShape = 'true';
         }
 
+        if (name === 'Line') {
+            item.dataset.autoCreateLine = 'true';
+        }
+
         if (name === 'Text') {
             item.dataset.autoCreateText = 'true';
         }
@@ -4822,6 +4855,7 @@ function getIconForPath(sp) {
     if (sp.creationTool === 'Offset') return 'fullscreen';
     if (sp.creationTool === 'Pattern') return 'grid-3x3';
     if (sp.creationTool === 'Curve') return 'spline';
+	if (sp.creationTool === 'Line') return 'minus';
     if (sp.creationTool === 'Pen') return 'pen-tool';
     return getPathIcon(sp.name);
 }

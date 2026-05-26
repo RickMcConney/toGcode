@@ -82,6 +82,17 @@ class ToolPathProperties {
         return this._operationMeta[operationName] || null;
     }
 
+    _getOperationTypeOptions(operationName, options = {}) {
+        const meta = this.getMeta(operationName);
+        const baseOptions = meta?.operationTypeOptions || [];
+
+        if (options?.sourcePath?.creationTool === 'Line' && operationName === 'Profile') {
+            return baseOptions.filter(option => option.value === 'none' || option.value === 'center');
+        }
+
+        return baseOptions;
+    }
+
     getCompatibleTools(operationName) {
         const compatibleBits = this._operationMeta[operationName]?.compatibleBits || [];
         return (window.tools || []).filter(tool => compatibleBits.includes(tool.bit));
@@ -148,12 +159,13 @@ class ToolPathProperties {
         PropertiesManager.save(`${operationName}.cutSettings`, values, this.getAdvancedFields(operationName));
     }
 
-    getFields(operationName, values = null) {
+    getFields(operationName, values = null, options = {}) {
         const meta = this.getMeta(operationName);
         const defaults = this.getDefaults(operationName);
         const thickness = this._getWorkpieceThickness();
         const useInches = typeof getOption === 'function' ? !!getOption('Inches') : false;
         const mmPerUnit = useInches ? 25.4 : 1;
+        const operationTypeOptions = this._getOperationTypeOptions(operationName, options);
         const sliderMax = thickness / mmPerUnit;
         const depthDisplayValue = Math.max(0, Number(values?.depth ?? defaults.depth) || 0)
             + Math.max(0, Number(values?.extraDepth ?? defaults.extraDepth) || 0);
@@ -167,7 +179,7 @@ class ToolPathProperties {
                 label: 'Cut path',
                 type: 'choice',
                 default: defaults.operationType,
-                options: meta?.operationTypeOptions || []
+                options: operationTypeOptions
             },
             {
                 key: 'depth',
@@ -474,11 +486,16 @@ class ToolPathProperties {
             }
         }
 
+        const allowedOperationTypes = this._getOperationTypeOptions(operationName, options).map(option => option.value);
+        if (allowedOperationTypes.length > 0 && !allowedOperationTypes.includes(values.operationType)) {
+            values.operationType = allowedOperationTypes.includes('center') ? 'center' : allowedOperationTypes[0];
+        }
+
         return `
             <div class="alert alert-info mb-3">
                 <strong>${meta.label}</strong><br>${meta.description}
             </div>
-            ${PropertiesManager.formHTML(this.getFields(operationName, values), values, defaults)}`;
+            ${PropertiesManager.formHTML(this.getFields(operationName, values, options), values, defaults)}`;
     }
 
     _postProcessorFields() {
