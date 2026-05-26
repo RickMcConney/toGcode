@@ -5,3 +5,4 @@ fonts/.DS_Store
 js/.DS_Store
 js/wishList.txt
 svg
+node_modules/

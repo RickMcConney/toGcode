@@ -116,7 +116,7 @@ class ToolPathProperties {
         const compatibleToolId = this._getSafeDefaultToolId(operationName);
         const saved = PropertiesManager.loadSaved(`${operationName}.cutSettings`);
         return {
-            tool: compatibleToolId,
+            //tool: compatibleToolId,
             direction: this._advancedDefaults.direction,
             plunge: this._advancedDefaults.plunge,
             strategy: this._advancedDefaults.strategy,

@@ -490,7 +490,7 @@ function resolvePrepared3DGcodeRefresh(result) {
 
 function getPreparedGcodePreprocessWorker() {
   if (!prepared3DGcodePreprocessWorker) {
-    prepared3DGcodePreprocessWorker = new Worker(GCODE_PREPROCESS_WORKER_URL);
+		prepared3DGcodePreprocessWorker = new Worker(resolveAppWorkerUrl('GcodePreprocessorWorker', GCODE_PREPROCESS_WORKER_URL));
   }
 
   return prepared3DGcodePreprocessWorker;
@@ -3395,7 +3395,7 @@ class ToolpathAnimation {
 
   getGcodePreprocessWorker() {
     if (!this._gcodePreprocessWorker) {
-      this._gcodePreprocessWorker = new Worker(GCODE_PREPROCESS_WORKER_URL);
+		this._gcodePreprocessWorker = new Worker(resolveAppWorkerUrl('GcodePreprocessorWorker', GCODE_PREPROCESS_WORKER_URL));
     }
     return this._gcodePreprocessWorker;
   }

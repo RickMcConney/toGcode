@@ -50,6 +50,19 @@ const LOCAL_FONT_PREFIX = 'local-font:';
 const localFontRegistry = new Map();
 let localFontIdCounter = 1;
 
+function getEmbeddedFontBuffer(fontValue) {
+    if (typeof window === 'undefined' || !window.__APP_EMBEDDED_FONTS__) {
+        return null;
+    }
+
+    const base64 = window.__APP_EMBEDDED_FONTS__[fontValue];
+    if (!base64) {
+        return null;
+    }
+
+    return base64ToArrayBuffer(base64);
+}
+
 function getAvailableFonts() {
     const localFonts = Array.from(localFontRegistry.values()).map(entry => ({
         value: entry.id,

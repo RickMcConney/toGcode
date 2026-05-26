@@ -30,6 +30,17 @@ function screenToWorld(x, y) {
 	};
 }
 
+function resolveAppWorkerUrl(name, fallbackUrl) {
+	if (typeof window !== 'undefined' && typeof window.getAppWorkerUrl === 'function') {
+		const workerUrl = window.getAppWorkerUrl(name);
+		if (workerUrl) {
+			return workerUrl;
+		}
+	}
+
+	return fallbackUrl;
+}
+
 // ============================================================================
 // UNIT CONVERSION CONSTANTS & FUNCTIONS
 // ============================================================================

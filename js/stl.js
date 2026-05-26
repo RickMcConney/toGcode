@@ -4,8 +4,8 @@
  * Uses Three.js STLLoader for parsing binary and ASCII STL files.
  */
 
-import * as THREE from 'three';
-import { STLLoader } from 'three/addons/loaders/STLLoader';
+import * as THREE from './lib/three.module.js';
+import { STLLoader } from './lib/STLLoader.js';
 
 // Global state for STL models
 window.stlModels = window.stlModels || [];
@@ -1142,7 +1142,7 @@ window.do3dProfile = function() {
     if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
     if (typeof window.redraw === 'function') window.redraw();
 
-    const worker = new Worker('js/workers/3dProfileWorker.js');
+	const worker = new Worker(resolveAppWorkerUrl('Profile3DWorker', 'js/workers/3dProfileWorker.js'));
     registerGenerationWorker('profile3d', worker);
     console.log('3D ProfileWorker: queued', {
         pendingKey,

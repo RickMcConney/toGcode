@@ -2598,8 +2598,6 @@ function syncShapeMachiningToolpath(path, options = {}) {
                 return false;
             }
             makeHole({ x: shapeCenter.x, y: shapeCenter.y }, { svgId: primaryPath.id, svgIds: [primaryPath.id] });
-        } else if (executionOperation === 'VCarve') {
-            doVcarve({ silent: true });
         } else {
             doProfile({ silent: true });
         }
@@ -4174,15 +4172,8 @@ function handleOperationClick(operation) {
         case 'Move':
             doMove();
             break;
-        case 'Edit':
-            doEditPoints();
-            break;
         case 'Line':
             doLine();
-            break;
-        case 'Boolean':
-            doBoolean();
-            cncController.setMode("Select");
             break;
         case 'Shape':
             doShape('Shape');
@@ -4192,12 +4183,6 @@ function handleOperationClick(operation) {
             break;
         case 'Tabs':
             doTabEditor();
-            break;
-        case 'Offset':
-            doOffset();
-            break;
-        case 'Pattern':
-            doPattern();
             break;
         case 'Measure':
             doMeasure();
@@ -4213,35 +4198,6 @@ function handleOperationClick(operation) {
         case 'Pocket':
             beginUndoBatch();
             doPocket();
-            endUndoBatch();
-            selectMgr.unselectAll();
-            cncController.setMode("Select");
-            break;
-        case 'VCarve':
-            beginUndoBatch();
-            doVcarve();
-            endUndoBatch();
-            selectMgr.unselectAll();
-            cncController.setMode("Select");
-            break;
-        case 'Inlay':
-            beginUndoBatch();
-            doInlay();
-            endUndoBatch();
-            selectMgr.unselectAll();
-            cncController.setMode("Select");
-            break;
-        case 'Surfacing':
-            beginUndoBatch();
-            doSurfacing();
-            endUndoBatch();
-            cncController.setMode("Select");
-            break;
-        case '3dProfile':
-            beginUndoBatch();
-            if (typeof window.do3dProfile === 'function') {
-                window.do3dProfile();
-            }
             endUndoBatch();
             selectMgr.unselectAll();
             cncController.setMode("Select");

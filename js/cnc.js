@@ -850,7 +850,7 @@ function doProfile(options = {}) {
 	if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
 	redraw();
 
-	const worker = new Worker('js/workers/ProfileWorker.js');
+	const worker = new Worker(resolveAppWorkerUrl('ProfileWorker', 'js/workers/ProfileWorker.js'));
 	registerGenerationWorker('profile', worker);
 	if (!silent) {
 		notify('Generating profile paths…', 'info');
@@ -1070,7 +1070,7 @@ function doSurfacing() {
 
 	// Cache-bust the worker URL so browser-stale copies do not keep throwing
 	// outdated runtime errors after a local fix.
-	const worker = new Worker('js/workers/SurfacingWorker.js?v=' + Date.now());
+	const worker = new Worker(resolveAppWorkerUrl('SurfacingWorker', 'js/workers/SurfacingWorker.js?v=' + Date.now()));
 	registerGenerationWorker('surfacing', worker);
 	console.log('SurfacingWorker: queued', { wpWidth, wpLength, radius, stepover, angle, pendingKey });
 	notify('Generating surfacing paths…', 'info');
@@ -2398,7 +2398,7 @@ function doInlay() {
 	if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
 	redraw();
 
-	const worker = new Worker('js/workers/InlayWorker.js');
+	const worker = new Worker(resolveAppWorkerUrl('InlayWorker', 'js/workers/InlayWorker.js'));
 	registerGenerationWorker('inlay', worker);
 	console.log('InlayWorker main:start', {
 		groupCount: selectionGroups.length,
@@ -2587,7 +2587,7 @@ function doPocket(options = {}) {
 	if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
 	redraw();
 
-	const worker = new Worker('js/workers/pocketWorker.js');
+	const worker = new Worker(resolveAppWorkerUrl('PocketWorker', 'js/workers/pocketWorker.js'));
 	registerGenerationWorker('pocket', worker);
 	if (!silent) {
 		notify('Generating pocket paths…', 'info');
@@ -2665,185 +2665,6 @@ function doPocket(options = {}) {
 		direction: direction,
 		strategy: strategy
 	});
-}
-
-function startVcarveGeneration(config) {
-	const silent = config && config.silent === true;
-
-	if (typeof Worker === 'undefined') {
-		notify('Web Workers are not supported in this browser', 'error');
-		return;
-	}
-
-	var selected = selectMgr.selectedPaths();
-	if (!selected || selected.length === 0) {
-		notify('Select a path to VCarve');
-		return;
-	}
-
-	const sortedIds = selected.map(function(path) { return path.id; }).sort();
-	const pendingKey = 'VCarve|' + config.mode + '|' + sortedIds.join(',');
-	const hasPending = toolpaths.some(function(tp) {
-		return tp.pending === true && tp.pendingKey === pendingKey;
-	});
-	if (hasPending) {
-		notify('A VCarve generation is already pending for this selection', 'info');
-		return;
-	}
-
-	const updateTargets = Array.isArray(window.toolpathUpdateTargets)
-		? window.toolpathUpdateTargets.slice()
-		: [];
-	const pendingToolpaths = [];
-	for (let i = 0; i < selected.length; i++) {
-		const updateTarget = updateTargets[i] || null;
-		if (updateTarget) {
-			updateTarget.paths = [];
-			updateTarget.visible = true;
-			updateTarget.operation = 'VCarve';
-			updateTarget.name = config.name;
-			updateTarget.tool = { ...currentTool };
-			updateTarget.svgId = selected[i].id;
-			updateTarget.svgIds = [selected[i].id];
-			updateTarget.pending = true;
-			updateTarget.pendingKey = pendingKey;
-			if (window.currentToolpathProperties) {
-				updateTarget.toolpathProperties = sanitizeToolpathProperties(window.currentToolpathProperties) || {};
-				setToolpathLabel(updateTarget, getToolpathPropertyName(window.currentToolpathProperties));
-			}
-			pendingToolpaths.push(updateTarget);
-			continue;
-		}
-		pendingToolpaths.push(makePendingToolpath([selected[i].id], config.name, 'VCarve', pendingKey));
-	}
-	if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
-	redraw();
-
-	const worker = new Worker('js/workers/vcarveWorker.js');
-	registerGenerationWorker('vcarve', worker);
-	if (!silent) {
-		notify('Generating VCarve paths…', 'info');
-	}
-	const resolvedDirection = resolveOperationMillingDirection(currentTool.direction, {
-		mode: config.mode
-	});
-
-	worker.onmessage = function(event) {
-		if (!isGenerationWorkerActive('vcarve', worker)) {
-			worker.terminate();
-			return;
-		}
-
-		if (event.data && event.data.log) {
-			console.log(event.data.message, event.data.details || '');
-			return;
-		}
-
-		unregisterGenerationWorker('vcarve', worker);
-		worker.terminate();
-
-		if (!event.data || !event.data.ok) {
-			removePendingToolpaths(pendingToolpaths);
-			notify((event.data && event.data.error) || 'Unable to generate VCarve paths', 'error');
-			return;
-		}
-
-		const result = event.data.result || { toolpaths: [], createdCount: 0 };
-		for (let i = 0; i < result.toolpaths.length && i < pendingToolpaths.length; i++) {
-			const generated = result.toolpaths[i];
-			const pendingToolpath = pendingToolpaths[i];
-			pendingToolpath.paths = generated.paths;
-			pendingToolpath.operation = generated.operation;
-			pendingToolpath.displayOperation = generated.displayOperation || generated.operation;
-			pendingToolpath.name = generated.name;
-			pendingToolpath.svgId = generated.svgId;
-			pendingToolpath.svgIds = generated.svgIds;
-			pendingToolpath.pending = false;
-			delete pendingToolpath.pendingKey;
-		}
-		for (let i = result.toolpaths.length; i < pendingToolpaths.length; i++) {
-			const index = toolpaths.indexOf(pendingToolpaths[i]);
-			if (index >= 0) toolpaths.splice(index, 1);
-		}
-		if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
-		redraw();
-		if (typeof window.schedulePrepared3DGcodeRefresh === 'function') {
-			window.schedulePrepared3DGcodeRefresh({ delay: 0 });
-		}
-
-		if (result.createdCount === 0) {
-			notify('Unable to generate VCarve paths');
-		}
-	};
-
-	worker.onerror = function(error) {
-		unregisterGenerationWorker('vcarve', worker);
-		worker.terminate();
-		removePendingToolpaths(pendingToolpaths);
-		notify((error && error.message) || 'VCarve generation failed', 'error');
-	};
-
-	worker.postMessage({
-		mode: config.mode,
-		name: config.name,
-		outside: config.outside,
-		selectedPaths: selected.map(function(path) {
-			return {
-				id: path.id,
-				bbox: path.bbox,
-				path: path.path
-			};
-		}),
-		svgpaths: svgpaths.map(function(path) {
-			return {
-				id: path.id,
-				visible: path.visible,
-				bbox: path.bbox,
-				path: path.path
-			};
-		}),
-		tool: { ...currentTool, direction: resolvedDirection },
-		viewScale: viewScale,
-		tolerance: getOption('tolerance')
-	});
-}
-
-function doVcarve(options = {}) {
-	if (currentTool.inside == 'inside') {
-		doVcarveIn(options);
-	} else if (currentTool.inside == 'outside') {
-		doVcarveOut(options);
-	}
-	else {
-		doVcarveCenter(options);
-	}
-}
-
-function doVcarveCenter(options = {}) {
-	if (selectMgr.noSelection()) {
-		notify('Select a path to VCarve');
-		return;
-	}
-	setMode("VCarve Center");
-	startVcarveGeneration({ mode: 'center', name: 'Center', outside: false, silent: options.silent === true });
-}
-
-function doVcarveIn(options = {}) {
-	if (selectMgr.noSelection()) {
-		notify('Select a path to VCarve');
-		return;
-	}
-	setMode("VCarve In");
-	startVcarveGeneration({ mode: 'inside', name: 'Inside', outside: false, silent: options.silent === true });
-}
-
-function doVcarveOut(options = {}) {
-	if (selectMgr.noSelection()) {
-		notify('Select a path to VCarve');
-		return;
-	}
-	setMode("VCarve Out");
-	startVcarveGeneration({ mode: 'outside', name: 'Outside', outside: true, silent: options.silent === true });
 }
 
 var link = document.createElement('a');

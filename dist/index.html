@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Freazy KAM</title>
+  <link rel="shortcut icon" type="image/x-icon" href="./favicon.ico">
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div id="layout">
+        <div class="main-row">
+            <!-- Full Height Sidebar -->
+            <div id="sidebar" class="bg-light border-end" style="width: 86px; flex-shrink: 0;">
+
+            </div>
+
+            <!-- Right Panel Stack -->
+            <div class="right-panel">
+                    <!-- Toolbar -->
+                    <div class="toolbar-container">
+                        <nav id="toolbar" class="navbar navbar-light bg-light border-bottom p-0 m-0 h-100">
+                        </nav>
+                    </div>
+
+                    <!-- Split 2D / 3D Workspace -->
+                    <div class="canvas-container border-bottom d-flex flex-column">
+                        <div class="canvas-split-layout flex-grow-1" id="canvasTabContent" style="min-height: 0;">
+                            <section class="canvas-pane canvas-pane-2d" id="canvas-pane-2d" aria-label="Sketch 2D">
+                                <div class="canvas-pane-body position-relative" id="2d-view">
+                                    <canvas id="canvas" width="2000" height="2000" style="width: 100%; height: 100%; display: block;"></canvas>
+                                    <div class="canvas-overlay-controls">
+                                        <div id="canvas-unit-toggle" class="canvas-unit-toggle" role="group" aria-label="Display units">
+                                            <button type="button" class="canvas-unit-toggle-button" data-unit="mm" aria-pressed="true">mm</button>
+                                            <button type="button" class="canvas-unit-toggle-button" data-unit="in" aria-pressed="false">inch</button>
+                                        </div>
+                                    </div>
+                                    <div class="canvas-overlay-nav" aria-label="Navigation vue 2D">
+                                        <button type="button" id="canvas-zoom-in" class="canvas-nav-button" aria-label="Zoomer">+</button>
+                                        <button type="button" id="canvas-zoom-out" class="canvas-nav-button" aria-label="Dezoomer">-</button>
+                                        <button type="button" id="canvas-home" class="canvas-nav-button canvas-nav-button-home" aria-label="Revenir a la vue generale">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                                <path d="M4 10.5L12 4l8 6.5"></path>
+                                                <path d="M6.5 9.5V20h11V9.5"></path>
+                                                <path d="M10 20v-5h4v5"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <div id="simulation-overlay-2d" class="simulation-overlay d-none">
+                                        <div id="2d-simulation-controls"></div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div class="canvas-splitter" id="canvas-splitter" role="separator" aria-label="Resize 2D and 3D workspace" aria-orientation="vertical" aria-controls="canvas-pane-2d canvas-pane-3d" aria-valuemin="25" aria-valuemax="75" aria-valuenow="58" tabindex="0"></div>
+
+                             <section class="canvas-pane canvas-pane-3d" id="canvas-pane-3d" aria-label="Result 3D">
+                                 <div class="canvas-pane-body position-relative" id="3d-view">
+                                     <div class="canvas-overlay-controls canvas-overlay-controls-3d">
+                                         <button type="button" class="btn btn-primary btn-sm" id="3d-cut-settings">Change<br />Cut settings</button>
+                                     </div>
+                                     <div id="3d-canvas-container" style="width: 100%; height: 100%;"></div>
+                                     <div id="simulation-overlay-3d" class="simulation-overlay d-none">
+                                         <div id="3d-simulation-controls"></div>
+                                     </div>
+                                 </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <div id="3d-loading-overlay" class="three-loading-overlay d-none" aria-live="polite" aria-busy="true">
+        <div class="three-loading-card">
+            <div class="three-loading-spinner" aria-hidden="true"></div>
+            <div id="3d-loading-message" class="three-loading-message">Loading 3D view...</div>
+        </div>
+    </div>
+
+    <canvas id="paper-canvas" style="display: none;" width="1000" height="1000"></canvas>
+
+
+    <div id="floating-properties-popup" class="floating-properties-popup" style="display: none;">
+        <div id="floating-properties-window" class="floating-properties-window" role="dialog" aria-modal="false" aria-labelledby="floating-properties-popup-title">
+            <div id="floating-properties-header" class="floating-properties-header">
+                <div class="floating-properties-header-main">
+                    <h5 id="floating-properties-popup-title" class="floating-properties-popup-title mb-0">Properties</h5>
+                </div>
+                <button type="button" class="btn-close" id="floating-properties-close" aria-label="Close"></button>
+            </div>
+            <div id="floating-properties-body" class="floating-properties-body"></div>
+            <div id="floating-properties-footer" class="floating-properties-footer"></div>
+        </div>
+    </div>
+  <script src="./bundle.js"></script>
+</body>
+</html>

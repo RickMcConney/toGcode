@@ -1,5 +1,3 @@
-@CHARSET "US-ASCII";
-
 /* PropertiesManager-generated fields */
 .pm-field {
     /*background-color: #dbeafe;
@@ -1698,7 +1696,7 @@ html, body {
     width: 80px;
 }
 
-#3d-simulation-controls {
+[id="3d-simulation-controls"] {
     background-color: transparent;
 }
 
@@ -2052,16 +2050,16 @@ html, body {
     display: block;
 }
 
-#3d-view {
+[id="3d-view"] {
     padding-bottom: 0;
 }
 
-#2d-view,
-#3d-view {
+[id="2d-view"],
+[id="3d-view"] {
     height: 100%;
 }
 
-#3d-canvas-container {
+[id="3d-canvas-container"] {
     flex: 1;
     min-height: 0;
     width: 100%;
@@ -2132,8 +2130,8 @@ html, body {
     color: var(--color-gray-700);
 }
 
-#simulation-overlay-3d:not(.d-none) ~ #3d-canvas-container,
-#3d-view:has(#simulation-overlay-3d:not(.d-none)) #3d-canvas-container {
+[id="simulation-overlay-3d"]:not(.d-none) ~ [id="3d-canvas-container"],
+[id="3d-view"]:has([id="simulation-overlay-3d"]:not(.d-none)) [id="3d-canvas-container"] {
     height: calc(100% - var(--simulation-overlay-height, 0px));
 }
 
@@ -2197,17 +2195,17 @@ html, body {
 }
 
 .\33 d-simulation-player {
-    --3d-player-speed-width: 4.5rem;
-    --3d-player-gap: 0.65rem;
-    --3d-player-inset-x: 0.75rem;
-    --3d-player-inset-y: 0.75rem;
+    --fk-3d-player-speed-width: 4.5rem;
+    --fk-3d-player-gap: 0.65rem;
+    --fk-3d-player-inset-x: 0.75rem;
+    --fk-3d-player-inset-y: 0.75rem;
     position: relative;
     display: grid;
     width: 100%;
     grid-template-columns: minmax(0, 1fr);
     row-gap: 0.15rem;
     min-height: 4.1rem;
-    padding: var(--3d-player-inset-y) var(--3d-player-inset-x);
+    padding: var(--fk-3d-player-inset-y) var(--fk-3d-player-inset-x);
     border-radius: 4px;
     background: rgba(248, 249, 250, 0.94);
     border-top: 1px solid rgba(222, 226, 230, 0.95);
@@ -2248,7 +2246,7 @@ html, body {
     align-items: center;
     width: 100%;
     max-width: 23rem;
-    gap: var(--3d-player-gap);
+    gap: var(--fk-3d-player-gap);
     margin: 0 auto;
     padding-left: 0;
     padding-right: 0;
@@ -2294,7 +2292,7 @@ html, body {
 }
 
 .\33 d-simulation-speed-select {
-    width: var(--3d-player-speed-width);
+    width: var(--fk-3d-player-speed-width);
     flex-shrink: 0;
     border-radius: 999px;
     padding-right: 1.8rem;
@@ -2303,8 +2301,8 @@ html, body {
     background-color: rgba(255, 255, 255, 0.92);
     box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
     position: absolute;
-    left: var(--3d-player-inset-x);
-    bottom: var(--3d-player-inset-y);
+    left: var(--fk-3d-player-inset-x);
+    bottom: var(--fk-3d-player-inset-y);
 }
 
 .\33 d-simulation-player-bottom-row {
@@ -2321,16 +2319,16 @@ html, body {
 
 .\33 d-simulation-menu-anchor {
     position: absolute;
-    right: var(--3d-player-inset-x);
-    bottom: var(--3d-player-inset-y);
+    right: var(--fk-3d-player-inset-x);
+    bottom: var(--fk-3d-player-inset-y);
 }
 
 .\33 d-simulation-menu-anchor .dropdown-menu {
     margin-top: 0.35rem;
 }
 
-.3d-simulation-icon-button,
-#3d-start-simulation {
+.\33 d-simulation-icon-button,
+[id="3d-start-simulation"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2347,10 +2345,10 @@ html, body {
     transition: background-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
 }
 
-.3d-simulation-icon-button .lucide,
-.3d-simulation-icon-button svg,
-#3d-start-simulation .lucide,
-#3d-start-simulation svg {
+.\33 d-simulation-icon-button .lucide,
+.\33 d-simulation-icon-button svg,
+[id="3d-start-simulation"] .lucide,
+[id="3d-start-simulation"] svg {
     width: 18px;
     height: 18px;
     stroke: var(--color-icon-blue);
@@ -2358,66 +2356,66 @@ html, body {
     transition: fill 0.16s ease, color 0.16s ease, stroke 0.16s ease, transform 0.16s ease;
 }
 
-.3d-simulation-icon-button:hover,
-.3d-simulation-icon-button:focus,
-.3d-simulation-icon-button:active,
-#3d-start-simulation:hover,
-#3d-start-simulation:focus,
-#3d-start-simulation:active,
-#3d-start-simulation.3d-simulation-icon-button {
+.\33 d-simulation-icon-button:hover,
+.\33 d-simulation-icon-button:focus,
+.\33 d-simulation-icon-button:active,
+[id="3d-start-simulation"]:hover,
+[id="3d-start-simulation"]:focus,
+[id="3d-start-simulation"]:active,
+[id="3d-start-simulation"].\33 d-simulation-icon-button {
     background: transparent;
     border: none !important;
     border-color: transparent;
     box-shadow: none;
 }
 
-.3d-simulation-icon-button:hover,
-.3d-simulation-icon-button:focus-visible,
-#3d-start-simulation:hover,
-#3d-start-simulation:focus-visible {
+.\33 d-simulation-icon-button:hover,
+.\33 d-simulation-icon-button:focus-visible,
+[id="3d-start-simulation"]:hover,
+[id="3d-start-simulation"]:focus-visible {
     color: var(--color-icon-blue);
     background: rgba(61, 133, 198, 0.14);
     box-shadow: 0 6px 14px rgba(61, 133, 198, 0.14);
 }
 
-.3d-simulation-icon-button:focus-visible,
-#3d-start-simulation:focus-visible {
+.\33 d-simulation-icon-button:focus-visible,
+[id="3d-start-simulation"]:focus-visible {
     box-shadow: 0 0 0 0.14rem rgba(61, 133, 198, 0.2), 0 6px 14px rgba(61, 133, 198, 0.14);
 }
 
-.3d-simulation-icon-button:hover .lucide,
-.3d-simulation-icon-button:hover svg,
-.3d-simulation-icon-button:focus-visible .lucide,
-.3d-simulation-icon-button:focus-visible svg,
-#3d-start-simulation:hover .lucide,
-#3d-start-simulation:hover svg,
-#3d-start-simulation:focus-visible .lucide,
-#3d-start-simulation:focus-visible svg {
+.\33 d-simulation-icon-button:hover .lucide,
+.\33 d-simulation-icon-button:hover svg,
+.\33 d-simulation-icon-button:focus-visible .lucide,
+.\33 d-simulation-icon-button:focus-visible svg,
+[id="3d-start-simulation"]:hover .lucide,
+[id="3d-start-simulation"]:hover svg,
+[id="3d-start-simulation"]:focus-visible .lucide,
+[id="3d-start-simulation"]:focus-visible svg {
     stroke: var(--color-icon-blue);
     fill: rgba(61, 133, 198, 0.22);
     transform: scale(1.08);
 }
 
-.3d-simulation-icon-button[aria-disabled='true'],
-#3d-start-simulation[aria-disabled='true'] {
+.\33 d-simulation-icon-button[aria-disabled='true'],
+[id="3d-start-simulation"][aria-disabled='true'] {
     opacity: 0.45;
     color: var(--color-gray-500);
     cursor: default;
 }
 
-.3d-simulation-icon-button[aria-disabled='true'] .lucide,
-.3d-simulation-icon-button[aria-disabled='true'] svg,
-#3d-start-simulation[aria-disabled='true'] .lucide,
-#3d-start-simulation[aria-disabled='true'] svg {
+.\33 d-simulation-icon-button[aria-disabled='true'] .lucide,
+.\33 d-simulation-icon-button[aria-disabled='true'] svg,
+[id="3d-start-simulation"][aria-disabled='true'] .lucide,
+[id="3d-start-simulation"][aria-disabled='true'] svg {
     stroke: var(--color-gray-500);
     fill: none;
     transform: none;
 }
 
-.3d-simulation-icon-button[aria-disabled='true']:hover,
-.3d-simulation-icon-button[aria-disabled='true']:focus-visible,
-#3d-start-simulation[aria-disabled='true']:hover,
-#3d-start-simulation[aria-disabled='true']:focus-visible {
+.\33 d-simulation-icon-button[aria-disabled='true']:hover,
+.\33 d-simulation-icon-button[aria-disabled='true']:focus-visible,
+[id="3d-start-simulation"][aria-disabled='true']:hover,
+[id="3d-start-simulation"][aria-disabled='true']:focus-visible {
     background: transparent;
     box-shadow: none;
 }
@@ -2462,8 +2460,8 @@ html, body {
     padding: 0;
     color: var(--color-gray-500);
     position: absolute;
-    top: var(--3d-player-inset-y);
-    right: var(--3d-player-inset-x);
+    top: var(--fk-3d-player-inset-y);
+    right: var(--fk-3d-player-inset-x);
     pointer-events: auto;
     display: inline-flex;
     align-items: center;

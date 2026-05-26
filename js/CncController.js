@@ -18,7 +18,7 @@ class CncController {
     });
     this.operationManager.registerOperation(new Text());
     this.operationManager.registerOperation(new Transform());
-    this.operationManager.registerOperation(new PathEdit());
+    //this.operationManager.registerOperation(new PathEdit());
     //this.operationManager.registerOperation(new BooleanOpp());
     //this.operationManager.registerOperation(new OffsetOpp());
     //this.operationManager.registerOperation(new PatternOpp());

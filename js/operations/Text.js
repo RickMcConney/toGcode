@@ -1130,6 +1130,19 @@ class Text extends Operation {
                 return;
             }
 
+            const embeddedFontBuffer = typeof getEmbeddedFontBuffer === 'function'
+                ? getEmbeddedFontBuffer(fontValue)
+                : null;
+            if (embeddedFontBuffer) {
+                try {
+                    const embeddedFont = opentype.parse(embeddedFontBuffer.slice(0));
+                    resolve(embeddedFont || null);
+                    return;
+                } catch (error) {
+                    console.error('Could not parse embedded font:', error);
+                }
+            }
+
             if (typeof opentype === 'undefined' || typeof opentype.load !== 'function') {
                 notify('Font loader is not available.', 'error');
                 resolve(null);

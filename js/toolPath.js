@@ -544,7 +544,7 @@ function startDrillGeneration(requests) {
 	if (typeof refreshToolPathsDisplay === 'function') refreshToolPathsDisplay();
 	redraw();
 
-	const worker = new Worker('js/workers/drillWorker.js');
+	const worker = new Worker(resolveAppWorkerUrl('DrillWorker', 'js/workers/drillWorker.js'));
 	registerGenerationWorker('drill', worker);
 	console.log('DrillWorker main:start', {
 		requestCount: requests.length,
