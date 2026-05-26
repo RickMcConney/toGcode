@@ -111,17 +111,31 @@ class Transform extends Select {
             return;
         }
 
-        // Sum up rotation/skew from each path's transform history
-        // If multiple paths have different totals, use the first path's values
         const path = selected[0];
-        let rotation = 0, skewX = 0, skewY = 0;
-        if (path.transformHistory) {
+        let rotation = 0;
+        let skewX = 0;
+        let skewY = 0;
+
+        const operation = path?.creationTool
+            ? window.cncController?.operationManager?.getOperation(path.creationTool)
+            : null;
+
+        if (path?.creationTool === 'ImportedSVG') {
+            rotation = Number(path?.creationProperties?.properties?.angle) || 0;
+        } else if (operation && typeof operation.getPathShapeProperties === 'function') {
+            const properties = operation.getPathShapeProperties(path);
+            rotation = Number(properties?.angle) || 0;
+        } else if (operation && typeof operation.getPathTextProperties === 'function') {
+            const properties = operation.getPathTextProperties(path);
+            rotation = Number(properties?.rotation) || 0;
+        } else if (path.transformHistory) {
             for (const t of path.transformHistory) {
                 rotation += t.rotation || 0;
                 skewX += t.skewX || 0;
                 skewY += t.skewY || 0;
             }
         }
+
         this.totalRotation = rotation;
         this.totalSkewX = skewX;
         this.totalSkewY = skewY;
@@ -167,6 +181,42 @@ class Transform extends Select {
                 }));
             }
         });
+    }
+
+    syncImportedSvgMetadataFromCurrentGeometry(path) {
+        if (!path || path.creationTool !== 'ImportedSVG') {
+            return;
+        }
+
+        const bbox = path.bbox || (path.path ? boundingBox(path.path) : null);
+        if (!bbox) {
+            return;
+        }
+
+        const center = {
+            x: (bbox.minx + bbox.maxx) / 2,
+            y: (bbox.miny + bbox.maxy) / 2
+        };
+        const stored = path.creationProperties?.properties || {};
+
+        path.creationProperties = {
+            ...(path.creationProperties || {}),
+            importedSvg: true,
+            center,
+            properties: {
+                ...stored,
+                x: center.x / viewScale,
+                y: center.y / viewScale,
+                width: (bbox.maxx - bbox.minx) / viewScale,
+                height: (bbox.maxy - bbox.miny) / viewScale,
+                angle: stored.angle !== undefined ? Number(stored.angle) || 0 : 0,
+                lockRatio: stored.lockRatio !== undefined ? stored.lockRatio : false,
+                lockObject: stored.lockObject !== undefined
+                    ? (stored.lockObject === true || stored.lockObject === 'true')
+                    : (path.locked === true || path.locked === 'true'),
+                name: stored.name !== undefined ? stored.name : (path.name || '')
+            }
+        };
     }
 
     refreshPropertiesPanel() {
@@ -219,6 +269,13 @@ class Transform extends Select {
 
             // Store initial mouse position for scaling/rotation calculations
             this.initialMousePos = { x: mouse.x, y: mouse.y };
+
+            // Always capture the current geometry as the fresh transform baseline.
+            // Imported SVG paths can lose/stale their originalPath reference after
+            // previous interactions (especially move -> rotate sequences), which
+            // makes rotation a no-op on canvas even though the angle field updates.
+            this.initialTransformBox = this.transformBox ? { ...this.transformBox } : null;
+            this.storeOriginalPaths();
 
             // Transition to appropriate transform state based on handle type
             // At this point, transformBox, initialTransformBox, pivotCenter, and originalPaths are all guaranteed to exist
@@ -483,6 +540,10 @@ class Transform extends Select {
         this.deltaX = 0;
         this.deltaY = 0;
 
+        if (!this.pivotCenter) {
+            return;
+        }
+
         // Calculate current angle from pivot center to mouse
         const currentAngle = Math.atan2(
             mouse.x - this.pivotCenter.x,
@@ -492,8 +553,12 @@ class Transform extends Select {
         // Apply rotation snapping to nearest 5-degree increment
         const rotationDelta = Math.round(currentAngle / this.ROTATION_SNAP) * this.ROTATION_SNAP;
 
-        // Convert to degrees and apply rotation
-        this.rotation = rotationDelta * 180 / Math.PI;
+        // Convert to degrees and store as delta from the baked/current rotation.
+        // The properties UI displays totalRotation + rotation, so this keeps the
+        // handle-driven rotation aligned with the absolute angle shown to the user.
+        const snappedAngleDeg = rotationDelta * 180 / Math.PI;
+        this.rotation = snappedAngleDeg - this.totalRotation;
+
         this.rotate(this.rotation);
         this.transformBox = this.createTransformBox(svgpaths);
         this.updateCenterDisplay();
@@ -577,6 +642,7 @@ class Transform extends Select {
         return !!(path && path.creationProperties && (
             path.creationTool === 'Shape'
             || path.creationTool === 'Line'
+            || path.creationTool === 'ImportedSVG'
             || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         ));
     }
@@ -653,27 +719,69 @@ class Transform extends Select {
                 return;
             }
 
-            const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-            if (!operation || typeof operation.getPathShapeProperties !== 'function') {
+            const isImportedSvg = path.creationTool === 'ImportedSVG';
+            const operation = isImportedSvg
+                ? null
+                : window.cncController?.operationManager?.getOperation(path.creationTool);
+            if (!isImportedSvg && (!operation || typeof operation.getPathShapeProperties !== 'function')) {
                 return;
             }
 
-            const properties = operation.getPathShapeProperties(path);
-            const center = operation.toInternal
+            const properties = isImportedSvg
                 ? {
-                    x: operation.toInternal(properties.x),
-                    y: operation.toInternal(properties.y)
+                    x: path?.creationProperties?.properties?.x !== undefined
+                        ? Number(path.creationProperties.properties.x)
+                        : (path.bbox.minx + path.bbox.maxx) / (2 * viewScale),
+                    y: path?.creationProperties?.properties?.y !== undefined
+                        ? Number(path.creationProperties.properties.y)
+                        : (path.bbox.miny + path.bbox.maxy) / (2 * viewScale),
+                    width: path?.creationProperties?.properties?.width !== undefined
+                        ? Number(path.creationProperties.properties.width)
+                        : (path.bbox.maxx - path.bbox.minx) / viewScale,
+                    height: path?.creationProperties?.properties?.height !== undefined
+                        ? Number(path.creationProperties.properties.height)
+                        : (path.bbox.maxy - path.bbox.miny) / viewScale,
+                    angle: path?.creationProperties?.properties?.angle !== undefined
+                        ? Number(path.creationProperties.properties.angle)
+                        : (Array.isArray(path?.transformHistory)
+                            ? path.transformHistory.reduce((sum, transform) => sum + (transform.rotation || 0), 0)
+                            : 0),
+                    lockObject: path?.creationProperties?.properties?.lockObject !== undefined
+                        ? (path.creationProperties.properties.lockObject === true || path.creationProperties.properties.lockObject === 'true')
+                        : (path.locked === true || path.locked === 'true'),
+                    lockRatio: path?.creationProperties?.properties?.lockRatio !== undefined
+                        ? path.creationProperties.properties.lockRatio
+                        : false,
+                    name: path?.creationProperties?.properties?.name !== undefined
+                        ? path.creationProperties.properties.name
+                        : (path.name || '')
                 }
-                : (path.creationProperties?.center || {
-                    x: (path.bbox.minx + path.bbox.maxx) / 2,
-                    y: (path.bbox.miny + path.bbox.maxy) / 2
-                });
+                : operation.getPathShapeProperties(path);
+            const center = isImportedSvg
+                ? (path?.creationProperties?.center
+                    ? {
+                        x: path.creationProperties.center.x,
+                        y: path.creationProperties.center.y
+                    }
+                    : {
+                        x: (path.bbox.minx + path.bbox.maxx) / 2,
+                        y: (path.bbox.miny + path.bbox.maxy) / 2
+                    })
+                : (operation.toInternal
+                    ? {
+                        x: operation.toInternal(properties.x),
+                        y: operation.toInternal(properties.y)
+                    }
+                    : (path.creationProperties?.center || {
+                        x: (path.bbox.minx + path.bbox.maxx) / 2,
+                        y: (path.bbox.miny + path.bbox.maxy) / 2
+                    }));
             const nextCenter = this.applySnapshotToPoint(center, snapshot);
             const nextAngle = ((Number(properties.angle) || 0) + snapshot.rotation) % 360;
             const nextProperties = {
                 ...properties,
-                x: operation.toExternal ? operation.toExternal(nextCenter.x) : properties.x,
-                y: operation.toExternal ? operation.toExternal(nextCenter.y) : properties.y,
+                x: isImportedSvg ? nextCenter.x / viewScale : (operation.toExternal ? operation.toExternal(nextCenter.x) : properties.x),
+                y: isImportedSvg ? nextCenter.y / viewScale : (operation.toExternal ? operation.toExternal(nextCenter.y) : properties.y),
                 width: Math.max(0, Number(properties.width) * Math.abs(snapshot.scaleX)),
                 height: Math.max(0, Number(properties.height) * Math.abs(snapshot.scaleY)),
                 angle: nextAngle < 0 ? nextAngle + 360 : nextAngle
@@ -695,6 +803,24 @@ class Transform extends Select {
                     center: nextCenter,
                     properties: storedProperties
                 };
+                delete path.transformHistory;
+                return;
+            }
+
+            if (isImportedSvg) {
+                path.creationProperties = {
+                    ...(path.creationProperties || {}),
+                    importedSvg: true,
+                    center: nextCenter,
+                    properties: {
+                        ...(path.creationProperties?.properties || {}),
+                        ...nextProperties
+                    }
+                };
+                path.locked = nextProperties.lockObject;
+                if (typeof addOrReplaceSvgPath === 'function') {
+                    addOrReplaceSvgPath(path.id, path.id, path.name);
+                }
                 delete path.transformHistory;
                 return;
             }
@@ -742,6 +868,13 @@ class Transform extends Select {
 
             this.transformBox = this.createTransformBox(svgpaths);
             this.initialTransformBox = { ...this.transformBox };
+
+            if (Transform.state == Transform.DRAGGING) {
+                selectMgr.selectedPaths().forEach(path => {
+                    this.syncImportedSvgMetadataFromCurrentGeometry(path);
+                });
+            }
+
             this.activeHandle = null;
             this.storeOriginalPaths();
 
@@ -1293,7 +1426,7 @@ class Transform extends Select {
             pivotX = this.pivotCenter.x;
             pivotY = this.pivotCenter.y;
         }
-        const rotationRad = this.rotation * Math.PI / 180;
+        const rotationRad = (this.totalRotation + this.rotation) * Math.PI / 180;
         let ry = Transform.ROTATION_LINE_LENGTH * Math.cos(rotationRad);
         let rx = Transform.ROTATION_LINE_LENGTH * Math.sin(rotationRad);
 

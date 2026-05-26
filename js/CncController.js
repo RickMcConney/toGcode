@@ -87,7 +87,7 @@ class CncController {
       }
 
       const isShapeTool = (window.SHAPE_TOOL_NAMES || []).includes(clickedPath.creationTool);
-      if (clickedPath.creationTool === 'Shape' || isShapeTool || clickedPath.creationTool === 'Offset' || clickedPath.creationTool === 'Pattern' || clickedPath.creationTool === 'Line') {
+      if (clickedPath.creationTool === 'Shape' || isShapeTool || clickedPath.creationTool === 'Offset' || clickedPath.creationTool === 'Pattern' || clickedPath.creationTool === 'Line' || clickedPath.creationTool === 'ImportedSVG') {
         selectMgr.unselectAll();
         selectMgr.selectPath(clickedPath);
         handlePathClick(clickedPath.id);

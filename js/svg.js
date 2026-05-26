@@ -151,6 +151,7 @@ function importParsedPaths(paths, name) {
 
 	const svgGroupId = 'svg-group-' + Date.now();
 	const groupedPaths = [];
+	const defaultToolpathProperties = window.toolPathProperties?.getDefaultShapeCutProperties('Profile') || null;
 
 	// Bounding box across all imported paths
 	var importedBbox = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity };
@@ -173,13 +174,37 @@ function importParsedPaths(paths, name) {
 			geom[j].y += offsetY;
 		}
 
+		const bbox = boundingBox(geom);
+		const centerX = (bbox.minx + bbox.maxx) / 2;
+		const centerY = (bbox.miny + bbox.maxy) / 2;
+		const storedProperties = {
+			x: centerX / viewScale,
+			y: centerY / viewScale,
+			width: (bbox.maxx - bbox.minx) / viewScale,
+			height: (bbox.maxy - bbox.miny) / viewScale,
+			angle: 0,
+			lockRatio: false,
+			lockObject: false,
+			name: paths[i].name + ' ' + svgpathId
+		};
+
 		const pathObj = {
 			id: paths[i].name + svgpathId,
 			name: paths[i].name + ' ' + svgpathId,
 			path: geom,
 			visible: true,
-			bbox: boundingBox(geom),
-			svgGroupId: svgGroupId
+			bbox: bbox,
+			svgGroupId: svgGroupId,
+			creationTool: 'ImportedSVG',
+			toolpathProperties: defaultToolpathProperties ? { ...defaultToolpathProperties } : null,
+			creationProperties: {
+				importedSvg: true,
+				center: {
+					x: centerX,
+					y: centerY
+				},
+				properties: storedProperties
+			}
 		};
 		svgpaths.push(pathObj);
 		groupedPaths.push(pathObj);
@@ -188,6 +213,18 @@ function importParsedPaths(paths, name) {
 
 	if (typeof addSvgGroup === 'function' && groupedPaths.length > 0) {
 		addSvgGroup(svgGroupId, name, groupedPaths);
+	}
+
+	if (typeof scheduleShapeMachiningToolpathSync === 'function') {
+		groupedPaths.forEach(path => {
+			scheduleShapeMachiningToolpathSync(path, { createIfMissing: true, delay: 0 });
+		});
+	}
+
+	if (groupedPaths.length > 0 && typeof onPathsChanged === 'function') {
+		onPathsChanged(groupedPaths.map(path => path.id));
+	} else if (typeof redraw === 'function') {
+		redraw();
 	}
 }
 

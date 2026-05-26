@@ -535,6 +535,7 @@ class Select extends Operation {
             path.creationTool === 'Shape'
             || path.creationTool === 'Line'
             || path.creationTool === 'Text'
+            || path.creationTool === 'ImportedSVG'
             || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         ));
 
@@ -557,6 +558,7 @@ class Select extends Operation {
             const isShapePath = pathToShow.creationTool === 'Shape'
                 || pathToShow.creationTool === 'Line'
                 || pathToShow.creationTool === 'Text'
+                || pathToShow.creationTool === 'ImportedSVG'
                 || (window.SHAPE_TOOL_NAMES || []).includes(pathToShow.creationTool);
             if (isOnDrawTab && !isShapePath && currentOp !== 'Move' && currentOp !== 'Boolean' && currentOp !== 'Offset' && currentOp !== 'Pattern') {
                 doMove();

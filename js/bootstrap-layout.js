@@ -991,6 +991,7 @@ function getObjectTypeLabel(path) {
     if (path.creationTool === 'Offset') return 'Offset';
     if (path.creationTool === 'Curve') return 'Curve';
 	if (path.creationTool === 'Line') return 'Line';
+	if (path.creationTool === 'ImportedSVG') return 'Imported SVG';
     if (path.creationTool === 'Pen') return 'Pen';
     if (path.svgGroupId) return 'Imported SVG';
     return 'Shape';
@@ -1832,6 +1833,7 @@ function isShapeEditorPath(path) {
         path.creationTool === 'Text'
         || path.creationTool === 'Shape'
         || path.creationTool === 'Line'
+        || path.creationTool === 'ImportedSVG'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
     ));
 }
@@ -1907,12 +1909,14 @@ function buildShapeCutPopupHTML(shapeOperation, path, operationName) {
     };
 }
 
-function buildShapeGroupPopupHTML(transformOperation, paths, operationName) {
+function buildShapeGroupPopupHTML(transformOperation, paths, operationName, options = {}) {
     const primaryPath = paths[0] || null;
+    const primaryTabLabel = options.primaryTabLabel || 'Group';
     const transformMeta = extractPropertiesPanelMeta(transformOperation.getPropertiesHTML());
     const hasCutPanel = !!operationName && !!window.toolPathProperties;
     const cutHtml = hasCutPanel
         ? window.toolPathProperties.getPropertiesHTML(operationName, primaryPath?.toolpathProperties || null, {
+            sourcePath: primaryPath,
             showUpdateButton: false
         })
         : `
@@ -1926,7 +1930,7 @@ function buildShapeGroupPopupHTML(transformOperation, paths, operationName) {
             <div class="shape-cut-popup">
                 <ul class="nav nav-tabs shape-cut-tabs mb-3" role="tablist">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="shape-cut-tab-shape" data-bs-toggle="tab" data-bs-target="#shape-cut-panel-shape" type="button" role="tab" aria-controls="shape-cut-panel-shape" aria-selected="true">Group</button>
+                        <button class="nav-link active" id="shape-cut-tab-shape" data-bs-toggle="tab" data-bs-target="#shape-cut-panel-shape" type="button" role="tab" aria-controls="shape-cut-panel-shape" aria-selected="true">${primaryTabLabel}</button>
                     </li>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="shape-cut-tab-cut" data-bs-toggle="tab" data-bs-target="#shape-cut-panel-cut" type="button" role="tab" aria-controls="shape-cut-panel-cut" aria-selected="false">Cut</button>
@@ -1956,6 +1960,9 @@ function getShapeCutOperationName(path, shapeOperation) {
         return 'Profile';
     }
 	if (path?.creationTool === 'Line' || shapeOperation?.name === 'Line') {
+		return 'Profile';
+	}
+	if (path?.creationTool === 'ImportedSVG') {
 		return 'Profile';
 	}
     const shapeType = path?.creationProperties?.shape || shapeOperation?.fixedShape || null;
@@ -3445,12 +3452,12 @@ function showPathPropertiesEditor(path) {
     propertiesEditor.style.flexDirection = 'column';
  
     const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-    const operationLabel = operation?.displayName || path.creationTool;
     currentOperationName = path.creationTool;
 
     const isShapePath = path.creationTool === 'Shape'
         || path.creationTool === 'Text'
         || path.creationTool === 'Line'
+        || path.creationTool === 'ImportedSVG'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool);
     const shapeCutOperationName = getShapeCutOperationName(path, operation);
 
@@ -3465,7 +3472,23 @@ function showPathPropertiesEditor(path) {
     };
 
     // Now get the properties HTML (works for both edit and creation modes)
-    if (isShapePath && operation && typeof operation.renderGeometryFields === 'function') {
+    if (path.creationTool === 'ImportedSVG') {
+        const transformOperation = window.cncController?.operationManager?.getOperation('Move');
+        if (transformOperation) {
+            const popupConfig = buildShapeGroupPopupHTML(transformOperation, [path], shapeCutOperationName, {
+                primaryTabLabel: 'Shape'
+            });
+            form.innerHTML = popupConfig.html;
+            bindShapeGroupPopup([path], transformOperation, shapeCutOperationName);
+
+            propertiesMeta = {
+                titleHtml: transformOperation.icon
+                    ? `<i data-lucide="${transformOperation.icon}"></i> Edit ${path.name}`
+                    : `Edit ${path.name}`,
+                subtitle: ''
+            };
+        }
+    } else if (isShapePath && operation && typeof operation.renderGeometryFields === 'function') {
         if (typeof operation.setEditPath === 'function') {
             operation.setEditPath(path);
         }
@@ -3539,8 +3562,13 @@ function showPathPropertiesEditor(path) {
 
 // Function to update an existing path with new properties
 function updateExistingPath(path, form, changedKey = null) {
-    const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
+    const operationName = path.creationTool === 'ImportedSVG' ? 'Move' : path.creationTool;
+    const operation = window.cncController?.operationManager?.getOperation(operationName);
     const data = collectOperationProperties(operation);
+
+    if (path.creationTool === 'ImportedSVG') {
+        updateShapeInPlace(path, data, changedKey);
+    }
 
     if (path.creationTool === 'Text' || path.creationTool === 'Shape' || path.creationTool === 'Line' || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)) {
         // For shapes, update in place
@@ -3552,9 +3580,19 @@ function updateExistingPath(path, form, changedKey = null) {
 }
 
 function updateShapeInPlace(path, data, changedKey = null) {
-    const operation = window.cncController?.operationManager?.getOperation(path.creationTool);
-    operation.setEditPath(path);
-    operation.onPropertiesChanged(data, { changedKey });
+    const operationName = path.creationTool === 'ImportedSVG' ? 'Move' : path.creationTool;
+    const operation = window.cncController?.operationManager?.getOperation(operationName);
+    if (!operation) return;
+
+    if (typeof operation.setEditPath === 'function') {
+        operation.setEditPath(path);
+    }
+
+    if (typeof operation.onPropertiesChanged === 'function') {
+        operation.onPropertiesChanged(data, { changedKey });
+    } else if (typeof operation.updateFromProperties === 'function') {
+        operation.updateFromProperties(data, { changedKey });
+    }
 }
 
 
@@ -4168,6 +4206,7 @@ function canEditCreatedPath(path) {
     return path.creationTool === 'Text'
         || path.creationTool === 'Shape'
         || path.creationTool === 'Line'
+        || path.creationTool === 'ImportedSVG'
         || (window.SHAPE_TOOL_NAMES || []).includes(path.creationTool)
         || path.creationTool === 'Offset'
         || path.creationTool === 'Pattern';
@@ -4206,6 +4245,8 @@ function openPathEditor(path) {
         if (textOperation && typeof textOperation.setEditPath === 'function') {
             textOperation.setEditPath(path);
         }
+    } else if (path.creationTool === 'ImportedSVG') {
+        cncController.setMode('Move');
     } else {
         cncController.setMode(path.creationTool);
     }
