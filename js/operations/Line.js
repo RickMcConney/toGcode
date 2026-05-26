@@ -2,7 +2,7 @@ class Line extends Pen {
     constructor() {
         super();
         this.name = 'Line';
-        this.icon = 'spline';
+        this.icon = 'slash';
         this.tooltip = 'Draw a single line segment. Click once for the start point, click again for the end point, then drag either endpoint to edit it.';
         this.displayName = 'Line';
         this.currentPath = null;

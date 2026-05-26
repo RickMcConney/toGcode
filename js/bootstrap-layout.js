@@ -4950,7 +4950,7 @@ function getIconForPath(sp) {
     if (sp.creationTool === 'Image') return 'image';
     if (sp.creationTool === 'Offset') return 'fullscreen';
     if (sp.creationTool === 'Pattern') return 'grid-3x3';
-	if (sp.creationTool === 'Line') return 'spline';
+	if (sp.creationTool === 'Line') return 'slash';
     return getPathIcon(sp.name);
 }
 
@@ -4962,7 +4962,7 @@ function getPathIcon(name) {
     if (name.includes('Circle')) return 'circle';
     if (name.includes('Ellipse')) return 'ellipse';
     if (name.includes('Rect')) return 'rectangle-horizontal';
-    if (name.includes('Line')) return 'spline';
+    if (name.includes('Line')) return 'slash';
     if (name.includes('Text')) return 'type-outline';
     if (name.includes('Poly')) return 'pentagon';
     if (name.includes('Star')) return 'star';
