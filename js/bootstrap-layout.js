@@ -4895,34 +4895,24 @@ function getIconForPath(sp) {
     if (sp.creationTool === 'Image') return 'image';
     if (sp.creationTool === 'Offset') return 'fullscreen';
     if (sp.creationTool === 'Pattern') return 'grid-3x3';
-    if (sp.creationTool === 'Curve') return 'spline';
-	if (sp.creationTool === 'Line') return 'minus';
-    if (sp.creationTool === 'Pen') return 'pen-tool';
+	if (sp.creationTool === 'Line') return 'spline';
     return getPathIcon(sp.name);
 }
 
 function getPathIcon(name) {
     if (name.includes('Right triangle')) return 'triangle-right';
     if (name.includes('Half circle')) return 'circle';
-    if (name.includes('Right Triangle')) return 'triangle-right';
-    if (name.includes('Half Circle')) return 'circle';
     if (name.includes('Triangle')) return 'triangle';
     if (name.includes('Square')) return 'square';
     if (name.includes('Circle')) return 'circle';
     if (name.includes('Ellipse')) return 'ellipse';
-    if (name.includes('RoundRect')) return 'squircle';
     if (name.includes('Rect')) return 'rectangle-horizontal';
-    if (name.includes('Line')) return 'minus';
+    if (name.includes('Line')) return 'spline';
     if (name.includes('Text')) return 'type-outline';
     if (name.includes('Poly')) return 'pentagon';
     if (name.includes('Star')) return 'star';
-    if (name.includes('Belt')) return 'egg';
     if (name.includes('Heart')) return 'heart';
     if (name.includes('Sign')) return 'signpost';
-    if (name.includes('Union')) return 'squares-unite';
-    if (name.includes('Intersect')) return 'squares-intersect';
-    if (name.includes('Subtract')) return 'squares-subtract';
-    if (name.includes('Closed')) return 'vector-square';
     return 'route';
 }
 

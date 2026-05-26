@@ -1564,6 +1564,19 @@ class Transform extends Select {
         if (this.hasSelectedPaths()) {
             this.applyTransformFromProperties();
             this.updateCenterDisplay();
+
+            const selectedPaths = selectMgr.selectedPaths();
+            const changedIds = selectedPaths.map(path => path.id).filter(id => id != null);
+
+            if (changedIds.length > 0 && typeof onPathsChanged === 'function') {
+                onPathsChanged(changedIds);
+            }
+
+            selectedPaths.forEach(path => {
+                if (path?.toolpathProperties && typeof scheduleShapeMachiningToolpathSync === 'function') {
+                    scheduleShapeMachiningToolpathSync(path, { createIfMissing: true, delay: 0 });
+                }
+            });
         }
     }
 

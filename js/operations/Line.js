@@ -2,7 +2,7 @@ class Line extends Pen {
     constructor() {
         super();
         this.name = 'Line';
-        this.icon = 'minus';
+        this.icon = 'spline';
         this.tooltip = 'Draw a single line segment. Click once for the start point, click again for the end point, then drag either endpoint to edit it.';
         this.displayName = 'Line';
         this.currentPath = null;
@@ -160,6 +160,7 @@ class Line extends Pen {
                 nodes[this.activeHandle].y = mouse.y;
                 this.editPath.path = this.tessellate(nodes, this.editPath.closed, this.editPath.creationProperties.curveFit);
                 this.editPath.bbox = boundingBox(this.editPath.path);
+                this.syncPropertiesPanel(this.editPath);
                 redraw();
             } else {
                 const hoveredHandle = this._getHandleAt(mouseHit);
@@ -206,14 +207,10 @@ class Line extends Pen {
             return;
         }
 
-        const syncedProperties = this.syncMetadataFromPath(path);
         this.currentPath = path;
         this.enterEditMode(path);
         this.lineChangedDuringDrag = false;
-        this.properties = {
-            ...this.properties,
-            ...(syncedProperties || this.getPathShapeProperties(path))
-        };
+        this.syncPropertiesPanel(path);
     }
 
     syncMetadataFromPath(path = this.currentPath) {
@@ -248,6 +245,29 @@ class Line extends Pen {
             curveFit: 'catmull-rom',
             properties: syncedProperties
         };
+
+        return syncedProperties;
+    }
+
+    syncPropertiesPanel(path = this.currentPath) {
+        const syncedProperties = this.syncMetadataFromPath(path);
+        if (!syncedProperties) {
+            return null;
+        }
+
+        this.currentPath = path;
+        this.properties = {
+            ...this.properties,
+            ...syncedProperties
+        };
+
+        const displayPosition = this.toDisplayPosition(syncedProperties.x, syncedProperties.y);
+        PropertiesManager.setValue('x', formatDimension(displayPosition.x, true));
+        PropertiesManager.setValue('y', formatDimension(displayPosition.y, true));
+        PropertiesManager.setValue('length', formatDimension(syncedProperties.length, true));
+        PropertiesManager.setValue('angle', syncedProperties.angle);
+        PropertiesManager.setValue('lockObject', syncedProperties.lockObject);
+        PropertiesManager.setValue('name', syncedProperties.name);
 
         return syncedProperties;
     }
@@ -359,12 +379,7 @@ class Line extends Pen {
 
     update(path) {
         if (!path) return;
-        const syncedProperties = this.syncMetadataFromPath(path);
-        this.currentPath = path;
-        this.properties = {
-            ...this.properties,
-            ...(syncedProperties || this.getPathShapeProperties(path))
-        };
+        this.syncPropertiesPanel(path);
     }
 
     updateFromProperties(data, meta = {}) {
