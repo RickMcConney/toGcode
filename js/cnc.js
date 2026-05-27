@@ -521,7 +521,6 @@ async function saveProject() {
 		options: options,
 		localFonts: typeof serializeLocalFonts === 'function' ? serializeLocalFonts() : [],
 		gcodeProfile: currentGcodeProfile,  // Save the full post-processor profile
-		stlModels: typeof window.saveSTLModels === 'function' ? window.saveSTLModels() : null
 	};
 
 	var json = JSON.stringify(project);
