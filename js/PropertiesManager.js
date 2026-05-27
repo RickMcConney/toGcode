@@ -640,6 +640,54 @@ class PropertiesManager {
         </div>`;
     }
 
+    static _radioGridIconHTML(optionValue, field) {
+        if (field?.variant !== 'origin-selector') return '';
+
+        const [vertical, horizontal] = String(optionValue || '').split('-');
+        const xMap = { left: '18', center: '32', right: '46' };
+        const yMap = { top: '18', middle: '32', bottom: '46' };
+        const cx = xMap[horizontal] || xMap.center;
+        const cy = yMap[vertical] || yMap.middle;
+
+        return `
+            <span class="pm-radio-cell__icon" aria-hidden="true">
+                <svg viewBox="0 0 64 64" focusable="false">
+                    <rect x="8" y="8" width="48" height="48" rx="10"></rect>
+                    <path d="M32 14v36"></path>
+                    <path d="M14 32h36"></path>
+                    <circle cx="${cx}" cy="${cy}" r="6"></circle>
+                </svg>
+            </span>`;
+    }
+
+    static _originSelectorHTML(field, value, colClass) {
+        const cells = (field.options || []).map(opt => {
+            const v = typeof opt === 'string' ? opt : opt.value;
+            const label = typeof opt === 'string'
+                ? v.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+                : (opt.label || opt.value);
+            const checked = v === value ? 'checked' : '';
+
+            return `<div class="${colClass}">
+                <label class="pm-origin-option" title="${label}">
+                    <input class="pm-origin-option__input" type="radio"
+                           id="pm-${field.key}-${v}" name="${field.key}"
+                           value="${v}" aria-label="${label}" ${checked}>
+                    ${this._radioGridIconHTML(v, field)}
+                    <span class="visually-hidden">${label}</span>
+                </label>
+            </div>`;
+        }).join('\n');
+
+        return `<div class="mb-3 pm-field">
+            <label class="form-label small"><strong>${field.label}:</strong></label>
+            <div class="pm-radio-grid pm-radio-grid--origin-selector">
+                <div class="row g-1">${cells}</div>
+            </div>${field.help ? `
+            <div class="form-text">${field.help}</div>` : ''}
+        </div>`;
+    }
+
     static _radioGridHTML(field, value) {
         // cols must evenly divide 12 for valid Bootstrap grid classes (1,2,3,4,6,12)
         const cols = field.cols || 3;
@@ -647,21 +695,29 @@ class PropertiesManager {
             console.warn(`PropertiesManager: radio-grid cols="${cols}" does not divide 12 evenly; use 1,2,3,4,6, or 12`);
         }
         const colClass = `col-${12 / cols}`;
+        if (field.variant === 'origin-selector') {
+            return this._originSelectorHTML(field, value, colClass);
+        }
         const cells = (field.options || []).map(opt => {
             const v = typeof opt === 'string' ? opt : opt.value;
+            const label = typeof opt === 'string'
+                ? v.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+                : (opt.label || opt.value);
             const checked = v === value ? 'checked' : '';
             return `<div class="${colClass}">
-                <div class="pm-radio-cell" onclick="document.getElementById('pm-${field.key}-${v}').click()">
+                <div class="pm-radio-cell${field.variant ? ` pm-radio-cell--${field.variant}` : ''}" onclick="document.getElementById('pm-${field.key}-${v}').click()">
                     <input class="form-check-input" type="radio"
-                           id="pm-${field.key}-${v}" name="${field.key}"
-                           value="${v}" ${checked}>
+                            id="pm-${field.key}-${v}" name="${field.key}"
+                            value="${v}" ${checked}>
+                    ${this._radioGridIconHTML(v, field)}
+                    <span class="pm-radio-cell__label">${label}</span>
                 </div>
             </div>`;
         }).join('\n');
 
         return `<div class="mb-3 pm-field">
             <label class="form-label small"><strong>${field.label}:</strong></label>
-            <div class="pm-radio-grid">
+            <div class="pm-radio-grid${field.variant ? ` pm-radio-grid--${field.variant}` : ''}">
                 <div class="row g-1">${cells}</div>
             </div>${field.help ? `
             <div class="form-text">${field.help}</div>` : ''}

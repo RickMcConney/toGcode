@@ -513,12 +513,17 @@ function onPathsChanged(changedPathIds) {
 
 
 async function saveProject() {
+	var cutSettings = window.gcodeCutSettings
+		? { ...window.gcodeCutSettings }
+		: (typeof window.getSavedCutSettings === 'function' ? window.getSavedCutSettings() : null);
+
 	var project = {
 		toolpaths: toolpaths,
 		svgpaths: svgpaths,
 		origin: origin,
 		tools: tools,
 		options: options,
+		cutSettings: cutSettings,
 		localFonts: typeof serializeLocalFonts === 'function' ? serializeLocalFonts() : [],
 		gcodeProfile: currentGcodeProfile,  // Save the full post-processor profile
 	};
@@ -571,6 +576,9 @@ function loadProject(json) {
 	newProject();
 
 	var project = JSON.parse(json);
+	var projectCutSettings = project.cutSettings && typeof project.cutSettings === 'object'
+		? { ...project.cutSettings }
+		: null;
 	if (project.origin) origin = project.origin;
 	if (project.toolpaths) toolpaths = project.toolpaths;
 	if (project.svgpaths) svgpaths = project.svgpaths;
@@ -592,6 +600,15 @@ function loadProject(json) {
 			refreshOptionsDisplay();
 		}
 
+	}
+
+	if (projectCutSettings) {
+		window.gcodeCutSettings = { ...projectCutSettings };
+		try {
+			localStorage.setItem('pm.Gcode.cutSettings', JSON.stringify(projectCutSettings));
+		} catch (error) {
+			console.warn('Failed to persist project cut settings locally:', error);
+		}
 	}
 
 	// Restore G-code post-processor profile
@@ -619,8 +636,7 @@ function loadProject(json) {
 	const restoreFonts = typeof restoreLocalFonts === 'function'
 		? restoreLocalFonts(project.localFonts || [])
 		: Promise.resolve();
-
-	restoreFonts.then(() => {
+	const finalizeProjectLoad = function() {
 		restoreSvgpaths(svgpaths, null);
 		restoreToolpaths(toolpaths);
 
@@ -631,18 +647,35 @@ function loadProject(json) {
 
 		cncController.setMode("Select");
 		if (typeof updateSnapButton === 'function') updateSnapButton();
+
+		if (typeof window.updateWorkpiece3D === 'function') {
+			window.updateWorkpiece3D(
+				getOption("workpieceWidth"),
+				getOption("workpieceLength"),
+				getOption("workpieceThickness"),
+				getOption("originPosition"),
+				getOption("material")
+			);
+		}
+
 		redraw();
+
+		if (typeof window.schedule3DViewRefresh === 'function') {
+			window.schedule3DViewRefresh({
+				preserveProgress: false,
+				resetIfMissing: true,
+				seekToLatestState: false,
+				cutSettings: projectCutSettings || undefined
+			});
+		}
+	};
+
+	restoreFonts.then(() => {
+		finalizeProjectLoad();
 	}).catch(error => {
 		console.error('Failed to restore local fonts from project:', error);
 		notify('Some local fonts could not be restored from this project.', 'error');
-		restoreSvgpaths(svgpaths, null);
-		restoreToolpaths(toolpaths);
-		if (project.stlModels && typeof window.loadSTLModels === 'function') {
-			window.loadSTLModels(project.stlModels);
-		}
-		cncController.setMode("Select");
-		if (typeof updateSnapButton === 'function') updateSnapButton();
-		redraw();
+		finalizeProjectLoad();
 	});
 }
 

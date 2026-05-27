@@ -82,18 +82,20 @@ function initializeGcodeProfilesUI() {
 // Populate the G-code profile selector dropdown
 function populateGcodeProfileSelector() {
     const select = document.getElementById('gcode-profile-select');
-    select.innerHTML = '';
+    if (!!select) {
+        select.innerHTML = '';
 
-    gcodeProfiles.forEach((profile, index) => {
-        const option = document.createElement('option');
-        option.value = profile.recid;
-        option.textContent = profile.name;
-        if (currentGcodeProfile && profile.recid === currentGcodeProfile.recid) {
-            option.selected = true;
-        }
-        select.appendChild(option);
-    });
-
+        gcodeProfiles.forEach((profile, index) => {
+            const option = document.createElement('option');
+            option.value = profile.recid;
+            option.textContent = profile.name;
+            if (currentGcodeProfile && profile.recid === currentGcodeProfile.recid) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    }
+    
     // Render fields and load the current profile into the form
     if (currentGcodeProfile) {
         renderPostProcessorForm(currentGcodeProfile);

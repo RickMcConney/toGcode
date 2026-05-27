@@ -258,6 +258,122 @@
     height:40px;
 }
 
+.pm-radio-grid {
+    width: 100%;
+}
+
+.pm-radio-grid--origin-selector .row {
+    display: grid;
+    grid-template-columns: repeat(3, 32px);
+    justify-content: start;
+    gap: 0.35rem;
+    --bs-gutter-x: 0;
+    --bs-gutter-y: 0;
+}
+
+.pm-radio-grid--origin-selector .row > [class*="col-"] {
+    width: 32px;
+    max-width: 32px;
+    padding: 0;
+}
+
+.pm-origin-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    border-radius: 10px;
+    color: rgba(100, 116, 139, 0.8);
+    cursor: pointer;
+    transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+
+.pm-origin-option:hover {
+    background-color: rgba(15, 23, 42, 0.04);
+}
+
+.pm-origin-option:has(.pm-origin-option__input:checked) {
+    background-color: rgba(37, 99, 235, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
+    color: #1d4ed8;
+}
+
+.pm-origin-option:has(.pm-origin-option__input:focus-visible) {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.pm-origin-option__input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.pm-radio-cell__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: currentColor;
+}
+
+.pm-radio-cell__icon svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.pm-radio-cell__icon rect,
+.pm-radio-cell__icon path,
+.pm-radio-cell__icon circle {
+    vector-effect: non-scaling-stroke;
+}
+
+.pm-radio-cell__icon rect {
+    fill: rgba(255, 255, 255, 0.7);
+    stroke: currentColor;
+    stroke-width: 1.75;
+}
+
+.pm-radio-cell__icon path {
+    stroke: rgba(148, 163, 184, 0.7);
+    stroke-width: 1.2;
+    stroke-linecap: round;
+}
+
+.pm-radio-cell__icon circle {
+    fill: #2563eb;
+    stroke: #ffffff;
+    stroke-width: 1.5;
+}
+
+@media (max-width: 576px) {
+    .pm-origin-option {
+        width: 28px;
+        height: 28px;
+        min-height: 28px;
+    }
+
+    .pm-radio-grid--origin-selector .row {
+        grid-template-columns: repeat(3, 28px);
+    }
+
+    .pm-radio-grid--origin-selector .row > [class*="col-"] {
+        width: 28px;
+        max-width: 28px;
+    }
+
+    .pm-radio-cell__icon {
+        width: 18px;
+        height: 18px;
+    }
+}
+
 .text-creation-compact-form {
     display: flex;
     flex-direction: column;

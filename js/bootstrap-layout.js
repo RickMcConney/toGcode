@@ -639,15 +639,15 @@ function createToolbar() {
                     </button>
                     <button type="button" class="dropdown-item app-menu-item" data-action="open" title="Open Project">
                         <i data-lucide="folder-open"></i>
-                        <span>Open</span>
+                        <span>Open project</span>
                     </button>
                     <button type="button" class="dropdown-item app-menu-item" data-action="save" title="Save Project">
                         <i data-lucide="save"></i>
-                        <span>Save</span>
+                        <span>Save project</span>
                     </button>
-                    <button type="button" class="dropdown-item app-menu-item" data-action="import" title="Import SVG, STL, G-code, or image files">
+                    <button type="button" class="dropdown-item app-menu-item" data-action="import" title="Import SVG, G-code, or image files">
                         <i data-lucide="import"></i>
-                        <span>Import</span>
+                        <span>Import SVG/DXF</span>
                     </button>
                     <div class="dropdown-divider"></div>
                     <button type="button" class="dropdown-item app-menu-item" data-action="gcode" title="Save G-code">
