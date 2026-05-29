@@ -1,5 +1,7 @@
 # FreazyKam
 
+> ⚠️ **A newer version is available.** This project has moved to [**RickMcConney/kam**](https://github.com/RickMcConney/kam). Please use the new repository for the latest features and updates — **[Launch the new version](https://rickmcconney.github.io/kam/)**.
+
 <p align="center">
   <img src="icons/logo.svg" alt="FreazyKam Logo" width="200">
 </p>
