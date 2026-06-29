@@ -310,6 +310,8 @@ function parseProfile(profile)
 	// Round coordinates: 2 decimal places for mm, 4 for inches
 	var useInches = currentGcodeProfile && currentGcodeProfile.gcodeUnits === 'inches';
 	decimals = useInches ? 4 : 2;
+	var cwArcLabels = /\bZ\b/.test(profile.cwArcTemplate) ? ['X', 'Y', 'Z', 'I', 'J', 'F'] : ['X', 'Y', 'I', 'J', 'F'];
+	var ccwArcLabels = /\bZ\b/.test(profile.ccwArcTemplate) ? ['X', 'Y', 'Z', 'I', 'J', 'F'] : ['X', 'Y', 'I', 'J', 'F'];
 
 	function withZ(tmpl) {
 		return /\bZ\b/.test(tmpl) ? tmpl : tmpl.replace(/\bI\b/, 'Z I');
@@ -317,8 +319,8 @@ function parseProfile(profile)
 
 	profile.cutFormater = compileTemplate(profile.cutTemplate, ['X', 'Y', 'Z', 'F']);
 	profile.rapidFormater = compileTemplate(profile.rapidTemplate, ['X', 'Y', 'Z', 'F']);
-	profile.ccwArcFormater = compileTemplate(profile.ccwArcTemplate, ['X', 'Y', 'I', 'J', 'F']);
-	profile.cwArcFormater = compileTemplate(profile.cwArcTemplate, ['X', 'Y', 'I', 'J', 'F']);
+	profile.ccwArcFormater = compileTemplate(profile.ccwArcTemplate, ccwArcLabels);
+	profile.cwArcFormater = compileTemplate(profile.cwArcTemplate, cwArcLabels);
 	profile.ccwArcWithZFormater = compileTemplate(withZ(profile.ccwArcTemplate), ['X', 'Y', 'Z', 'I', 'J', 'F']);
 	profile.cwArcWithZFormater = compileTemplate(withZ(profile.cwArcTemplate), ['X', 'Y', 'Z', 'I', 'J', 'F']);
 	profile.spindleFormater = compileTemplate(profile.spindleOnGcode, ['S']);
@@ -909,7 +911,7 @@ function _setupGcodeProfile() {
 		spindleOffGcode: 'M5',
 		cwArcTemplate: 'G2 X Y I J F',
 		ccwArcTemplate: 'G3 X Y I J F',
-		useArcs: true,
+		useArcs: false,
 		commentChar: '(',
 		commentsEnabled: true,
 		gcodeUnits: 'mm'
