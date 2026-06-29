@@ -57,12 +57,11 @@ Works in any modern browser (Chrome, Firefox, Safari, Edge). No installation nee
 git clone https://github.com/iarchi/FreazyKam.git
 cd toGcode
 
-# Start a local web server (required for ES6 modules)
-python -m http.server 8000
-# OR
-npx http-server
+# Build from sources
+npm install
+npm run build
 
-# Open http://localhost:8000
+# Open dist/index.html
 ```
 
 ### Step-by-Step Workflow

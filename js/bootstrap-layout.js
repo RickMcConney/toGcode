@@ -161,13 +161,6 @@ function loadTools() {
     if (toolData) {
         tools = JSON.parse(toolData);
     } else {
-        // Calculate default depth/step based on default workpiece thickness (19mm)
-        const defaultThickness = 19;
-        const endMillDepth = defaultThickness * 1.0; // 100%
-        const endMillStep = defaultThickness * 0.25; // 25%
-        const drillDepth = defaultThickness * 1.0; // 100%
-        const drillStep = defaultThickness * 0.25; // 25%
-
         tools = [{
             recid: 1,
             color: '9FC5E8',
@@ -175,16 +168,8 @@ function loadTools() {
             direction: 'Climb',
             diameter: 6,
             flutes: 2,
-            rpm: 18000,
-            feed: 600,
-            zfeed: 200,
             angle: 0,
             bit: 'End Mill',
-            depth: endMillDepth,
-            step: endMillStep,
-            stepover: 25,
-            depthPercent: 100,
-            stepPercent: 25,
         }, {
             recid: 2,
             color: '6FA8DC',
@@ -192,16 +177,8 @@ function loadTools() {
             direction: 'Climb',
             diameter: 6,
             flutes: 4,
-            rpm: 16000,
-            feed: 500,
-            zfeed: 200,
             angle: 60,
             bit: 'VBit',
-            depth: 6,
-            step: 0,
-            stepover: 25,
-            depthPercent: null,
-            stepPercent: null,
         }, {
             recid: 3,
             color: '3D85C6',
@@ -209,16 +186,8 @@ function loadTools() {
             direction: 'Conventional',
             diameter: 6,
             flutes: 2,
-            rpm: 12000,
-            feed: 500,
-            zfeed: 200,
             angle: 0,
             bit: 'Drill',
-            depth: drillDepth,
-            step: drillStep,
-            stepover: 0,
-            depthPercent: 100,
-            stepPercent: 25,
         }, {
             recid: 4,
             color: '0E5EB4',
@@ -226,16 +195,8 @@ function loadTools() {
             direction: 'Climb',
             diameter: 6,
             flutes: 2,
-            rpm: 16000,
-            feed: 400,
-            zfeed: 150,
             angle: 0,
             bit: 'Ball Nose',
-            depth: 6,
-            step: 2,
-            stepover: 50,
-            depthPercent: 100,
-            stepPercent: 25,
         }];
     }
 
@@ -244,15 +205,6 @@ function loadTools() {
     tools.forEach(tool => {
         if (tool.flutes === undefined) {
             tool.flutes = 2; // Default to 2 flutes
-            needsSave = true;
-        }
-        // Add percentage fields if they don't exist (null means no percentage, use absolute value)
-        if (tool.depthPercent === undefined) {
-            tool.depthPercent = null;
-            needsSave = true;
-        }
-        if (tool.stepPercent === undefined) {
-            tool.stepPercent = null;
             needsSave = true;
         }
     });
@@ -271,7 +223,7 @@ function loadTools() {
 // File input handlers
 var fileInput = document.createElement('input');
 fileInput.type = 'file';
-fileInput.accept = '.svg,.dxf,.stl,.png,.jpg,.jpeg,.gcode,.nc,.ngc,.tap';
+fileInput.accept = '.svg,.dxf,.png,.jpg,.jpeg,.gcode,.nc,.ngc,.tap';
 fileInput.id = 'fileInput';
 fileInput.addEventListener('change', function (e) {
     autoCloseToolProperties('file import');
@@ -294,15 +246,6 @@ fileInput.addEventListener('change', function (e) {
             }
         };
         reader.readAsText(file);
-        fileInput.value = "";
-        return;
-    }
-    if (ext === 'stl') {
-        if (typeof window.importSTLFile === 'function') {
-            window.importSTLFile(file);
-        } else {
-            alert('STL import module not loaded yet. Please try again.');
-        }
         fileInput.value = "";
         return;
     }
@@ -696,15 +639,15 @@ function createToolbar() {
                     </button>
                     <button type="button" class="dropdown-item app-menu-item" data-action="open" title="Open Project">
                         <i data-lucide="folder-open"></i>
-                        <span>Open</span>
+                        <span>Open project</span>
                     </button>
                     <button type="button" class="dropdown-item app-menu-item" data-action="save" title="Save Project">
                         <i data-lucide="save"></i>
-                        <span>Save</span>
+                        <span>Save project</span>
                     </button>
-                    <button type="button" class="dropdown-item app-menu-item" data-action="import" title="Import SVG, STL, G-code, or image files">
+                    <button type="button" class="dropdown-item app-menu-item" data-action="import" title="Import SVG, G-code, or image files">
                         <i data-lucide="import"></i>
-                        <span>Import</span>
+                        <span>Import SVG/DXF</span>
                     </button>
                     <div class="dropdown-divider"></div>
                     <button type="button" class="dropdown-item app-menu-item" data-action="gcode" title="Save G-code">
@@ -4046,11 +3989,6 @@ function addTool() {
         flutes: currentTool ? currentTool.flutes : 2,
         angle: currentTool ? currentTool.angle : 0,
         bit: currentTool ? currentTool.bit : 'End Mill',
-        depth: currentTool ? currentTool.depth : 1.5,
-        step: currentTool ? currentTool.step : 1,
-        stepover: currentTool ? currentTool.stepover : 25,
-        depthPercent: currentTool ? currentTool.depthPercent : null,
-        stepPercent: currentTool ? currentTool.stepPercent : null,
     };
 
     tools.push(newTool);

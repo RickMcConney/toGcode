@@ -12,10 +12,17 @@ class Workpiece extends Operation {
             showWorkpiece:      { key: 'showWorkpiece',      label: 'Show Workpiece',  type: 'checkbox',   default: true },
             originPosition:     { key: 'originPosition',     label: 'Origin Position', type: 'radio-grid', default: 'middle-center',
                 cols: 3,
+                variant: 'origin-selector',
                 options: [
-                    'top-left', 'top-center', 'top-right',
-                    'middle-left', 'middle-center', 'middle-right',
-                    'bottom-left', 'bottom-center', 'bottom-right'
+                    { value: 'top-left', label: 'Top Left' },
+                    { value: 'top-center', label: 'Top Center' },
+                    { value: 'top-right', label: 'Top Right' },
+                    { value: 'middle-left', label: 'Center Left' },
+                    { value: 'middle-center', label: 'Center' },
+                    { value: 'middle-right', label: 'Center Right' },
+                    { value: 'bottom-left', label: 'Bottom Left' },
+                    { value: 'bottom-center', label: 'Bottom Center' },
+                    { value: 'bottom-right', label: 'Bottom Right' }
                 ],
                 help: 'Select where to place the X,Y origin (0,0) on your workpiece. Z origin is top of workpiece'
             },
