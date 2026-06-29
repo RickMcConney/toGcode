@@ -517,7 +517,7 @@ class ToolPathProperties {
               help: 'Use X Y I J F placeholders. Leave blank to disable arc output.' },
             { key: 'ccwArcTemplate',  label: 'CCW Arc (G3)',       type: 'text',     default: 'G3 X Y I J F',
               help: 'Use X Y I J F placeholders. Leave blank to disable arc output.' },
-            { key: 'useArcs',         label: 'Use Arc Commands',   type: 'checkbox', default: true,
+            { key: 'useArcs',         label: 'Use Arc Commands',   type: 'checkbox', default: false,
               help: 'Detect arcs in toolpaths and output G2/G3 instead of many G1 segments' },
             { key: 'commentChar',     label: 'Comment Character',  type: 'text',     default: '(', maxlength: 1 },
             { key: 'commentsEnabled', label: 'Enable Comments',    type: 'checkbox', default: true }

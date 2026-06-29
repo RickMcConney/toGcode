@@ -22,7 +22,7 @@ function loadGcodeProfiles() {
         gcodeProfiles = [
             {
                 recid: 1,
-                name: 'GRBL',
+                name: 'FluidNC (for Maslow)',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
                 endGcode: 'G0 Z5\nG0 X0 Y0 F750',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
@@ -32,14 +32,14 @@ function loadGcodeProfiles() {
                 spindleOffGcode: 'M5',
                 cwArcTemplate: 'G2 X Y I J F',
                 ccwArcTemplate: 'G3 X Y I J F',
-                useArcs: true,
+                useArcs: false,
                 commentChar: '(',
                 commentsEnabled: true,
                 gcodeUnits: 'mm'  // 'mm' or 'inches'
             },
             {
                 recid: 2,
-                name: 'FluidNC',
+                name: 'GRBL',
                 startGcode: 'G0 G54 G17 G21 G90 G94',
                 endGcode: 'G0 Z5\nG0 X0 Y0 F750',
                 toolChangeGcode: 'M5\nG0 Z5\n(Tool Change)\nM0',
@@ -187,7 +187,7 @@ function createNewGcodeProfile() {
             spindleOffGcode: currentGcodeProfile ? currentGcodeProfile.spindleOffGcode : 'M5',
             cwArcTemplate: currentGcodeProfile ? (currentGcodeProfile.cwArcTemplate || 'G2 X Y I J F') : 'G2 X Y I J F',
             ccwArcTemplate: currentGcodeProfile ? (currentGcodeProfile.ccwArcTemplate || 'G3 X Y I J F') : 'G3 X Y I J F',
-            useArcs: currentGcodeProfile ? (currentGcodeProfile.useArcs !== false) : true,
+            useArcs: currentGcodeProfile ? (currentGcodeProfile.useArcs !== false) : false,
             commentChar: currentGcodeProfile ? currentGcodeProfile.commentChar : '(',
             commentsEnabled: currentGcodeProfile ? currentGcodeProfile.commentsEnabled : true
         };
